@@ -1080,3 +1080,179 @@ body.nav-open #nav-scrim {
 .status-warn {
   color: var(--amber);
 }
+
+/* ---- Star 3.0 Command Chat (V1) ---------------------------------------
+ * Mobile-first, built on the cockpit's own variables so it matches the
+ * existing dark/light themes instead of introducing a new look. Touch
+ * targets are 44px minimum for the Samsung Galaxy A14 (about 360px wide).
+ * Desktop widens the conversation area and narrows the bubbles. */
+.star-panel {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px;
+  margin-block-end: 18px;
+  min-width: 0;
+}
+.star-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.star-identity {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+.star-avatar {
+  font-size: 26px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.star-title {
+  margin: 0;
+  font-size: 17px;
+  letter-spacing: 0.06em;
+  color: var(--cyan);
+}
+.star-subtitle {
+  font-size: 12px;
+  color: var(--text-1);
+  line-height: 1.4;
+}
+.star-clear-btn {
+  flex-shrink: 0;
+}
+.star-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-block: 10px 12px;
+  font-size: 12px;
+  color: var(--text-1);
+}
+.star-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
+}
+.star-status-thinking {
+  background: var(--amber);
+  animation: star-pulse 1s ease-in-out infinite;
+}
+@keyframes star-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.star-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 2px;
+  margin-block-end: 12px;
+}
+.star-msg {
+  max-width: 88%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  line-height: 1.45;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.star-msg-star {
+  align-self: flex-start;
+  border-start-start-radius: 4px;
+}
+.star-msg-user {
+  align-self: flex-end;
+  border-end-end-radius: 4px;
+  background: var(--bg-3);
+  border-color: var(--cyan-dim);
+}
+.star-msg-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-block-end: 4px;
+}
+.star-msg-user .star-msg-label {
+  color: var(--cyan);
+}
+.star-input-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+}
+.star-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 16px;
+}
+.star-icon-btn {
+  flex-shrink: 0;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
+  font-size: 18px;
+}
+.star-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.star-send-btn {
+  flex-shrink: 0;
+  min-width: 64px;
+  height: 44px;
+}
+.star-footnote {
+  margin-block-start: 10px;
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.4;
+}
+@media (min-width: 768px) {
+  .star-panel {
+    padding: 18px;
+  }
+  .star-messages {
+    max-height: 380px;
+  }
+  .star-msg {
+    max-width: 75%;
+  }
+  .star-input-row {
+    gap: 8px;
+  }
+}
+@media (max-width: 380px) {
+  .star-panel {
+    padding: 10px;
+  }
+  .star-subtitle {
+    font-size: 11px;
+  }
+  .star-msg {
+    max-width: 92%;
+    font-size: 13px;
+  }
+  .star-send-btn {
+    min-width: 56px;
+    padding-inline: 10px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .star-status-thinking {
+    animation: none;
+  }
+}
