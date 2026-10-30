@@ -71,6 +71,15 @@
     );
     root.appendChild(el("div", { id: "dash-search-results" }));
 
+    // ---- Star 3.0 Command Chat (V1) ----------------------------------
+    // Primary AI assistant panel, rendered on the dashboard only. It is
+    // additive: if the Star layers fail to load, the dashboard still
+    // renders everything else below, unchanged.
+    if (global.StarChatUI && typeof global.StarChatUI.renderPanel === "function") {
+      root.appendChild(el("h2", { class: "section-title" }, "Star 3.0 Command Chat"));
+      root.appendChild(global.StarChatUI.renderPanel());
+    }
+
     // ---- Quick Actions: jump straight into creating a new record, no
     // intermediate navigation step. Distinct from Quick Navigation below,
     // which only opens a screen without starting a new record.
