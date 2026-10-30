@@ -1,0 +1,25 @@
+{
+  "name": "MTI6-GTADWIY-COCKPIT",
+  "short_name": "GTADWIY Cockpit",
+  "description": "Offline-first personal cockpit for notes, tasks, expenses, and projects. All data stays on your device — no cloud, no login, no account.",
+  "id": "/",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "orientation": "any",
+  "background_color": "#05070a",
+  "theme_color": "#05070a",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "New Note", "short_name": "Note", "url": "./index.html#/vault", "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "New Task", "short_name": "Task", "url": "./index.html#/tasks", "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Add Expense", "short_name": "Expense", "url": "./index.html#/expenses", "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en-US" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>MTI6-GTADWIY-COCKPIT — Offline</title>
+  <meta name="theme-color" content="#05070a" />
+  <meta name="color-scheme" content="dark light" />
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="./css/style.css" />
+</head>
+<body>
+  <div id="app-shell">
+    <header id="top-bar">
+      <span id="app-title">Offline</span>
+    </header>
+    <main id="main-content">
+      <div id="view-root">
+        <div class="error-panel">
+          <div class="error-icon">📡</div>
+          <h2>You're offline</h2>
+          <p class="about-text">
+            This page hasn't been saved on your device yet, so it can't open without a connection.
+            The rest of the app — your notes, tasks, expenses, and projects — still works offline
+            once you've opened it at least once.
+          </p>
+          <div class="modal-actions" style="justify-content:center">
+            <button class="btn btn-primary" onclick="location.reload()">Try again</button>
+            <button class="btn btn-secondary" onclick="location.href='./index.html'">Go to the app</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="MTI6-GTADWIY-COCKPIT logo">
+  <title>MTI6-GTADWIY-COCKPIT</title>
+  <rect width="512" height="512" fill="#0a0e14"/>
+  <circle cx="256" cy="256" r="184" fill="none" stroke="#00d4ff" stroke-width="13"/>
+  <circle cx="256" cy="256" r="143" fill="none" stroke="#0a7ea6" stroke-width="6"/>
+  <g stroke="#00dcff" stroke-width="5">
+    <line x1="256" y1="79" x2="256" y2="97"/>
+    <line x1="353" y1="103" x2="344" y2="119"/>
+    <line x1="421" y1="171" x2="405" y2="180"/>
+    <line x1="445" y1="256" x2="427" y2="256"/>
+    <line x1="421" y1="341" x2="405" y2="332"/>
+    <line x1="353" y1="409" x2="344" y2="393"/>
+    <line x1="256" y1="433" x2="256" y2="415"/>
+    <line x1="159" y1="409" x2="168" y2="393"/>
+    <line x1="91" y1="341" x2="107" y2="332"/>
+    <line x1="67" y1="256" x2="85" y2="256"/>
+    <line x1="91" y1="171" x2="107" y2="180"/>
+    <line x1="159" y1="103" x2="168" y2="119"/>
+  </g>
+  <line x1="256" y1="256" x2="333" y2="166" stroke="#ff5050" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="256" cy="256" r="13" fill="#ff5050"/>
+  <text x="256" y="345" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="82" fill="#e6f0ff">M6</text>
+</svg>
