@@ -1,0 +1,24 @@
+# MTI6-GTADWIY-COCKPIT — Netlify hosting config
+#
+# The service worker file (sw.js) must never be served from a stale cache —
+# if a browser or CDN caches an old copy of sw.js, the app can get stuck on
+# an outdated version and never learn a new one is available. This forces
+# every request for sw.js to be revalidated with the origin every time.
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/manifest.json"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+# Everything else (HTML, CSS, JS modules, icons) can be cached normally by
+# the browser/CDN — the service worker itself is what keeps the app's own
+# offline copy fresh, independent of HTTP caching.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"

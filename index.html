@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en-US" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>MTI6-GTADWIY-COCKPIT</title>
+  <meta name="description" content="Offline-first personal cockpit: notes, tasks, expenses, and projects — all stored locally on your device." />
+  <meta name="theme-color" content="#05070a" />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="GTADWIY Cockpit" />
+
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="./icons/icon-192.png" type="image/png" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+
+  <link rel="stylesheet" href="./css/style.css" />
+</head>
+<body>
+  <div id="app-shell">
+    <header id="top-bar">
+      <button id="menu-toggle" aria-label="Open menu">☰</button>
+      <span id="app-title">Dashboard</span>
+      <button id="install-btn" class="hidden">Install</button>
+    </header>
+
+    <div id="nav-scrim"></div>
+
+    <nav id="side-nav" aria-label="Main navigation">
+      <div id="nav-links"></div>
+    </nav>
+
+    <main id="main-content">
+      <div id="offline-indicator" role="status" aria-live="polite"></div>
+      <div id="view-root" role="main" aria-live="polite"></div>
+    </main>
+  </div>
+
+  <noscript>This app needs JavaScript enabled to run — it still works fully offline once loaded, with no server involved.</noscript>
+
+  <script src="./js/utils.js"></script>
+  <script src="./js/db.js"></script>
+  <script src="./js/backup.js"></script>
+  <script src="./js/modules/dashboard.js"></script>
+  <script src="./js/modules/vault.js"></script>
+  <script src="./js/modules/tasks.js"></script>
+  <script src="./js/modules/expenses.js"></script>
+  <script src="./js/modules/projects.js"></script>
+  <script src="./js/modules/settings.js"></script>
+  <script src="./js/app.js"></script>
+</body>
+</html>
