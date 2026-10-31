@@ -30,6 +30,7 @@
     scout: { description: "Web research / scout bot", keywords: ["research", "scout", "look up", "web"], requiresApproval: true },
     github: { description: "GitHub development tasks", keywords: ["github", "code", "deploy", "preview", "branch", "pull request"], requiresApproval: true },
     delegate: { description: "Task delegation to a worker bot", keywords: ["delegate", "assign", "worker"], requiresApproval: true },
+    prices: { description: "Price Scouts (read-only)", keywords: ["price", "prices", "stock", "crypto", "bitcoin", "btc", "ethereum", "eth", "solana"], requiresApproval: false },
     general: { description: "General Star assistant", keywords: [], requiresApproval: false }
   };
 
