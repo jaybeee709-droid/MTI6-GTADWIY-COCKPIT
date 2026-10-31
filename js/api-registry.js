@@ -67,6 +67,7 @@
     { id: "open-meteo", category: "weather", name: "Open-Meteo", auth: "none", cors: true, browserDirect: true, status: "live", note: "No key, non-commercial use. Not yet wired into a panel — registered so a weather bot needs no new research.", limit: { calls: 10000, window: "day", note: "Approx. published daily limit." }, ttlMs: 30 * 60 * 1000 },
     { id: "frankfurter", category: "forex", name: "Frankfurter (ECB rates)", auth: "none", cors: true, browserDirect: true, status: "live", note: "European Central Bank reference rates, no key. Useful for currency conversion alongside prices.", limit: { calls: null, window: null, note: "Fair use; no published hard limit in the registry." }, ttlMs: 60 * 60 * 1000 },
     // Bot knowledge — planned, server-side only
+    { id: "web-page-text", category: "knowledge", name: "Public Page Text (browser scrape)", auth: "none", cors: true, browserDirect: true, status: "live", note: "Live but limited: works only for pages that allow browser fetches. Blocked pages are reported, never bypassed; server proxy is the route for those.", limit: { calls: null, window: null, note: "Per-page fair use; no published global limit." }, ttlMs: 60 * 60 * 1000 },
     { id: "ai-backend", category: "knowledge", name: "AI / Search Backend (to be configured)", auth: "server_key", cors: false, browserDirect: false, status: "planned", note: "Server-side proxy for live AI/search knowledge. Key held server-side; cost and limits depend on the provider chosen, so this needs owner approval first.", limit: { calls: null, window: null, note: "Provider-dependent." }, ttlMs: 60 * 60 * 1000 }
   ];
 
@@ -78,7 +79,7 @@
     news: ["hacker-news", "rss"],
     weather: ["open-meteo"],
     forex: ["frankfurter"],
-    knowledge: ["ai-backend"]
+    knowledge: ["web-page-text", "ai-backend"]
   };
 
   function getEntry(id) {
