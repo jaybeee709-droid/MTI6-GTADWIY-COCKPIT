@@ -87,7 +87,7 @@
         area.appendChild(U.el("div", { class: "star-msg star-msg-star" }, [
           U.el("div", { class: "star-msg-label" }, "🌟 Star 3.0 — Demo"),
           U.el("div", { class: "star-msg-text" },
-            "Hi, I'm Star 3.0. Ask me about your cockpit — notes, tasks, spending, or projects — and I'll answer in demo mode for now. Voice, video, specialist bots, and GitHub actions are coming later, and anything that changes something outside this device will need your approval first.")
+            "Hi, I'm Star 3.0. Ask me about your cockpit — notes, tasks, spending, or projects — and I'll answer in demo mode for now. Try “BTC price” for a live crypto price. Voice, video, specialist bots, and GitHub actions are coming later, and anything that changes something outside this device will need your approval first.")
         ]));
         return;
       }
@@ -127,6 +127,23 @@
       setStatus("thinking");
       var routed = global.StarRouter.route(text);
       var context = { summaryHint: global.StarState.getSummaryHint(), routed: routed };
+      // Price questions are read-only, so they go to PriceScout first
+      // instead of the generic demo backend — a live crypto price, a
+      // stock not-connected status, or a price help answer, always
+      // with source and fetch time, never a fake price.
+      if (routed.bot === "prices" && global.PriceScout && typeof global.PriceScout.answer === "function") {
+        global.PriceScout.answer(text).then(function (reply) {
+          if (reply) global.StarState.addMessage("star", reply);
+          else global.StarState.addMessage("star", "Price Scouts: ask me for a crypto price (try “BTC price”), a stock ticker, or use the Prices panel below for store products.");
+          renderMessages();
+          setStatus("ready");
+        }).catch(function () {
+          global.StarState.addMessage("star", "Price Scouts: could not check that price right now. Try again in a minute.");
+          renderMessages();
+          setStatus("ready");
+        });
+        return;
+      }
       global.StarBackend.send(text, context).then(function (result) {
         var reply = result && result.text ? result.text : "";
         var notice = global.StarRouter.approvalNotice(routed);
