@@ -89,6 +89,13 @@
       root.appendChild(global.PriceUI.renderPanel());
     }
 
+    // API health/usage panel, after Prices. Same guard: if the registry
+    // or panel fails to load, the rest of the dashboard still renders.
+    if (global.ApiHealthUI && typeof global.ApiHealthUI.renderPanel === "function") {
+      root.appendChild(el("h2", { class: "section-title" }, "API Health & Usage"));
+      root.appendChild(global.ApiHealthUI.renderPanel());
+    }
+
     // ---- Quick Actions: jump straight into creating a new record, no
     // intermediate navigation step. Distinct from Quick Navigation below,
     // which only opens a screen without starting a new record.
