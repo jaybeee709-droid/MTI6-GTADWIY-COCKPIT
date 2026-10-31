@@ -144,6 +144,29 @@
         });
         return;
       }
+      // Saved bot knowledge first, then read-only scouts — all before
+      // the generic demo backend, so a saved fact or a live scout
+      // answer is never replaced by a demo reply.
+      if (global.KnowledgeScout && typeof global.KnowledgeScout.answer === "function") {
+        var known = global.KnowledgeScout.answer(text);
+        if (known) { global.StarState.addMessage("star", known); renderMessages(); setStatus("ready"); return; }
+      }
+      if (routed.bot === "activity" && global.KnowledgeScout) {
+        global.KnowledgeScout.getGitHubActivity("jaybeee709-droid", "MTI6-GTADWIY-COCKPIT").then(function (r) {
+          if (r.status === "error") global.StarState.addMessage("star", r.note);
+          else global.StarState.addMessage("star", "GitHub activity, live from " + r.source + " (" + global.KnowledgeScout.fmtTime(r.fetchedAt) + "):\n" + r.items.map(function (it) { return "• " + it.label + (it.actor ? " by " + it.actor : ""); }).join("\n"));
+          renderMessages(); setStatus("ready");
+        }).catch(function () { global.StarState.addMessage("star", "GitHub activity: could not reach the GitHub API right now."); renderMessages(); setStatus("ready"); });
+        return;
+      }
+      if (routed.bot === "news" && global.KnowledgeScout) {
+        global.KnowledgeScout.getNews(5).then(function (r) {
+          if (r.status === "error") global.StarState.addMessage("star", r.note);
+          else global.StarState.addMessage("star", "Top stories, live from " + r.source + " (" + global.KnowledgeScout.fmtTime(r.fetchedAt) + "):\n" + r.items.map(function (it) { return "• " + it.title + " — " + it.url; }).join("\n"));
+          renderMessages(); setStatus("ready");
+        }).catch(function () { global.StarState.addMessage("star", "News: could not reach the Hacker News API right now."); renderMessages(); setStatus("ready"); });
+        return;
+      }
       global.StarBackend.send(text, context).then(function (result) {
         var reply = result && result.text ? result.text : "";
         var notice = global.StarRouter.approvalNotice(routed);
