@@ -80,6 +80,15 @@
       root.appendChild(global.StarChatUI.renderPanel());
     }
 
+    // ---- Price Scouts (V1) -------------------------------------------
+    // Read-only price panel, rendered on the dashboard only. Same guard
+    // as Star: if the price layers fail to load, the rest of the
+    // dashboard still renders unchanged.
+    if (global.PriceUI && typeof global.PriceUI.renderPanel === "function") {
+      root.appendChild(el("h2", { class: "section-title" }, "Price Scouts"));
+      root.appendChild(global.PriceUI.renderPanel());
+    }
+
     // ---- Quick Actions: jump straight into creating a new record, no
     // intermediate navigation step. Distinct from Quick Navigation below,
     // which only opens a screen without starting a new record.
