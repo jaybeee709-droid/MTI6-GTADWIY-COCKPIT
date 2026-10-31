@@ -31,6 +31,9 @@
     github: { description: "GitHub development tasks", keywords: ["github", "code", "deploy", "preview", "branch", "pull request"], requiresApproval: true },
     delegate: { description: "Task delegation to a worker bot", keywords: ["delegate", "assign", "worker"], requiresApproval: true },
     prices: { description: "Price Scouts (read-only)", keywords: ["price", "prices", "stock", "crypto", "bitcoin", "btc", "ethereum", "eth", "solana"], requiresApproval: false },
+    activity: { description: "GitHub activity scout (read-only)", keywords: ["github activity", "repo activity", "recent commits"], requiresApproval: false },
+    news: { description: "News scout (read-only)", keywords: ["news", "headlines", "top stories"], requiresApproval: false },
+    knowledge: { description: "Saved bot knowledge (read-only)", keywords: ["saved knowledge", "bot knowledge"], requiresApproval: false },
     general: { description: "General Star assistant", keywords: [], requiresApproval: false }
   };
 
