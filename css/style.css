@@ -1256,3 +1256,127 @@ body.nav-open #nav-scrim {
     animation: none;
   }
 }
+
+/* ---- Price Scouts panel (V1) ------------------------------------------
+ * Same cockpit variables as Star, mobile-first, 44px touch targets. */
+.price-panel {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px;
+  margin-block-end: 18px;
+  min-width: 0;
+}
+.price-title {
+  margin: 0;
+  font-size: 17px;
+  letter-spacing: 0.04em;
+  color: var(--cyan);
+}
+.price-subtitle {
+  font-size: 12px;
+  color: var(--text-1);
+  line-height: 1.4;
+}
+.price-card {
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  margin-block-start: 12px;
+  min-width: 0;
+}
+.price-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.price-card-title {
+  margin: 0;
+  font-size: 14px;
+}
+.price-status, .price-result {
+  font-size: 13px;
+  color: var(--text-1);
+  line-height: 1.45;
+  margin-block-start: 8px;
+  overflow-wrap: anywhere;
+}
+.price-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-block-start: 10px;
+}
+.price-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.price-symbol {
+  font-weight: 600;
+  min-width: 110px;
+}
+.price-value {
+  font-weight: 700;
+}
+.price-change {
+  font-size: 12px;
+  color: var(--text-1);
+}
+.price-up { color: var(--green); }
+.price-down { color: var(--red); }
+.price-time {
+  font-size: 11px;
+  color: var(--text-2);
+}
+.price-note {
+  font-size: 13px;
+  color: var(--text-1);
+}
+.price-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--text-1);
+  white-space: nowrap;
+}
+.price-badge-live { color: var(--green); border-color: var(--green); }
+.price-badge-cached { color: var(--amber); border-color: var(--amber); }
+.price-badge-stale { color: var(--amber); border-color: var(--amber); }
+.price-badge-not_connected { color: var(--text-2); }
+.price-badge-error, .price-badge-empty { color: var(--red); border-color: var(--red); }
+.price-input-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-block-start: 10px;
+}
+.price-input-row .input {
+  flex: 1 1 160px;
+  min-width: 0;
+  font-size: 16px;
+}
+.price-input-row .btn {
+  height: 44px;
+}
+.price-offer-list {
+  margin: 8px 0 0;
+  padding-inline-start: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+@media (min-width: 768px) {
+  .price-panel { padding: 18px; }
+  .price-list { display: grid; grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 380px) {
+  .price-panel { padding: 10px; }
+  .price-symbol { min-width: 0; }
+}
