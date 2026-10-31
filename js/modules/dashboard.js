@@ -96,6 +96,12 @@
       root.appendChild(global.ApiHealthUI.renderPanel());
     }
 
+    // Scouts & Bot Knowledge panel, after API Health. Same guard.
+    if (global.ScoutsUI && typeof global.ScoutsUI.renderPanel === "function") {
+      root.appendChild(el("h2", { class: "section-title" }, "Scouts & Bot Knowledge"));
+      root.appendChild(global.ScoutsUI.renderPanel());
+    }
+
     // ---- Quick Actions: jump straight into creating a new record, no
     // intermediate navigation step. Distinct from Quick Navigation below,
     // which only opens a screen without starting a new record.
