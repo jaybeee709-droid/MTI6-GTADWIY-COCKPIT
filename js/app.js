@@ -8,6 +8,12 @@
     tasks: { label: "Mission Control — Tasks", icon: "✅" },
     projects: { label: "Mission Control — Projects", icon: "📁" },
     expenses: { label: "Resource Tracker", icon: "💰" },
+    globe: { label: "World Globe", icon: "🌍" },
+    crypto: { label: "Crypto Market", icon: "₿" },
+    accounts: { label: "Our Accounts", icon: "💼" },
+    earn: { label: "Earn", icon: "💵" },
+    web: { label: "Web — Bot Work", icon: "🌐" },
+    security: { label: "Security & Bot Style", icon: "🛡️" },
     settings: { label: "Settings", icon: "⚙️" }
   };
 
