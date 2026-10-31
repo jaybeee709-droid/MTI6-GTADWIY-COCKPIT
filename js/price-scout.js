@@ -52,6 +52,19 @@
     BTC: "Bitcoin", ETH: "Ethereum", SOL: "Solana", DOGE: "Dogecoin",
     XRP: "XRP", LTC: "Litecoin", ADA: "Cardano"
   };
+  var COINPAPRIKA_IDS = {
+    BTC: "btc-bitcoin", ETH: "eth-ethereum", SOL: "sol-solana", DOGE: "doge-dogecoin",
+    XRP: "xrp-xrp", LTC: "ltc-litecoin", ADA: "ada-cardano"
+  };
+
+  // Usage recording, if the API registry is loaded. Never blocks a lookup.
+  function recordUsage(apiId, ok, status) {
+    try {
+      if (global.ApiRegistry && typeof global.ApiRegistry.record === "function") {
+        global.ApiRegistry.record(apiId, !!ok, status === undefined ? null : status);
+      }
+    } catch (e) {}
+  }
   var STOCK_SYMBOLS = ["AAPL", "MSFT", "GOOGL", "TSLA", "NVDA", "AMZN", "META"];
 
   function configure(next) {
@@ -137,32 +150,49 @@
         return Promise.resolve({ category: "crypto", symbol: sym, name: CRYPTO_NAMES[sym], price: d.price, change24h: d.change24h, currency: "USD", source: d.source, fetchedAt: cached.fetchedAt, status: "cached" });
       }
     }
+    // Triple fallback chain, per the API registry: CoinGecko ->
+    // Coinbase -> CoinPaprika -> last cached value (stale) -> error.
+    // Binance is deliberately NOT in this chain: it blocks
+    // browser-origin requests. Each attempt is recorded for the
+    // usage / rate-limit list.
     var url = "https://api.coingecko.com/api/v3/simple/price?ids=" + encodeURIComponent(id) + "&vs_currencies=usd&include_24hr_change=true";
-    return fetchJson(url).then(function (data) {
-      var row = data && data[id];
-      if (!row || typeof row.usd !== "number") throw new Error("bad_response");
-      var result = { category: "crypto", symbol: sym, name: CRYPTO_NAMES[sym], price: row.usd, change24h: typeof row.usd_24h_change === "number" ? row.usd_24h_change : null, currency: "USD", source: "CoinGecko", fetchedAt: new Date().toISOString(), status: "live" };
-      putCache("crypto", sym, { price: result.price, change24h: result.change24h, source: result.source });
-      return result;
-    }).catch(function () {
-      // Fallback: Coinbase public spot (BTC/ETH/LTC/SOL supported here).
-      if (["BTC", "ETH", "LTC", "SOL"].indexOf(sym) === -1) {
-        var stale = getCached("crypto", sym);
-        if (stale) return { category: "crypto", symbol: sym, name: CRYPTO_NAMES[sym], price: stale.data.price, change24h: stale.data.change24h, currency: "USD", source: stale.data.source, fetchedAt: stale.fetchedAt, status: "stale" };
-        return { category: "crypto", symbol: sym, status: "error", price: null, note: "Could not reach a crypto price source right now. Try Refresh in a minute — public sources are rate-limited." };
-      }
+    function staleOrError() {
+      var stale = getCached("crypto", sym);
+      if (stale) return { category: "crypto", symbol: sym, name: CRYPTO_NAMES[sym], price: stale.data.price, change24h: stale.data.change24h, currency: "USD", source: stale.data.source, fetchedAt: stale.fetchedAt, status: "stale" };
+      return { category: "crypto", symbol: sym, status: "error", price: null, note: "Could not reach a crypto price source right now (CoinGecko, Coinbase, and CoinPaprika all failed). Try Refresh in a minute — public sources are rate-limited." };
+    }
+    function tryCoinPaprika() {
+      var paprikaId = COINPAPRIKA_IDS[sym];
+      if (!paprikaId) return Promise.resolve(staleOrError());
+      return fetchJson("https://api.coinpaprika.com/v1/tickers/" + paprikaId).then(function (data) {
+        var quote = data && data.quotes && data.quotes.USD;
+        var amount = quote && Number(quote.price);
+        if (!isFinite(amount)) throw new Error("bad_response");
+        recordUsage("coinpaprika", true, 200);
+        var result = { category: "crypto", symbol: sym, name: CRYPTO_NAMES[sym], price: amount, change24h: typeof quote.percent_change_24h === "number" ? quote.percent_change_24h : null, currency: "USD", source: "CoinPaprika", fetchedAt: new Date().toISOString(), status: "live" };
+        putCache("crypto", sym, { price: result.price, change24h: result.change24h, source: result.source });
+        return result;
+      }).catch(function () { recordUsage("coinpaprika", false, null); return staleOrError(); });
+    }
+    function tryCoinbase() {
+      if (["BTC", "ETH", "LTC", "SOL"].indexOf(sym) === -1) return tryCoinPaprika();
       return fetchJson("https://api.coinbase.com/v2/prices/" + sym + "-USD/spot").then(function (data) {
         var amount = data && data.data && Number(data.data.amount);
         if (!isFinite(amount)) throw new Error("bad_response");
+        recordUsage("coinbase", true, 200);
         var result = { category: "crypto", symbol: sym, name: CRYPTO_NAMES[sym], price: amount, change24h: null, currency: "USD", source: "Coinbase", fetchedAt: new Date().toISOString(), status: "live" };
         putCache("crypto", sym, { price: result.price, change24h: null, source: result.source });
         return result;
-      }).catch(function () {
-        var stale2 = getCached("crypto", sym);
-        if (stale2) return { category: "crypto", symbol: sym, name: CRYPTO_NAMES[sym], price: stale2.data.price, change24h: stale2.data.change24h, currency: "USD", source: stale2.data.source, fetchedAt: stale2.fetchedAt, status: "stale" };
-        return { category: "crypto", symbol: sym, status: "error", price: null, note: "Could not reach a crypto price source right now. Try Refresh in a minute — public sources are rate-limited." };
-      });
-    });
+      }).catch(function () { recordUsage("coinbase", false, null); return tryCoinPaprika(); });
+    }
+    return fetchJson(url).then(function (data) {
+      var row = data && data[id];
+      if (!row || typeof row.usd !== "number") throw new Error("bad_response");
+      recordUsage("coingecko", true, 200);
+      var result = { category: "crypto", symbol: sym, name: CRYPTO_NAMES[sym], price: row.usd, change24h: typeof row.usd_24h_change === "number" ? row.usd_24h_change : null, currency: "USD", source: "CoinGecko", fetchedAt: new Date().toISOString(), status: "live" };
+      putCache("crypto", sym, { price: result.price, change24h: result.change24h, source: result.source });
+      return result;
+    }).catch(function () { recordUsage("coingecko", false, null); return tryCoinbase(); });
   }
 
   function getCryptoBatch(symbols, opts) {
@@ -225,9 +255,11 @@
       });
       offers = offers.slice(0, 10);
       var result = { category: "products", status: offers.length ? "live" : "empty", store: store, query: q, offers: offers, fetchedAt: new Date().toISOString() };
+      recordUsage("shopify", true, 200);
       putCache("products", cacheId, { offers: offers });
       return result;
     }).catch(function () {
+      recordUsage("shopify", false, null);
       var stale = getCached("products", cacheId);
       if (stale) return { category: "products", status: "stale", store: store, query: q, offers: stale.data.offers, fetchedAt: stale.fetchedAt };
       return { category: "products", status: "error", offers: [], note: "Could not read that store's catalog. It may not be a Shopify store, it may block browser fetches, or the domain may be wrong. No price is shown rather than a fake one." };
