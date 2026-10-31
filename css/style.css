@@ -1380,3 +1380,14 @@ body.nav-open #nav-scrim {
   .price-panel { padding: 10px; }
   .price-symbol { min-width: 0; }
 }
+
+/* API Health & Usage panel (V1): reuses the price panel theme. */
+.api-panel { border: 1px solid var(--border, #ddd); border-radius: 12px; padding: 14px; margin: 12px 0; background: var(--surface, #fff); }
+.api-title { font-size: 18px; margin: 0 0 6px; }
+.api-subtitle { font-size: 13px; line-height: 1.5; opacity: 0.9; }
+.api-list { margin-top: 10px; }
+.api-row { border-top: 1px solid var(--border, #eee); padding: 10px 0; }
+.api-row-top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.api-name { font-weight: 700; font-size: 15px; }
+.api-meta { font-size: 12.5px; line-height: 1.5; opacity: 0.9; margin-top: 3px; }
+@media (min-width: 768px) { .api-panel { padding: 18px; } }
