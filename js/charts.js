@@ -100,7 +100,7 @@
         d = "M " + cx + " " + cy + " L " + fmt(x1) + " " + fmt(y1) + " A " + r + " " + r + " 0 " + large + " 1 " + fmt(x2) + " " + fmt(y2) + " Z";
       }
       start = end;
-      return '<path d="' + d + '" fill="' + color + '" stroke="#0e3540" stroke-width="2"/>';
+      return '<path d="' + d + '" fill="' + color + '" stroke="#000000" stroke-width="2"/>';
     }).join("");
     var legend = slices.map(function (item, i) {
       var color = (opts.colors || PALETTE)[i % (opts.colors || PALETTE).length];
