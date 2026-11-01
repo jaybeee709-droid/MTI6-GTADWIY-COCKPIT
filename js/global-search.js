@@ -109,6 +109,22 @@
     function footer() {
       return "<div><button class=\"btn btn-ghost btn-sm\" type=\"button\" id=\"global-search-close\">Close results</button> <a href=\"#/web\" class=\"btn btn-ghost btn-sm\" data-hide=\"1\">Open Web window</a></div>";
     }
+    // Full-web fallback: the cockpit's own sources are Wikipedia, Hacker
+    // News, crypto, GitHub, and saved knowledge — they are NOT a general
+    // search engine, so a general query can legitimately return nothing
+    // here. These plain links hand the same query to real search engines
+    // in the phone's default browser, which is how a browser search box
+    // behaves. No fetch, no key, nothing blocked by the page can stop a link.
+    function engineLinks(query) {
+      var q = encodeURIComponent(query);
+      var links = "<li><a href=\"https://duckduckgo.com/?q=" + q + "\" target=\"_blank\" rel=\"noopener\">Search DuckDuckGo for “" + esc(query) + "”</a></li>"
+        + "<li><a href=\"https://www.google.com/search?q=" + q + "\" target=\"_blank\" rel=\"noopener\">Search Google for “" + esc(query) + "”</a></li>";
+      if (/\b(youtube|video|videos)\b/i.test(query)) {
+        var terms = query.replace(/\b(give me|show me|find|youtube|videos?)\b/gi, "").trim() || query;
+        links += "<li><a href=\"https://www.youtube.com/results?search_query=" + encodeURIComponent(terms) + "\" target=\"_blank\" rel=\"noopener\">Search YouTube for “" + esc(terms) + "”</a></li>";
+      }
+      return "<h3>More on the web (full search)</h3><ul class=\"price-offer-list\">" + links + "</ul>";
+    }
     function finish(html) {
       show(html + footer());
       var close = document.getElementById("global-search-close");
@@ -189,7 +205,7 @@
             return "<li><a href=\"" + esc(w.url) + "\" target=\"_blank\" rel=\"noopener\">" + esc(w.title) + "</a> — " + esc(w.snippet) + "</li>";
           }) + section("Hacker News", web.hn, function (h) {
             return "<li><a href=\"" + esc(h.url) + "\" target=\"_blank\" rel=\"noopener\">" + esc(h.title) + "</a></li>";
-          }));
+          }) + engineLinks(query));
         });
         return;
       }
@@ -221,9 +237,10 @@
           return "<li><a href=\"" + esc(h.url) + "\" target=\"_blank\" rel=\"noopener\">" + esc(h.title) + "</a></li>";
         });
         if (isUrl(query)) {
-          html += "<h3>Link</h3><ul class=\"price-offer-list\"><li>" + (isYouTube(query) ? "YouTube link — open the Web window and paste it there to play it embedded." : "Public page link — open the Web window and paste it there to read its text, or open it in your default browser below.") + " <a href=\"" + esc(query) + "\" target=\"_blank\" rel=\"noopener\">Open in default browser</a></li></ul>";
+          html += "<h3>Link</h3><ul class=\"price-offer-list\"><li>" + (isYouTube(query) ? "YouTube link — no embedded player; open it in your default browser." : "Public page link — open the Web window and paste it there to read its text, or open it in your default browser below.") + " <a href=\"" + esc(query) + "\" target=\"_blank\" rel=\"noopener\">Open in default browser</a></li></ul>";
         }
-        if (html === head) html += "<div class=\"api-meta\">Nothing found for “" + esc(query) + "” in the cockpit, saved knowledge, Wikipedia, or Hacker News. Try a shorter word, or paste a full URL.</div>";
+        if (html === head) html += "<div class=\"api-meta\">Nothing found for “" + esc(query) + "” in the cockpit, saved knowledge, Wikipedia, or Hacker News. The full web search below will find it.</div>";
+        html += engineLinks(query);
         finish(html);
       }).catch(function () {
         finish(head + "<div class=\"api-meta\">Search hit an error. Your cockpit data was not changed — try again.</div>");
