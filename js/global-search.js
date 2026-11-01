@@ -232,6 +232,15 @@
 
     btn.addEventListener("click", run);
     input.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); run(); } });
+    // Lets other screens (e.g. the dashboard search) hand a query to the
+    // top bar instead of dead-ending, so every search box behaves like a
+    // browser search: local first, web when nothing local matches.
+    global.GlobalSearch.runSearch = function (q) {
+      input.value = q || "";
+      if (select) select.value = "auto";
+      run();
+      try { window.scrollTo(0, 0); } catch (e) {}
+    };
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
