@@ -65,7 +65,7 @@
       el("input", {
         class: "input search-input dash-search",
         type: "search",
-        placeholder: "Search notes, tasks, expenses, projects…",
+        placeholder: "Search your notes, tasks, expenses, projects… (web search is in the top bar)",
         oninput: debounce((e) => runSearch(root, e.target.value, { notes, tasks, expenses, projects }), 200)
       })
     );
@@ -466,7 +466,28 @@
     });
 
     if (!results.length) {
-      resultsEl.appendChild(el("div", { class: "empty-state" }, `No matches for "${query}"`));
+      // Dashboard search is local-only by design, so a web-style query
+      // used to dead-end here ("No matches"). Instead, hand it to the
+      // top search bar, which searches the web like a browser does,
+      // and offer a direct video search when the query asks for videos.
+      const box = el("div", { class: "empty-state" }, `No matches in your cockpit for "${query}". This box only searches your notes, tasks, expenses, and projects.`);
+      const webBtn = el("button", { class: "btn btn-primary btn-sm", onclick: () => {
+        if (global.GlobalSearch && typeof global.GlobalSearch.runSearch === "function") {
+          global.GlobalSearch.runSearch(query);
+        } else {
+          const top = document.getElementById("global-search-input");
+          if (top) { top.value = query; top.focus(); }
+        }
+      } }, "Search the web for this");
+      box.appendChild(webBtn);
+      if (/\b(youtube|video|videos)\b/i.test(query)) {
+        const terms = query.replace(/\b(give me|show me|find|youtube|videos?)\b/gi, "").trim() || query;
+        const a = document.createElement("a");
+        a.href = "https://www.youtube.com/results?search_query=" + encodeURIComponent(terms);
+        a.target = "_blank"; a.rel = "noopener"; a.className = "btn btn-ghost btn-sm"; a.textContent = "Search YouTube in your default browser";
+        box.appendChild(a);
+      }
+      resultsEl.appendChild(box);
       return;
     }
 
