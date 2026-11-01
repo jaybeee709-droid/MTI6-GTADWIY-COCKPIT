@@ -1433,3 +1433,12 @@ body.nav-open #nav-scrim {
   #app-shell { max-width: 1100px; margin: 0 auto; }
   #main-content { padding: 20px; }
 }
+
+/* Example-dashboard style (Nov 1, 2026): dark teal panels, bright
+ * pie/donut shares. Phone: panels stack. Desktop: grid (see above). */
+.analytics-grid .api-panel { background: #0e3540; border: 1px solid rgba(0, 229, 255, 0.25); border-radius: 14px; }
+.chart-pie-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.chart-pie { max-width: 280px; }
+.chart-legend { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.chart-legend-item { color: #e0f7fa; font-size: 14px; }
+.chart-legend-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
