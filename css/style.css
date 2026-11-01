@@ -1401,3 +1401,9 @@ body.nav-open #nav-scrim {
 .web-window-medium { height: 420px; }
 .web-window-full { height: 80vh; }
 .web-text { white-space: pre-wrap; font-size: 14px; line-height: 1.6; }
+
+/* Global search bar (V1): app-shell bar, visible on every screen. */
+#global-search-wrap { display: flex; gap: 8px; padding: 10px 12px; }
+#global-search-input { flex: 1; min-width: 0; height: 44px; border-radius: 10px; border: 1px solid var(--border, #ddd); padding: 0 12px; font-size: 16px; background: var(--surface, #fff); color: inherit; }
+#global-search-results { margin: 0 12px 12px; border: 1px solid var(--border, #ddd); border-radius: 12px; padding: 12px; background: var(--surface, #fff); max-height: 70vh; overflow: auto; }
+#global-search-results.hidden { display: none; }
