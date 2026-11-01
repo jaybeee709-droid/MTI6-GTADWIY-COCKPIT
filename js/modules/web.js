@@ -1,6 +1,8 @@
 /* MTI6-GTADWIY-COCKPIT — Web / Bot Work screen
  * The "browser box" a web page can honestly offer:
- * - YouTube links play in an embedded player (YouTube allows this).
+ * - No embedded YouTube player (removed by owner choice Oct 31,
+ *   2026): web search finds videos, and video links open in the
+ *   phone's default browser instead.
  * - Public page URLs show their readable text via the scouts layer.
  * - Pages that block browser fetches are NOT bypassed: the window
  *   shows a link to open them in the phone's default browser.
@@ -8,18 +10,16 @@
  * The content window resizes (Small / Medium / Full, plus a drag
  * handle on desktop), and the activity log shows every bot step
  * with a time, so the work is visible instead of silent.
- * Videos you link, embed, or upload play here; clips and movies
- * are made in Muse chat and saved to play here — this page does
- * not render movies locally.
+ * Clips and movies are made in Muse chat and saved to play in the
+ * default browser — this page does not render movies locally.
  */
 (function (global) {
   "use strict";
   var U = global.U;
   if (!U) return;
 
-  function parseYouTubeId(text) {
-    var m = String(text || "").match(/(?:youtube\.com\/watch\?[^#\s]*v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
-    return m ? m[1] : null;
+  function isVideoLink(text) {
+    return /(?:youtube\.com\/watch\?|youtu\.be\/|vimeo\.com\/)/i.test(String(text || ""));
   }
 
   function fmtClock() {
@@ -30,9 +30,9 @@
   async function render(root) {
     root.appendChild(global.ScreensNav ? global.ScreensNav.renderDots("web") : U.el("div", {}, ""));
     root.appendChild(U.el("h2", { class: "section-title" }, "🌐 Web — Bot Work Window"));
-    root.appendChild(U.el("p", { class: "api-subtitle" }, "Search box at the top, content window below, activity log under it. Paste a YouTube link to play it, a public page URL to read its text, or a topic to search saved knowledge and headlines. This is not another browser — it cannot open Safari, Chrome, or Tor, and it never bypasses a page that blocks it."));
+    root.appendChild(U.el("p", { class: "api-subtitle" }, "Search box at the top, content window below, activity log under it. Paste a video link to open it in your default browser, a public page URL to read its text, or a topic to search saved knowledge and headlines. This is not another browser — it cannot open Safari, Chrome, or Tor, and it never bypasses a page that blocks it."));
 
-    var input = U.el("input", { class: "price-input", type: "text", placeholder: "YouTube link, public page URL, or topic…", "aria-label": "Web search or URL" });
+    var input = U.el("input", { class: "price-input", type: "text", placeholder: "Video link, public page URL, or topic…", "aria-label": "Web search or URL" });
     var goBtn = U.el("button", { class: "btn btn-primary", type: "button" }, "Go");
     var windowEl = U.el("div", { class: "web-window web-window-medium" }, [U.el("div", { class: "api-meta" }, "Your content will appear here.")]);
     var logEl = U.el("div", { class: "api-meta" }, "Activity log — bot steps will appear here.");
@@ -62,19 +62,13 @@
       var value = input.value.trim();
       if (!value) return;
       log("Bot starting: " + value.slice(0, 80));
-      var yt = parseYouTubeId(value);
-      if (yt) {
-        log("YouTube link detected — loading embedded player.");
+      if (isVideoLink(value)) {
+        log("Video link — no embedded player; opening via default browser link (web search finds the video).");
         windowEl.innerHTML = "";
-        var frame = document.createElement("iframe");
-        frame.src = "https://www.youtube.com/embed/" + yt;
-        frame.setAttribute("allow", "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture");
-        frame.setAttribute("allowfullscreen", "");
-        frame.style.width = "100%";
-        frame.style.height = "100%";
-        frame.style.border = "0";
-        windowEl.appendChild(frame);
-        log("Playing embedded YouTube video.");
+        windowEl.appendChild(U.el("p", {}, "Video links open in your phone's default browser. Use the global search bar to find videos on the web."));
+        var va = document.createElement("a");
+        va.href = value; va.target = "_blank"; va.rel = "noopener"; va.textContent = "Open video in your phone's default browser";
+        windowEl.appendChild(va);
         return;
       }
       if (/^https?:\/\//i.test(value)) {
@@ -116,5 +110,5 @@
 
   global.CockpitModules = global.CockpitModules || {};
   global.CockpitModules.web = { render: render };
-  global.WebWork = { parseYouTubeId: parseYouTubeId };
+  global.WebWork = { isVideoLink: isVideoLink };
 })(window);
