@@ -475,11 +475,25 @@
         if (global.GlobalSearch && typeof global.GlobalSearch.runSearch === "function") {
           global.GlobalSearch.runSearch(query);
         } else {
-          const top = document.getElementById("global-search-input");
-          if (top) { top.value = query; top.focus(); }
+          // Old top-bar version without runSearch (mixed cache): the old
+          // fallback only filled the top box and focused it, which looked
+          // like nothing happened. Open a real web search instead, so a
+          // tap here ALWAYS does something, whatever version mix is loaded.
+          window.open("https://duckduckgo.com/?q=" + encodeURIComponent(query), "_blank");
         }
       } }, "Search the web for this");
       box.appendChild(webBtn);
+      // Plain links, not buttons: these work even if every script version
+      // on the page is mismatched, so "Search the web" can never silently
+      // do nothing again.
+      const ddg = document.createElement("a");
+      ddg.href = "https://duckduckgo.com/?q=" + encodeURIComponent(query);
+      ddg.target = "_blank"; ddg.rel = "noopener"; ddg.className = "btn btn-ghost btn-sm"; ddg.textContent = "Search DuckDuckGo";
+      box.appendChild(ddg);
+      const goog = document.createElement("a");
+      goog.href = "https://www.google.com/search?q=" + encodeURIComponent(query);
+      goog.target = "_blank"; goog.rel = "noopener"; goog.className = "btn btn-ghost btn-sm"; goog.textContent = "Search Google";
+      box.appendChild(goog);
       if (/\b(youtube|video|videos)\b/i.test(query)) {
         const terms = query.replace(/\b(give me|show me|find|youtube|videos?)\b/gi, "").trim() || query;
         const a = document.createElement("a");
