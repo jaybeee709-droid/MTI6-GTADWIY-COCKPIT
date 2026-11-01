@@ -171,7 +171,7 @@
         return;
       }
       if (picked.mode === "page") {
-        if (isYouTube(query)) { finish(head + "<div class=\"api-meta\">YouTube link — open the Web window and paste it there to play it embedded.</div>"); return; }
+        if (isYouTube(query)) { finish(head + "<div class=\"api-meta\">YouTube link — no embedded player; open it in your default browser.</div><ul class=\"price-offer-list\"><li><a href=\"" + esc(query) + "\" target=\"_blank\" rel=\"noopener\">Open video in default browser</a></li></ul>"); return; }
         if (!isUrl(query)) { finish(head + "<div class=\"api-meta\">Page mode needs a full URL starting with https://.</div>"); return; }
         if (!global.KnowledgeScout) { finish(head + "<div class=\"api-meta\">Scouts layer did not load.</div>"); return; }
         global.KnowledgeScout.scrapePublicPage(query).then(function (r) {
