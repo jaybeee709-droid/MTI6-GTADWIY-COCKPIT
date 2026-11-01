@@ -13,6 +13,7 @@
     accounts: { label: "Our Accounts", icon: "💼" },
     earn: { label: "Earn", icon: "💵" },
     web: { label: "Web — Bot Work", icon: "🌐" },
+    analytics: { label: "Data Analytics", icon: "📊" },
     security: { label: "Security & Bot Style", icon: "🛡️" },
     settings: { label: "Settings", icon: "⚙️" }
   };
