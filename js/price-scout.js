@@ -199,6 +199,40 @@
     return Promise.all((symbols || []).map(function (s) { return getCrypto(s, opts); }));
   }
 
+  // 7-day price history (CoinGecko market_chart, public, no key).
+  // Returns {status, symbol, points:[{t, price}], source} or an honest
+  // error result — never invented points. Used by the Crypto screen
+  // chart and the Analytics screen. Cached under the crypto TTL to
+  // respect the public rate limit.
+  function getCryptoHistory(symbol, days) {
+    var sym = String(symbol || "").toUpperCase().trim();
+    var id = CRYPTO_IDS[sym];
+    if (!id) return Promise.resolve({ status: "error", symbol: sym, points: [], note: "Unknown crypto symbol." });
+    var d = Number(days) || 7;
+    if (d !== 1 && d !== 7 && d !== 30) d = 7;
+    var cached = getCached("history", sym + "/" + d);
+    if (cached && cached.fresh) return Promise.resolve({ status: "cached", symbol: sym, points: cached.data.points, source: "CoinGecko", fetchedAt: cached.fetchedAt });
+    var url = "https://api.coingecko.com/api/v3/coins/" + encodeURIComponent(id) + "/market_chart?vs_currency=usd&days=" + d;
+    return fetchJson(url).then(function (data) {
+      var prices = (data && data.prices) || [];
+      if (!prices.length) throw new Error("bad_response");
+      recordUsage("coingecko", true, 200);
+      var step = Math.max(1, Math.floor(prices.length / 60));
+      var points = [];
+      for (var i = 0; i < prices.length; i += step) {
+        points.push({ t: prices[i][0], price: prices[i][1] });
+      }
+      if (points[points.length - 1].t !== prices[prices.length - 1][0]) points.push({ t: prices[prices.length - 1][0], price: prices[prices.length - 1][1] });
+      putCache("history", sym + "/" + d, { points: points });
+      return { status: "live", symbol: sym, points: points, source: "CoinGecko", fetchedAt: new Date().toISOString() };
+    }).catch(function () {
+      recordUsage("coingecko", false, null);
+      var stale = getCached("history", sym + "/" + d);
+      if (stale) return { status: "stale", symbol: sym, points: stale.data.points, source: "CoinGecko", fetchedAt: stale.fetchedAt };
+      return { status: "error", symbol: sym, points: [], note: "Could not load price history from CoinGecko right now. No chart is drawn rather than a fake one." };
+    });
+  }
+
   // ---- Stocks (source-ready) -------------------------------------------
   function getStock(symbol, opts) {
     var sym = String(symbol || "").toUpperCase().trim();
@@ -307,6 +341,7 @@
     configure: configure,
     getCrypto: getCrypto,
     getCryptoBatch: getCryptoBatch,
+    getCryptoHistory: getCryptoHistory,
     getStock: getStock,
     getProducts: getProducts,
     answer: answer,
