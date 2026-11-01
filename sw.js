@@ -3,7 +3,7 @@
  * All user data lives in IndexedDB on the device, never touched by this file.
  */
 
-const CACHE_VERSION = "mti6-gtadwiy-cockpit-v12";
+const CACHE_VERSION = "mti6-gtadwiy-cockpit-v13";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -47,9 +47,13 @@ const APP_SHELL = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_VERSION).then((cache) => cache.addAll(APP_SHELL)));
-  // Deliberately NOT calling self.skipWaiting() here: a new worker should sit
-  // in "waiting" until the user agrees to reload (see app.js's update banner),
-  // so an update never yanks the UI out from under someone mid-edit.
+  // v13 fix (Oct 31, 2026): the old "wait for the user to tap Reload" design
+  // left phones stuck on stale shells (blank screens, missing search bar)
+  // across rapid preview pushes. Take over immediately instead; app.js
+  // already reloads the page on controllerchange, so the user lands on the
+  // new version on their next visit instead of a stuck old one. The update
+  // banner in app.js remains as a fallback prompt.
+  self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
