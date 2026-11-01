@@ -37,6 +37,46 @@
     btn.addEventListener("click", function () { load(true); });
     root.appendChild(U.el("div", { class: "api-panel" }, [btn, out]));
     load(false);
+
+    // ---- 7-day price chart (clear colors, phone + desktop) -----------
+    var chartTitle = U.el("h3", {}, "Price history — pick a coin");
+    var chartOut = U.el("div", { class: "api-meta" }, "Tap a coin to draw its price chart from CoinGecko history. No chart is drawn from made-up data.");
+    var coinBtns = ["BTC", "ETH", "SOL", "DOGE", "XRP"].map(function (sym, i) {
+      var color = global.Charts ? global.Charts.COLORS[i % global.Charts.COLORS.length] : "#00e5ff";
+      var b = U.el("button", { class: "btn btn-ghost btn-sm", type: "button", style: "border-color:" + color + ";color:" + color }, sym);
+      b.addEventListener("click", function () { drawChart(sym, 7); });
+      return b;
+    });
+    var dayBtns = [1, 7, 30].map(function (d) {
+      var b = U.el("button", { class: "btn btn-ghost btn-sm", type: "button" }, d + "d");
+      b.addEventListener("click", function () { drawChart(currentCoin, d); });
+      return b;
+    });
+    var currentCoin = "BTC";
+    function drawChart(sym, days) {
+      currentCoin = sym;
+      chartOut.textContent = "Loading " + sym + " history…";
+      if (!global.PriceScout || typeof global.PriceScout.getCryptoHistory !== "function" || !global.Charts) {
+        chartOut.textContent = "Charts did not load. Reload and try again.";
+        return;
+      }
+      global.PriceScout.getCryptoHistory(sym, days).then(function (r) {
+        if (r.status === "error" || !r.points.length) { chartOut.textContent = r.note || "No history available."; return; }
+        var color = global.Charts.COLORS[["BTC", "ETH", "SOL", "DOGE", "XRP"].indexOf(sym) % global.Charts.COLORS.length];
+        var pts = r.points.map(function (p) { return { x: p.t, y: p.price }; });
+        var first = new Date(r.points[0].t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+        var lastD = new Date(r.points[r.points.length - 1].t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+        chartOut.innerHTML = global.Charts.lineChart(pts, { color: color, label: sym + " price (USD)", xLabel: first, xLabelEnd: lastD })
+          + '<div class="api-meta">Source: CoinGecko history (' + r.status + '). Read-only; not trading advice.</div>';
+      }).catch(function () { chartOut.textContent = "Could not load history right now."; });
+    }
+    root.appendChild(U.el("div", { class: "api-panel" }, [
+      chartTitle,
+      U.el("div", { class: "price-input-row" }, coinBtns),
+      U.el("div", { class: "price-input-row" }, dayBtns),
+      chartOut
+    ]));
+    drawChart("BTC", 7);
   }
 
   global.CockpitModules = global.CockpitModules || {};
