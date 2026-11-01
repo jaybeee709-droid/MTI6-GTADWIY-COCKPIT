@@ -15,6 +15,7 @@
     { route: "accounts", icon: "💼", label: "Our Accounts" },
     { route: "earn", icon: "💵", label: "Earn" },
     { route: "web", icon: "🌐", label: "Web" },
+    { route: "analytics", icon: "📊", label: "Analytics" },
     { route: "security", icon: "🛡️", label: "Security" }
   ];
   function renderDots(current) {
