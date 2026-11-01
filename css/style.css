@@ -1407,3 +1407,6 @@ body.nav-open #nav-scrim {
 #global-search-input { flex: 1; min-width: 0; height: 44px; border-radius: 10px; border: 1px solid var(--border, #ddd); padding: 0 12px; font-size: 16px; background: var(--surface, #fff); color: inherit; }
 #global-search-results { margin: 0 12px 12px; border: 1px solid var(--border, #ddd); border-radius: 12px; padding: 12px; background: var(--surface, #fff); max-height: 70vh; overflow: auto; }
 #global-search-results.hidden { display: none; }
+
+/* Search source toggle (V2): same 44px touch target as the bar. */
+#global-search-source { height: 44px; border-radius: 10px; border: 1px solid var(--border, #ddd); padding: 0 8px; font-size: 15px; background: var(--surface, #fff); color: inherit; }
