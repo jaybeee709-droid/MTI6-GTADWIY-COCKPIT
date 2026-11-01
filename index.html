@@ -29,6 +29,16 @@
 
     <div id="global-search-wrap">
       <input id="global-search-input" type="search" placeholder="Search the cockpit and the web…" aria-label="Global search" />
+      <select id="global-search-source" aria-label="Search source">
+        <option value="auto">Auto (bot picks)</option>
+        <option value="app">This app</option>
+        <option value="web">Web</option>
+        <option value="crypto">Crypto</option>
+        <option value="github">GitHub</option>
+        <option value="news">News</option>
+        <option value="knowledge">Saved knowledge</option>
+        <option value="page">Page (URL)</option>
+      </select>
       <button id="global-search-btn" class="btn btn-primary" type="button">Search</button>
     </div>
     <div id="global-search-results" class="hidden" role="region" aria-label="Search results"></div>
