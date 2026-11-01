@@ -24,7 +24,7 @@
   async function render(root) {
     root.appendChild(global.ScreensNav ? global.ScreensNav.renderDots("analytics") : U.el("div", {}, ""));
     root.appendChild(U.el("h2", { class: "section-title" }, "📊 Data Analytics"));
-    root.appendChild(U.el("p", { class: "api-subtitle" }, "Charts from real data only. Crypto from live public prices, spending and counts from your own cockpit data on this device, API usage from this device's calls. Nothing here is projected or estimated."));
+    root.appendChild(U.el("p", { class: "api-subtitle" }, "Charts from real data only, in the dark-teal dashboard style you picked: line + bar + pie + donut panels. Crypto from live public prices, spending and counts from your own cockpit data on this device, API usage from this device's calls. Nothing here is projected or estimated."));
 
     var grid = U.el("div", { class: "analytics-grid" });
 
@@ -76,8 +76,9 @@
         if (!items.length) {
           spendPanel.appendChild(U.el("div", { class: "api-meta" }, "No expenses recorded yet — add one in Resource Tracker and it will chart here."));
         } else {
+          spendPanel.appendChild(U.el("div", { html: global.Charts.pieChart(items) }));
           spendPanel.appendChild(U.el("div", { html: global.Charts.barChart(items) }));
-          spendPanel.appendChild(U.el("div", { class: "api-meta" }, "Total: " + fmtMoney(items.reduce(function (s, i) { return s + i.value; }, 0)) + " across " + (rows || []).length + " expense(s)."));
+          spendPanel.appendChild(U.el("div", { class: "api-meta" }, "Total: " + fmtMoney(items.reduce(function (s, i) { return s + i.value; }, 0)) + " across " + (rows || []).length + " expense(s). Shares in the pie match the bars below it."));
         }
       }).catch(function () {
         spendPanel.appendChild(U.el("div", { class: "api-meta" }, "Could not read expenses right now."));
@@ -108,7 +109,7 @@
         ];
         countsPanel.innerHTML = "";
         countsPanel.appendChild(U.el("h3", {}, "Your cockpit at a glance"));
-        countsPanel.appendChild(U.el("div", { html: global.Charts.barChart(items) }));
+        countsPanel.appendChild(U.el("div", { html: global.Charts.pieChart(items, { donut: true }) }));
       });
     }
     var apiPanel = U.el("div", { class: "api-panel" }, [
