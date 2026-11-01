@@ -12,6 +12,10 @@
   "use strict";
 
   var COLORS = ["#00e5ff", "#ffab00", "#76ff03", "#ff4081", "#7c4dff", "#00e676", "#ffea00"];
+  // Example-dashboard palette the owner picked (photo of a dark teal
+  // multi-panel dashboard, Nov 1, 2026): teal, peach, pink, amber,
+  // lavender, green. Used for pies/donuts so shares read clearly.
+  var PALETTE = ["#00d0c5", "#ffb08a", "#ff7eb6", "#ffc53d", "#b39ddb", "#69f0ae", "#4dd0e1"];
 
   function esc(s) {
     return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -65,5 +69,48 @@
     return '<div class="chart-bars">' + rows + '</div>';
   }
 
-  global.Charts = { lineChart: lineChart, barChart: barChart, COLORS: COLORS };
+  // Pie / donut chart: items = [{label, value}] with non-negative
+  // values only (shares of a total). Negative or zero slices are left
+  // out and noted. opts.donut true cuts the center out (donut style).
+  // Returns SVG + legend with percentages that sum to 100%.
+  function pieChart(items, opts) {
+    opts = opts || {};
+    var slices = (items || []).filter(function (i) { return Number(i.value) > 0; });
+    if (!slices.length) return '<div class="api-meta">No positive values to chart as shares yet.</div>';
+    var total = slices.reduce(function (s, i) { return s + Number(i.value); }, 0);
+    if (!(total > 0)) return '<div class="api-meta">No positive values to chart as shares yet.</div>';
+    var cx = 150, cy = 150, r = 120, inner = opts.donut ? 62 : 0;
+    var start = -Math.PI / 2;
+    var paths = slices.map(function (item, i) {
+      var color = (opts.colors || PALETTE)[i % (opts.colors || PALETTE).length];
+      var frac = Number(item.value) / total;
+      var end = start + frac * Math.PI * 2;
+      var large = frac > 0.5 ? 1 : 0;
+      var x1 = cx + r * Math.cos(start), y1 = cy + r * Math.sin(start);
+      var x2 = cx + r * Math.cos(end), y2 = cy + r * Math.sin(end);
+      var d;
+      if (frac >= 0.999) {
+        d = "M " + cx + " " + cy + " m -" + r + " 0 a " + r + " " + r + " 0 1 0 " + (2 * r) + " 0 a " + r + " " + r + " 0 1 0 -" + (2 * r) + " 0";
+      } else if (inner > 0) {
+        var ix1 = cx + inner * Math.cos(start), iy1 = cy + inner * Math.sin(start);
+        var ix2 = cx + inner * Math.cos(end), iy2 = cy + inner * Math.sin(end);
+        d = "M " + fmt(x1) + " " + fmt(y1) + " A " + r + " " + r + " 0 " + large + " 1 " + fmt(x2) + " " + fmt(y2)
+          + " L " + fmt(ix2) + " " + fmt(iy2) + " A " + inner + " " + inner + " 0 " + large + " 0 " + fmt(ix1) + " " + fmt(iy1) + " Z";
+      } else {
+        d = "M " + cx + " " + cy + " L " + fmt(x1) + " " + fmt(y1) + " A " + r + " " + r + " 0 " + large + " 1 " + fmt(x2) + " " + fmt(y2) + " Z";
+      }
+      start = end;
+      return '<path d="' + d + '" fill="' + color + '" stroke="#0e3540" stroke-width="2"/>';
+    }).join("");
+    var legend = slices.map(function (item, i) {
+      var color = (opts.colors || PALETTE)[i % (opts.colors || PALETTE).length];
+      var pct = Math.round((Number(item.value) / total) * 1000) / 10;
+      return '<div class="chart-legend-item"><span class="chart-legend-dot" style="background:' + color + '"></span>'
+        + esc(item.label) + ' — ' + pct + '% (' + esc(String(item.value)) + ')</div>';
+    }).join("");
+    var svg = '<svg class="chart-svg chart-pie" viewBox="0 0 300 300" role="img" aria-label="Share chart">' + paths + "</svg>";
+    return '<div class="chart-pie-wrap">' + svg + '<div class="chart-legend">' + legend + "</div></div>";
+  }
+
+  global.Charts = { lineChart: lineChart, barChart: barChart, pieChart: pieChart, COLORS: COLORS, PALETTE: PALETTE };
 })(window);
