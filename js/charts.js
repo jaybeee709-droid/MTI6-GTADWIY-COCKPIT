@@ -12,6 +12,7 @@
   "use strict";
 
   var COLORS = ["#00e5ff", "#ffab00", "#76ff03", "#ff4081", "#7c4dff", "#00e676", "#ffea00"];
+  var gradCounter = 0;
   // Example-dashboard palette the owner picked (photo of a dark teal
   // multi-panel dashboard, Nov 1, 2026): teal, peach, pink, amber,
   // lavender, green. Used for pies/donuts so shares read clearly.
@@ -41,10 +42,20 @@
     var change = last.y - first.y;
     var changePct = first.y ? (change / first.y) * 100 : 0;
     var label = opts.label || "";
+    // Futuristic professional finish: a gradient stroke (base color
+    // fading into cyan) plus a soft gradient area fill under the line,
+    // so the trend reads as a glowing surface on the black background.
+    var gradId = "chart-grad-" + (++gradCounter);
+    var area = d + " L " + fmt(px(points.length - 1)) + " " + fmt(py(min)) + " L " + fmt(px(0)) + " " + fmt(py(min)) + " Z";
     var svg = '<svg class="chart-svg" viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="' + esc(label) + '">'
+      + '<defs><linearGradient id="' + gradId + '" x1="0" y1="0" x2="1" y2="0">'
+      + '<stop offset="0%" stop-color="' + color + '"/><stop offset="100%" stop-color="#00e5ff"/></linearGradient>'
+      + '<linearGradient id="' + gradId + '-area" x1="0" y1="0" x2="0" y2="1">'
+      + '<stop offset="0%" stop-color="' + color + '" stop-opacity="0.35"/><stop offset="100%" stop-color="' + color + '" stop-opacity="0"/></linearGradient></defs>'
       + '<line x1="' + padL + '" y1="' + fmt(py(min)) + '" x2="' + (w - padR) + '" y2="' + fmt(py(min)) + '" class="chart-grid"/>'
       + '<line x1="' + padL + '" y1="' + fmt(py(max)) + '" x2="' + (w - padR) + '" y2="' + fmt(py(max)) + '" class="chart-grid"/>'
-      + '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>'
+      + '<path d="' + area + '" fill="url(#' + gradId + '-area)"/>'
+      + '<path d="' + d + '" fill="none" stroke="url(#' + gradId + ')" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>'
       + '<circle cx="' + fmt(px(points.length - 1)) + '" cy="' + fmt(py(last.y)) + '" r="6" fill="' + color + '"/>'
       + '<text x="' + padL + '" y="' + (h - 8) + '" class="chart-label">' + esc(opts.xLabel || "") + '</text>'
       + '<text x="' + (w - padR) + '" y="' + (h - 8) + '" class="chart-label" text-anchor="end">' + esc(opts.xLabelEnd || "") + '</text>'
