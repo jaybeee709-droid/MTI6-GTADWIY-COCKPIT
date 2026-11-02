@@ -22,3 +22,11 @@
   for = "/*"
   [headers.values]
     X-Content-Type-Options = "nosniff"
+
+# Phase 1 gateway: clean same-origin path for the MTI6 gateway.
+# This is a rewrite (status 200), not a browser redirect, so the
+# frontend keeps calling /api/mti6 while Netlify serves the Function.
+[[redirects]]
+  from = "/api/mti6"
+  to = "/.netlify/functions/mti6-proxy"
+  status = 200
