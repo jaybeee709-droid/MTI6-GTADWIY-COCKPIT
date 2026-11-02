@@ -3,7 +3,7 @@
  * All user data lives in IndexedDB on the device, never touched by this file.
  */
 
-const CACHE_VERSION = "mti6-gtadwiy-cockpit-v20";
+const CACHE_VERSION = "mti6-gtadwiy-cockpit-v21";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -11,6 +11,7 @@ const APP_SHELL = [
   "./manifest.json",
   "./css/style.css",
   "./js/utils.js",
+  "./js/api-client.js",
   "./js/db.js",
   "./js/backup.js",
   "./js/star-state.js",
