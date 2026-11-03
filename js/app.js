@@ -10,6 +10,7 @@
     expenses: { label: "Resource Tracker", icon: "💰" },
     globe: { label: "World Globe", icon: "🌍" },
     crypto: { label: "Crypto Market", icon: "₿" },
+    "crypto-world": { label: "Crypto World", icon: "🌎" },
     accounts: { label: "Our Accounts", icon: "💼" },
     earn: { label: "Earn", icon: "💵" },
     web: { label: "Web — Bot Work", icon: "🌐" },
