@@ -12,6 +12,7 @@
     { route: "dashboard", icon: "🏠", label: "Dashboard" },
     { route: "globe", icon: "🌍", label: "Globe" },
     { route: "crypto", icon: "₿", label: "Crypto" },
+    { route: "crypto-world", icon: "🌎", label: "Crypto World" },
     { route: "accounts", icon: "💼", label: "Our Accounts" },
     { route: "earn", icon: "💵", label: "Earn" },
     { route: "web", icon: "🌐", label: "Web" },
