@@ -11,7 +11,11 @@
   // installs upgrade in place — onupgradeneeded below adds the new indexes
   // to the stores that already exist rather than recreating them, so no
   // existing data is touched.
-  const DB_VERSION = 2;
+  // v3 adds ONLY the "cryptoWorld" store (Crypto World registry foundation,
+  // Part 1). The upgrade loop below creates stores that do not exist yet
+  // and never deletes or recreates an existing store, so all v2 data
+  // survives the upgrade untouched.
+  const DB_VERSION = 3;
 
   const STORES = {
     notes: "id",
@@ -21,7 +25,8 @@
     milestones: "id",
     activity: "id",
     settings: "key",
-    widgets: "id"
+    widgets: "id",
+    cryptoWorld: "id"
   };
 
   let dbPromise = null;
