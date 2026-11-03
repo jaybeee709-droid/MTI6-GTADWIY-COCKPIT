@@ -102,6 +102,12 @@
       root.appendChild(global.ScoutsUI.renderPanel());
     }
 
+    // Development Center panel (read-only GitHub data), after Scouts. Same guard.
+    if (global.DevCenterUI && typeof global.DevCenterUI.renderPanel === "function") {
+      root.appendChild(el("h2", { class: "section-title" }, "Development Center"));
+      root.appendChild(global.DevCenterUI.renderPanel());
+    }
+
     // ---- Quick Actions: jump straight into creating a new record, no
     // intermediate navigation step. Distinct from Quick Navigation below,
     // which only opens a screen without starting a new record.
