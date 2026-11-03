@@ -3,7 +3,7 @@
  * All user data lives in IndexedDB on the device, never touched by this file.
  */
 
-const CACHE_VERSION = "mti6-gtadwiy-cockpit-v21";
+const CACHE_VERSION = "mti6-gtadwiy-cockpit-v22";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -77,9 +77,11 @@ self.addEventListener("message", (event) => {
 });
 
 // Cache-first for the app shell, with a network update-in-background for
-// same-origin GET requests. Everything is same-origin — this app makes no
-// cross-origin network calls at all. Page navigations that can't be served
-// from cache AND fail on the network fall back to offline.html.
+// same-origin GET requests. Cross-origin GETs (public APIs such as
+// CoinGecko, GitHub, Hacker News, Wikipedia, Open-Meteo) are NOT cached:
+// the handler below returns early for them and lets the network answer.
+// Page navigations that can't be served from cache AND fail on the network
+// fall back to offline.html.
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
