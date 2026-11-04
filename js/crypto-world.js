@@ -232,6 +232,94 @@
     return !!cap && cap.mode === "TRANSACTIONAL" && cap.verificationStatus === "VERIFIED";
   }
 
+  // ---- Encyclopedia v1: entry model (read-only reference layer) ----
+  // An entry is a registry record with a title and a definition. Entries
+  // live in the existing cryptoWorld store; no new store, no new key.
+  // The encyclopedia READS and RENDERS; it never authors entries.
+  // Way records are rejected here in v1: they arrive only through a
+  // future authoritative import, never through the encyclopedia path.
+  // assetClassRefs hold class LABELS, not entry ids, so they are not
+  // followed as entry links (the class reference section covers them).
+  function isEntry(rec) {
+    return !!rec && typeof rec.title === "string" && rec.title.trim() !== "" &&
+      typeof rec.definition === "string" && rec.definition.trim() !== "";
+  }
+
+  function validateEntry(rec) {
+    var errors = validateRecord(rec);
+    if (!rec || typeof rec !== "object") return errors;
+    if (rec.registry === "ways") {
+      errors.push("Way records arrive only through an authoritative import, not through the encyclopedia.");
+    }
+    if (typeof rec.title !== "string" || rec.title.trim() === "") {
+      errors.push("An entry needs a non-empty title.");
+    }
+    if (typeof rec.definition !== "string" || rec.definition.trim() === "") {
+      errors.push("An entry needs a non-empty definition.");
+    }
+    if (rec.aliases !== undefined) {
+      if (!Array.isArray(rec.aliases) || rec.aliases.some(function (a) { return typeof a !== "string"; })) {
+        errors.push("aliases must be an array of strings.");
+      }
+    }
+    ["wayRefs", "strategyRefs"].forEach(function (field) {
+      if (rec[field] !== undefined) {
+        if (!Array.isArray(rec[field]) || rec[field].some(function (v) { return typeof v !== "string"; })) {
+          errors.push(field + " must be an array of entry ids.");
+        }
+      }
+    });
+    return errors;
+  }
+
+  function entriesByRegistry(records, registry) {
+    return (records || []).filter(function (r) {
+      return r && r.registry === registry && isEntry(r);
+    });
+  }
+
+  function getEntry(records, id) {
+    var found = null;
+    (records || []).forEach(function (r) { if (r && r.id === id) found = r; });
+    return found;
+  }
+
+  // Follows only id-based refs (chainRefs, protocolRefs, activityRefs,
+  // wayRefs, strategyRefs, appliesTo) to entries that actually exist.
+  // Dangling refs are reported by the caller, never invented as stubs.
+  function relatedEntries(records, entry) {
+    if (!entry) return [];
+    var ids = [];
+    ["chainRefs", "protocolRefs", "activityRefs", "wayRefs", "strategyRefs", "appliesTo"].forEach(function (field) {
+      (entry[field] || []).forEach(function (id) { if (ids.indexOf(id) === -1) ids.push(id); });
+    });
+    return ids.map(function (id) { return getEntry(records, id); }).filter(function (r) { return r && isEntry(r); });
+  }
+
+  function danglingRefs(records, entry) {
+    if (!entry) return [];
+    var ids = [];
+    ["chainRefs", "protocolRefs", "activityRefs", "wayRefs", "strategyRefs", "appliesTo"].forEach(function (field) {
+      (entry[field] || []).forEach(function (id) { if (ids.indexOf(id) === -1) ids.push(id); });
+    });
+    return ids.filter(function (id) {
+      var found = getEntry(records, id);
+      return !found || !isEntry(found);
+    });
+  }
+
+  // Local-only substring search over title, aliases, and definition.
+  // Empty queries return nothing; the index lists entries instead.
+  function searchEntries(records, query) {
+    var q = (query || "").trim().toLowerCase();
+    if (!q) return [];
+    return (records || []).filter(function (r) {
+      if (!r || !isEntry(r)) return false;
+      var hay = (r.title + " " + (r.aliases || []).join(" ") + " " + r.definition).toLowerCase();
+      return hay.indexOf(q) !== -1;
+    });
+  }
+
   global.CryptoWorld = {
     STORE: STORE, REGISTRIES: REGISTRIES, ASSET_CLASSES: ASSET_CLASSES,
     ACTIVITY_FAMILIES: ACTIVITY_FAMILIES, MODES: MODES,
@@ -247,6 +335,10 @@
     activitiesByAssetClass: activitiesByAssetClass,
     chainsByAsset: chainsByAsset, risksBySubject: risksBySubject,
     capabilitiesFor: capabilitiesFor,
-    isTransactionalCapability: isTransactionalCapability
+    isTransactionalCapability: isTransactionalCapability,
+    isEntry: isEntry, validateEntry: validateEntry,
+    entriesByRegistry: entriesByRegistry, getEntry: getEntry,
+    relatedEntries: relatedEntries, danglingRefs: danglingRefs,
+    searchEntries: searchEntries
   };
 })(window);
