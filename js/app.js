@@ -11,6 +11,7 @@
     globe: { label: "World Globe", icon: "🌍" },
     crypto: { label: "Crypto Market", icon: "₿" },
     "crypto-world": { label: "Crypto World", icon: "🌎" },
+    encyclopedia: { label: "Encyclopedia", icon: "📖" },
     accounts: { label: "Our Accounts", icon: "💼" },
     earn: { label: "Earn", icon: "💵" },
     web: { label: "Web — Bot Work", icon: "🌐" },
