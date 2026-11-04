@@ -41,6 +41,9 @@
         "which protocols support an activity, and what the risks are. Mapping an opportunity " +
         "is not promising income: prices, yields, and positions can gain or lose.")
     );
+    root.appendChild(
+      U.el("a", { class: "btn btn-primary btn-sm", href: "#/encyclopedia" }, "📖 Open the Crypto Encyclopedia")
+    );
 
     var records = [];
     var storeNote = null;
