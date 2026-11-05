@@ -49,11 +49,21 @@
     var records = [];
     var meta = null;
     var storeNote = null;
+    var importReports = [];
     try {
       if (CW) {
         await CW.ensureTaxonomyMeta();
+        // Approved content imports run first (idempotent: records already
+        // in the store are counted, not rewritten), so the counts below
+        // include imported entries on the first visit after an update.
+        if (global.EncyclopediaImport && typeof global.EncyclopediaImport.importAll === "function") {
+          try { await global.EncyclopediaImport.importAll(); } catch (e) {}
+        }
         records = await CW.getAllRecords();
         meta = await CW.getTaxonomyMeta();
+        if (global.EncyclopediaImport && typeof global.EncyclopediaImport.report === "function") {
+          try { importReports = await global.EncyclopediaImport.report(); } catch (e) {}
+        }
       }
     } catch (e) {
       storeNote = "Local registry store could not be read on this device — counts below are unavailable, not zero by proof.";
@@ -134,6 +144,25 @@
           "The authoritative category names are not in this app yet. Way entries appear only " +
           "through an authoritative import — the encyclopedia never invents them.")
       ]));
+
+      // Content imports — live report, derived from batch data + store.
+      // UNVERIFIED means approved for inclusion, not externally verified.
+      if (importReports.length) {
+        var importKids = [U.el("div", { class: "api-meta" },
+          "Each batch is validated record by record before writing. Rejected records are " +
+          "listed with reasons and never written; the validator is never weakened to fill " +
+          "the encyclopedia.")];
+        importReports.forEach(function (rep) {
+          var line = rep.label + " — " + rep.imported + " imported, " + rep.pending +
+            " pending, " + rep.rejected.length + " rejected (of " + rep.total + " records).";
+          importKids.push(U.el("div", { class: "api-meta" }, line));
+          rep.rejected.forEach(function (r) {
+            importKids.push(U.el("div", { class: "api-meta" },
+              "Rejected: " + r.id + " — " + r.reasons.join(" ")));
+          });
+        });
+        root.appendChild(panel("📥 Content imports", importKids));
+      }
 
       // Schema reference — labels, not records.
       root.appendChild(panel("🧭 Activity families (schema labels, not records)", [
@@ -230,6 +259,10 @@
       if (entry.source) kids.push(U.el("div", { class: "api-meta" }, "Source: " + entry.source));
       if (entry.sourceTimestamp) kids.push(U.el("div", { class: "api-meta" }, "Source time: " + entry.sourceTimestamp));
       if (entry.lastChecked) kids.push(U.el("div", { class: "api-meta" }, "Last checked: " + entry.lastChecked));
+      if (entry.level) kids.push(U.el("div", { class: "api-meta" }, "Level: " + entry.level + (entry.familySet ? " · Family set: " + entry.familySet : "")));
+      if (entry.workspace) kids.push(U.el("div", { class: "api-meta" }, "Workspace: " + entry.workspace));
+      if (entry.globeView) kids.push(U.el("div", { class: "api-meta" }, "Globe view: " + entry.globeView));
+      if (entry.importBatch) kids.push(U.el("div", { class: "api-meta" }, "Imported by: " + entry.importBatch));
       if (entry.assetClass) kids.push(U.el("div", { class: "api-meta" }, "Asset class: " + entry.assetClass));
       if (entry.modes) kids.push(U.el("div", { class: "api-meta" }, "Modes: " + (Array.isArray(entry.modes) ? entry.modes.join(", ") : entry.modes)));
       root.appendChild(panel(entry.title + " — " + LABELS[entry.registry], kids));
