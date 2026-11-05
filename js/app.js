@@ -213,6 +213,11 @@
     wireChrome();
     wireConnectivityIndicator();
     await renderRoute();
+    // Encyclopedia content imports (approved batches only): idempotent,
+    // runs in the background, never blocks boot or the first render.
+    if (global.EncyclopediaImport && typeof global.EncyclopediaImport.importAll === "function") {
+      global.EncyclopediaImport.importAll().catch(function () {});
+    }
     registerServiceWorker();
     wireInstallPrompt();
   }
