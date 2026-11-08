@@ -137,12 +137,22 @@
       ]));
 
       // 60 Ways taxonomy card — the single source of truth for the Ways.
+      // IMPORTED and VERIFIED are two different numbers and are shown as
+      // two different lines on purpose: imported means the 60 canonical
+      // Major Activities are in the encyclopedia; VERIFIED means an entry
+      // was checked against a cited external source. Imported is not
+      // verified — every activity stays UNVERIFIED until it meets the
+      // external-verification requirements.
+      var verifiedMajorCount = records.filter(function (r) { return r.level === "MAJOR_ACTIVITY" && r.verificationStatus === "VERIFIED"; }).length;
+      var taxonomyNote = meta.status === "TAXONOMY_IMPORTED"
+        ? "The 60 canonical Major Activities are imported. Imported is not verified — every activity stays UNVERIFIED until it is checked against a cited external source."
+        : "The authoritative category names are not in this app yet. Way entries appear only " +
+          "through an authoritative import — the encyclopedia never invents them.";
       root.appendChild(panel("💎 60-WAY TAXONOMY", [
         U.el("div", { class: "api-meta" }, "STATUS: " + String(meta.status).replace(/_/g, " ")),
-        U.el("div", { class: "api-meta" }, "VERIFIED: " + meta.importedCategoryCount + " / " + meta.expectedCategoryCount),
-        U.el("div", { class: "api-meta" },
-          "The authoritative category names are not in this app yet. Way entries appear only " +
-          "through an authoritative import — the encyclopedia never invents them.")
+        U.el("div", { class: "api-meta" }, "Canonical Taxonomy: " + meta.importedCategoryCount + " / " + meta.expectedCategoryCount + " IMPORTED"),
+        U.el("div", { class: "api-meta" }, "External Verification: " + verifiedMajorCount + " / " + meta.expectedCategoryCount + " VERIFIED"),
+        U.el("div", { class: "api-meta" }, taxonomyNote)
       ]));
 
       // Content imports — live report, derived from batch data + store.
@@ -186,7 +196,7 @@
           "What can I do with this asset? — Assets, then its linked activities.",
           "What protocols support this activity? — Activities, then linked protocols.",
           "What chains can I use? — Assets and protocols, then linked chains.",
-          "What activities exist under this Way? — 60 Ways, once the taxonomy is imported.",
+          "What activities exist under a Major Activity? — the 60 canonical Major Activities, browsable under each family.",
           "What are the risks? — Risks linked to the entry.",
           "What can the bots research? — Bot Capabilities.",
           "What requires wallet approval? — Entries whose mode is TRANSACTIONAL and verified.",
@@ -204,7 +214,8 @@
       if (registry === "ways") {
         kids.push(U.el("div", { class: "api-meta" },
           "Way entries appear only through an authoritative import. Current status: " +
-          String(meta.status).replace(/_/g, " ") + " — " + meta.importedCategoryCount + " / " + meta.expectedCategoryCount + " verified."));
+          String(meta.status).replace(/_/g, " ") + " — " + meta.importedCategoryCount + " / " + meta.expectedCategoryCount + " imported, " +
+          records.filter(function (r) { return r.level === "MAJOR_ACTIVITY" && r.verificationStatus === "VERIFIED"; }).length + " / " + meta.expectedCategoryCount + " verified."));
       }
       if (!entries.length && registry !== "ways") {
         kids.push(U.el("div", { class: "api-meta" }, "No entries recorded here yet."));
@@ -259,7 +270,8 @@
       if (entry.source) kids.push(U.el("div", { class: "api-meta" }, "Source: " + entry.source));
       if (entry.sourceTimestamp) kids.push(U.el("div", { class: "api-meta" }, "Source time: " + entry.sourceTimestamp));
       if (entry.lastChecked) kids.push(U.el("div", { class: "api-meta" }, "Last checked: " + entry.lastChecked));
-      if (entry.level) kids.push(U.el("div", { class: "api-meta" }, "Level: " + entry.level + (entry.familySet ? " · Family set: " + entry.familySet : "")));
+      if (entry.level) kids.push(U.el("div", { class: "api-meta" }, "Level: " + entry.level + (entry.familySet ? " · Family set: " + entry.familySet : "") + (entry.canonicalSet ? " · Canonical set: " + entry.canonicalSet : "")));
+      if (entry.primaryFamily) kids.push(U.el("div", { class: "api-meta" }, "Primary family: " + entry.primaryFamily + (entry.relatedFamilies && entry.relatedFamilies.length ? " · Related families: " + entry.relatedFamilies.join(", ") : "")));
       if (entry.workspace) kids.push(U.el("div", { class: "api-meta" }, "Workspace: " + entry.workspace));
       if (entry.globeView) kids.push(U.el("div", { class: "api-meta" }, "Globe view: " + entry.globeView));
       if (entry.importBatch) kids.push(U.el("div", { class: "api-meta" }, "Imported by: " + entry.importBatch));
