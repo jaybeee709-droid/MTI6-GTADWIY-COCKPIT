@@ -23,7 +23,20 @@
   <div id="app-shell">
     <header id="top-bar">
       <button id="menu-toggle" aria-label="Open menu">☰</button>
-      <span id="app-title">Dashboard</span>
+      <span id="app-title">World Globe</span>
+      <button id="star-btn" class="star-top-btn" type="button" aria-label="Open STAR 3.0 overlay">🌟 <span class="star-top-label">STAR</span></button>
+      <select id="quick-nav" aria-label="Quick navigation">
+        <option value="globe">World Globe</option>
+        <option value="crypto-world">Crypto World</option>
+        <option value="bot-ops">Bot Operations</option>
+        <option value="wallets">Wallets</option>
+        <option value="opportunities">Opportunities</option>
+        <option value="earn">Earnings</option>
+        <option value="positions">Positions &amp; Assets</option>
+        <option value="encyclopedia">Encyclopedia</option>
+        <option value="dashboard">Cockpit Status</option>
+        <option value="operations">Operations</option>
+      </select>
       <button id="install-btn" class="hidden">Install</button>
     </header>
 
@@ -66,6 +79,13 @@
   <script src="./js/star-backend.js"></script>
   <script src="./js/star-router.js"></script>
   <script src="./js/modules/star.js"></script>
+  <!-- Master shell (Build 1): tribes, navigation structure, floating
+       windows, summonable participants, STAR overlay -->
+  <script src="./js/tribes.js"></script>
+  <script src="./js/nav.js"></script>
+  <script src="./js/window-manager.js"></script>
+  <script src="./js/participants.js"></script>
+  <script src="./js/star-overlay.js"></script>
   <!-- API registry (must load before price-scout) and health panel -->
   <script src="./js/api-registry.js"></script>
   <!-- Price Scouts: data layer first, then the dashboard panel -->
@@ -97,6 +117,12 @@
   <script src="./js/modules/expenses.js"></script>
   <script src="./js/modules/projects.js"></script>
   <script src="./js/modules/settings.js"></script>
+  <!-- Master shell (Build 1) screens -->
+  <script src="./js/modules/bot-ops.js"></script>
+  <script src="./js/modules/wallets.js"></script>
+  <script src="./js/modules/opportunities.js"></script>
+  <script src="./js/modules/positions.js"></script>
+  <script src="./js/modules/operations.js"></script>
   <script src="./js/app.js"></script>
 </body>
 </html>
