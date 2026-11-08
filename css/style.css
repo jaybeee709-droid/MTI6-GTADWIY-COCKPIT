@@ -1469,3 +1469,415 @@ html, body { overflow-x: hidden; }
   .analytics-grid .api-panel { padding: 14px; }
   .chart-pie { max-width: 240px; }
 }
+
+/* ============================================================
+ * MASTER SHELL — Build 1 (Nov 8, 2026)
+ * World Globe home, permanent top command bar, grouped drawer with
+ * TRIBES, Bot Operations shell, STAR overlay, window manager.
+ * Palette: pitch/shiny black, deep navy, electric blue/cyan, royal
+ * purple/violet AI accents, brushed/dark metallic silver, restrained
+ * gold for selected financial accents. Alarm red is reserved for a
+ * real verified critical alert state and is NOT used decoratively
+ * anywhere in this section.
+ * ============================================================ */
+:root {
+  --violet: #8b5cf6;
+  --violet-dim: #6d28d9;
+  --silver: #c7d0dd;
+  --gold: #d4af37;
+  --gold-soft: #f5d76e;
+}
+:root[data-theme="light"] {
+  --violet: #7c3aed;
+  --violet-dim: #6d28d9;
+  --silver: #5b6b7d;
+  --gold: #8a6d1b;
+  --gold-soft: #8a6d1b;
+}
+
+/* ---- Permanent top command bar: hamburger, title, STAR, quick nav ---- */
+#top-bar {
+  gap: 8px;
+}
+#app-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.star-top-btn {
+  border: 1px solid rgba(212, 175, 55, 0.55);
+  background: rgba(212, 175, 55, 0.12);
+  color: var(--gold-soft);
+  border-radius: 10px;
+  min-height: 40px;
+  min-width: 44px;
+  padding: 0 10px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  flex: none;
+}
+#quick-nav {
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  color: var(--text-0);
+  padding: 0 6px;
+  max-width: 140px;
+  flex: none;
+  cursor: pointer;
+}
+@media (max-width: 640px) {
+  .star-top-label {
+    display: none;
+  }
+  #quick-nav {
+    max-width: 96px;
+  }
+}
+
+/* ---- Drawer: group titles, TRIBES, nav identities ---- */
+.nav-group-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  padding: 14px 14px 6px;
+}
+.nav-tribes {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+  margin-bottom: 4px;
+}
+.tribe-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+  padding: 0 8px;
+}
+.tribe-slot {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px dashed var(--text-2);
+  background: none;
+  color: var(--text-1);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 0;
+}
+.tribe-slot:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+.workers-active-line {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-2);
+  padding: 8px 14px 0;
+}
+.nav-icon svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+.nav-icon-globe {
+  color: var(--cyan);
+}
+.nav-icon-bot-ops {
+  color: var(--violet);
+}
+.nav-icon-dashboard {
+  color: var(--cyan);
+}
+.nav-icon-accounts .card-stripe {
+  fill: var(--silver);
+}
+.gear-pair {
+  position: relative;
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+.gear-pair .gear {
+  position: absolute;
+  font-size: 15px;
+  line-height: 1;
+}
+.gear-pair .gear-black {
+  left: 0;
+  top: 0;
+  color: #000000;
+  text-shadow:
+    -1px 0 0 var(--text-2),
+    1px 0 0 var(--text-2),
+    0 -1px 0 var(--text-2),
+    0 1px 0 var(--text-2);
+}
+.gear-pair .gear-silver {
+  right: -2px;
+  bottom: -2px;
+  color: var(--silver);
+  font-size: 13px;
+}
+.gear-pair .gear-dot {
+  position: absolute;
+  right: 1px;
+  top: 1px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--cyan);
+}
+.gear-single {
+  font-size: 18px;
+  color: var(--text-1);
+}
+
+/* ---- Bot Operations: responsive worker/tribe cards ---- */
+.botops-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+@media (min-width: 640px) {
+  .botops-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (min-width: 1024px) {
+  .botops-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.tribe-card {
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  text-align: start;
+  color: var(--text-0);
+  cursor: pointer;
+  min-height: 44px;
+  width: 100%;
+}
+.tribe-card:hover {
+  border-color: var(--violet);
+}
+.tribe-card-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px dashed var(--text-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: var(--text-1);
+  margin-bottom: 8px;
+}
+.tribe-card-label {
+  font-weight: 700;
+}
+.tribe-card-status {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--text-2);
+  margin-top: 2px;
+}
+.tribe-card-note {
+  font-size: 13px;
+  color: var(--text-1);
+  margin-top: 6px;
+}
+.botops-empty {
+  text-align: center;
+  color: var(--text-2);
+  padding: 18px 0 6px;
+  font-size: 15px;
+}
+.botops-theater {
+  background: #000000;
+  border-color: rgba(139, 92, 246, 0.35);
+}
+.botops-theater h3 {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: #e9e4ff;
+}
+
+/* ---- Floating window manager ---- */
+#wm-host {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1000;
+}
+.wm-window {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(560px, 94vw);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+  resize: both;
+  overflow: auto;
+  min-width: 280px;
+  min-height: 200px;
+}
+.wm-window.wm-placed {
+  transform: none;
+}
+.wm-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  cursor: grab;
+  flex: none;
+  touch-action: none;
+  user-select: none;
+}
+.wm-header:active {
+  cursor: grabbing;
+}
+.wm-title {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wm-subtitle {
+  font-size: 12px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.wm-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+  flex: none;
+}
+.wm-btn {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 6px;
+}
+.wm-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+.wm-window.wm-maximized {
+  left: 0 !important;
+  top: 56px !important;
+  width: 100vw !important;
+  height: calc(100vh - 56px) !important;
+  max-height: none;
+  transform: none;
+  resize: none;
+  border-radius: 0;
+}
+.wm-window.wm-minimized {
+  height: auto;
+  min-height: 0;
+  resize: none;
+  left: 12px !important;
+  transform: none;
+}
+.wm-window.wm-minimized .wm-body {
+  display: none;
+}
+@media (max-width: 640px) {
+  .wm-window {
+    width: 96vw;
+    max-height: 88vh;
+    resize: none;
+  }
+}
+
+/* ---- STAR overlay channels ---- */
+.star-channels {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.star-channel {
+  flex: 1 1 140px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.star-channel-active {
+  border-color: var(--cyan);
+}
+.star-channel-not-connected {
+  opacity: 0.75;
+}
+.star-channel-name {
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+.star-channel-state {
+  font-size: 12px;
+  color: var(--cyan);
+  margin-top: 2px;
+}
+.star-channel-off .star-channel-state {
+  color: var(--text-2);
+}
+.star-channel-note {
+  font-size: 12px;
+  color: var(--text-1);
+  margin-top: 4px;
+}
+.star-channel-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.star-conn {
+  margin-top: 10px;
+}
+
+/* ---- World Globe visual modes ---- */
+.globe-modes {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.globe-mode-btn.globe-mode-active {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+.globe-mode-electric .globe-mode-note {
+  color: var(--cyan);
+}
+.globe-mode-intelligence .globe-mode-note {
+  color: var(--violet);
+}
