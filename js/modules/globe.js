@@ -2,11 +2,51 @@
  * Weather from Open-Meteo (no key, browser-direct) and world news
  * from the Hacker News API via the scouts layer. No fake data:
  * if a source fails, the error is shown, not a made-up forecast.
+ *
+ * Master shell (Build 1): the World Globe is HOME — the whole-platform
+ * World Engine, not a crypto-only globe. Crypto World is one world /
+ * intelligence layer within it. The five visual modes (ELECTRIC,
+ * TERRAIN, BOUNDARIES, INTELLIGENCE, WORLD) are view architecture
+ * only: they change how the globe presents itself and state plainly
+ * what live data is (or is not) connected. No map, terrain, route, or
+ * live-activity data is fabricated to fill a view. Normal map
+ * boundaries/routes use electric blue/cyan; alarm red is reserved for
+ * a real verified critical alert state, and none exists here.
  */
 (function (global) {
   "use strict";
   var U = global.U;
   if (!U) return;
+
+  var MODE_KEY = "mti6_globe_mode_v1";
+  var MODES = [
+    { id: "WORLD", label: "World", note: "Whole-world overview. Weather and headlines below are live public data; there is no live map feed connected." },
+    { id: "ELECTRIC", label: "Electric", note: "Electric view. Normal map boundaries and routes use electric blue/cyan. No live map or route data is connected — styling only." },
+    { id: "TERRAIN", label: "Terrain", note: "Terrain view. No terrain data is connected — nothing is rendered as terrain." },
+    { id: "BOUNDARIES", label: "Boundaries", note: "Boundaries view. No live boundary data is connected." },
+    { id: "INTELLIGENCE", label: "Intelligence", note: "Intelligence layer. No live intelligence feeds are connected — the headlines below are the only live layer." }
+  ];
+
+  function getMode() {
+    try {
+      var saved = localStorage.getItem(MODE_KEY);
+      for (var i = 0; i < MODES.length; i++) {
+        if (MODES[i].id === saved) return saved;
+      }
+    } catch (e) {}
+    return "WORLD";
+  }
+
+  function setMode(mode) {
+    try { localStorage.setItem(MODE_KEY, mode); } catch (e) {}
+  }
+
+  function modeNote(id) {
+    for (var i = 0; i < MODES.length; i++) {
+      if (MODES[i].id === id) return MODES[i].note;
+    }
+    return "";
+  }
 
   function fmtTime(iso) {
     try { return new Date(iso).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit", month: "short", day: "numeric" }); }
@@ -14,9 +54,43 @@
   }
 
   async function render(root) {
+    root.innerHTML = "";
     root.appendChild(global.ScreensNav ? global.ScreensNav.renderDots("globe") : U.el("div", {}, ""));
     root.appendChild(U.el("h2", { class: "section-title" }, "🌍 World Globe"));
-    root.appendChild(U.el("p", { class: "api-subtitle" }, "Weather and news from public APIs. Nothing here is a live map of you or anyone else — just world weather and headlines."));
+    root.appendChild(U.el("p", { class: "api-subtitle" }, "Home of MTI6 — the whole-platform World Engine. Crypto World is one world within it. Weather and news below come from public APIs; nothing here is a live map of you or anyone else."));
+
+    // ---- Visual modes: view architecture only, no fabricated data ----
+    var mode = getMode();
+    var modeNoteEl = U.el("div", { class: "api-meta globe-mode-note" }, modeNote(mode));
+    var modeRow = U.el("div", { class: "globe-modes", role: "group", "aria-label": "World Globe visual mode" });
+    MODES.forEach(function (m) {
+      var b = U.el("button", {
+        class: "btn globe-mode-btn" + (m.id === mode ? " globe-mode-active" : ""),
+        type: "button",
+        "aria-pressed": m.id === mode ? "true" : "false"
+      }, m.label);
+      b.addEventListener("click", function () {
+        setMode(m.id);
+        modeRow.querySelectorAll(".globe-mode-btn").forEach(function (x) {
+          x.classList.remove("globe-mode-active");
+          x.setAttribute("aria-pressed", "false");
+        });
+        b.classList.add("globe-mode-active");
+        b.setAttribute("aria-pressed", "true");
+        modeNoteEl.textContent = modeNote(m.id);
+        var wrap = root.querySelector("#globe-view");
+        if (wrap) wrap.className = "globe-view globe-mode-" + m.id.toLowerCase();
+      });
+      modeRow.appendChild(b);
+    });
+    var view = U.el("div", { class: "globe-view globe-mode-" + mode.toLowerCase(), id: "globe-view" }, [
+      U.el("div", { class: "api-panel" }, [
+        U.el("h3", {}, "Visual mode"),
+        modeRow,
+        modeNoteEl
+      ])
+    ]);
+    root.appendChild(view);
 
     var lat = U.el("input", { class: "price-input", type: "text", value: "40.71", "aria-label": "Latitude" });
     var lon = U.el("input", { class: "price-input", type: "text", value: "-74.00", "aria-label": "Longitude" });
