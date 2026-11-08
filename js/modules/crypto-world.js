@@ -63,19 +63,31 @@
     if (storeNote) root.appendChild(U.el("div", { class: "api-meta" }, storeNote));
 
     // 60 Ways taxonomy card — metadata only, never 60 blank records.
-    var importBtn = U.el("button", {
-      class: "btn btn-primary btn-sm", type: "button", disabled: true,
-      title: "Import arrives when the authoritative category list is supplied and verified."
-    }, "Import Taxonomy");
-    var taxPanel = U.el("div", { class: "api-panel" }, [
+    // IMPORTED and VERIFIED are two different numbers and are shown as two
+    // different lines on purpose: imported means the 60 canonical Major
+    // Activities are in the encyclopedia; VERIFIED means an entry was
+    // checked against a cited external source. Imported is not verified.
+    var verifiedMajorCount = records.filter(function (r) { return r.level === "MAJOR_ACTIVITY" && r.verificationStatus === "VERIFIED"; }).length;
+    var taxonomyNote = meta.status === "TAXONOMY_IMPORTED"
+      ? "The 60 canonical Major Activities are imported. Imported is not verified — every activity stays UNVERIFIED until it is checked against a cited external source."
+      : "The authoritative category names are not in this app yet. Real Way records appear " +
+        "only when their names and definitions are imported and verified — nothing here is a placeholder opportunity.";
+    var taxKids = [
       U.el("h2", { class: "api-title" }, "💎 60-WAY TAXONOMY"),
       U.el("div", { class: "api-meta" }, "STATUS: " + String(meta.status).replace(/_/g, " ")),
-      U.el("div", { class: "api-meta" }, "VERIFIED: " + meta.importedCategoryCount + " / " + meta.expectedCategoryCount),
-      U.el("div", { class: "api-meta" },
-        "The authoritative category names are not in this app yet. Real Way records appear " +
-        "only when their names and definitions are imported and verified — nothing here is a placeholder opportunity."),
-      importBtn
-    ]);
+      U.el("div", { class: "api-meta" }, "Canonical Taxonomy: " + meta.importedCategoryCount + " / " + meta.expectedCategoryCount + " IMPORTED"),
+      U.el("div", { class: "api-meta" }, "External Verification: " + verifiedMajorCount + " / " + meta.expectedCategoryCount + " VERIFIED"),
+      U.el("div", { class: "api-meta" }, taxonomyNote)
+    ];
+    if (meta.status !== "TAXONOMY_IMPORTED") {
+      taxKids.push(U.el("button", {
+        class: "btn btn-primary btn-sm", type: "button", disabled: true,
+        title: "Import arrives when the authoritative category list is supplied and verified."
+      }, "Import Taxonomy"));
+    } else {
+      taxKids.push(U.el("div", { class: "api-meta" }, "Canonical 60 imported — browse the Major Activities in the Encyclopedia."));
+    }
+    var taxPanel = U.el("div", { class: "api-panel" }, taxKids);
     root.appendChild(taxPanel);
 
     // Activity families — organizational labels only.
