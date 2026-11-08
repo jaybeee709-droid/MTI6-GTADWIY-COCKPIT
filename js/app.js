@@ -2,18 +2,27 @@
 (function (global) {
   "use strict";
 
+  // Master shell (Build 1): World Globe is home. Cockpit Status is the
+  // former dashboard, kept whole. Labels follow the master nav lists;
+  // Crypto Market / Web / Data Analytics stay registered (and reachable
+  // in Secondary nav) because working screens are never deleted.
   const ROUTES = {
-    dashboard: { label: "Cockpit Dashboard", icon: "🏠" },
-    vault: { label: "Knowledge Vault", icon: "📒" },
+    dashboard: { label: "Cockpit Status", icon: "🏠" },
+    vault: { label: "Knowledge", icon: "📒" },
     tasks: { label: "Mission Control — Tasks", icon: "✅" },
     projects: { label: "Mission Control — Projects", icon: "📁" },
     expenses: { label: "Resource Tracker", icon: "💰" },
     globe: { label: "World Globe", icon: "🌍" },
     crypto: { label: "Crypto Market", icon: "₿" },
-    "crypto-world": { label: "Crypto World", icon: "🌎" },
+    "crypto-world": { label: "Crypto World", icon: "💱" },
+    "bot-ops": { label: "Bot Operations", icon: "⬢" },
+    wallets: { label: "Wallets", icon: "◈" },
+    opportunities: { label: "Opportunities", icon: "◎" },
+    earn: { label: "Earnings", icon: "💵" },
+    positions: { label: "Positions & Assets", icon: "▦" },
     encyclopedia: { label: "Encyclopedia", icon: "📖" },
-    accounts: { label: "Our Accounts", icon: "💼" },
-    earn: { label: "Earn", icon: "💵" },
+    operations: { label: "Operations", icon: "⚙" },
+    accounts: { label: "Accounts & Finance", icon: "💼" },
     web: { label: "Web — Bot Work", icon: "🌐" },
     analytics: { label: "Data Analytics", icon: "📊" },
     security: { label: "Security & Bot Style", icon: "🛡️" },
@@ -23,7 +32,7 @@
   const ROUTE_RENDER_TIMEOUT_MS = 10000;
 
   function rawHash() {
-    return (location.hash || "#/dashboard").replace(/^#\/?/, "");
+    return (location.hash || "#/globe").replace(/^#\/?/, "");
   }
 
   function currentRoute() {
@@ -31,20 +40,76 @@
     return ROUTES[hash] ? hash : null; // null = unknown route -> "not found"
   }
 
+  // Master shell drawer: TRIBES on top (12 principal slots + the real
+  // connected worker count, never fabricated), then Primary, then
+  // Secondary navigation. Every ROUTES entry appears in exactly one
+  // group via Mti6Nav; tasks/projects/expenses keep their routes and
+  // are reached from Operations / Mission Control.
   function buildNav() {
     const nav = document.getElementById("nav-links");
     nav.innerHTML = "";
-    Object.entries(ROUTES).forEach(([route, info]) => {
-      const link = document.createElement("button");
-      link.className = "nav-link";
-      link.dataset.route = route;
-      link.setAttribute("aria-current", "false");
-      link.innerHTML = `<span class="nav-icon">${info.icon}</span><span class="nav-label">${info.label}</span>`;
-      link.addEventListener("click", () => {
-        location.hash = `#/${route}`;
-        closeMobileNav();
+
+    if (global.Tribes) {
+      const tribes = document.createElement("div");
+      tribes.className = "nav-tribes";
+      const tribesTitle = document.createElement("div");
+      tribesTitle.className = "nav-group-title";
+      tribesTitle.textContent = "Tribes";
+      const grid = document.createElement("div");
+      grid.className = "tribe-grid";
+      grid.setAttribute("role", "list");
+      grid.setAttribute("aria-label", "Tribe principal slots");
+      const workersLine = document.createElement("div");
+      workersLine.className = "workers-active-line";
+      workersLine.textContent = "WORKERS ACTIVE: 0 — NOT CONNECTED";
+      tribes.appendChild(tribesTitle);
+      tribes.appendChild(grid);
+      tribes.appendChild(workersLine);
+      global.Tribes.getSlots().forEach((slot) => {
+        const s = document.createElement("button");
+        s.className = "tribe-slot tribe-slot-unassigned";
+        s.type = "button";
+        s.setAttribute("role", "listitem");
+        s.title = slot.label + " — unassigned";
+        s.setAttribute("aria-label", slot.label + ", unassigned Tribe principal slot");
+        s.innerHTML = '<span class="tribe-slot-num">' + String(slot.number).padStart(2, "0") + "</span>";
+        s.addEventListener("click", () => {
+          location.hash = "#/bot-ops";
+          closeMobileNav();
+        });
+        grid.appendChild(s);
       });
-      nav.appendChild(link);
+      nav.appendChild(tribes);
+    }
+
+    const groups = [
+      { title: null, routes: global.Mti6Nav ? global.Mti6Nav.PRIMARY : Object.keys(ROUTES) },
+      { title: null, routes: global.Mti6Nav ? global.Mti6Nav.SECONDARY : [] }
+    ];
+    // Group titles: Primary first, Secondary second.
+    groups[0].title = "Navigate";
+    groups[1].title = "More";
+    groups.forEach((group) => {
+      if (!group.routes.length) return;
+      const title = document.createElement("div");
+      title.className = "nav-group-title";
+      title.textContent = group.title;
+      nav.appendChild(title);
+      group.routes.forEach((route) => {
+        const info = ROUTES[route];
+        if (!info) return;
+        const link = document.createElement("button");
+        link.className = "nav-link";
+        link.dataset.route = route;
+        link.setAttribute("aria-current", "false");
+        const iconHtml = global.Mti6Nav ? global.Mti6Nav.iconFor(route, info.icon) : info.icon;
+        link.innerHTML = `<span class="nav-icon nav-icon-${route}">${iconHtml}</span><span class="nav-label">${info.label}</span>`;
+        link.addEventListener("click", () => {
+          location.hash = `#/${route}`;
+          closeMobileNav();
+        });
+        nav.appendChild(link);
+      });
     });
   }
 
@@ -56,6 +121,13 @@
     });
     const titleEl = document.getElementById("app-title");
     if (titleEl) titleEl.textContent = route && ROUTES[route] ? ROUTES[route].label : "Not Found";
+    const quickNav = document.getElementById("quick-nav");
+    if (quickNav && route && ROUTES[route]) {
+      // The compact control only lists major destinations; leave it
+      // untouched for routes it does not list.
+      const hasOption = Array.from(quickNav.options).some((o) => o.value === route);
+      if (hasOption) quickNav.value = route;
+    }
   }
 
   // ---- Mobile nav drawer: backdrop click, Escape key, swipe-left, link choice ----
@@ -132,7 +204,7 @@
           title: "This is taking too long",
           message: "The screen didn't finish loading in time. Your data is safe on this device — try again.",
           onRetry: () => renderRoute(),
-          onHome: () => (location.hash = "#/dashboard")
+          onHome: () => (location.hash = "#/globe")
         })
       );
     }, ROUTE_RENDER_TIMEOUT_MS);
@@ -154,7 +226,7 @@
           title: "Something went wrong",
           message: "This screen hit an error loading. Your data is safe — try again, or head back to the dashboard.",
           onRetry: () => renderRoute(),
-          onHome: () => (location.hash = "#/dashboard")
+          onHome: () => (location.hash = "#/globe")
         })
       );
     }
@@ -167,7 +239,7 @@
       U.el("h2", {}, "Page not found"),
       U.el("p", { class: "about-text" }, "That screen doesn't exist in this app."),
       U.el("div", { class: "modal-actions", style: "justify-content:center" }, [
-        U.el("button", { class: "btn btn-primary", onclick: () => (location.hash = "#/dashboard") }, "Go to dashboard")
+        U.el("button", { class: "btn btn-primary", onclick: () => (location.hash = "#/globe") }, "Go to World Globe")
       ])
     ]);
   }
@@ -186,6 +258,22 @@
       document.body.classList.contains("nav-open") ? closeMobileNav() : openMobileNav();
     });
     document.getElementById("nav-scrim").addEventListener("click", closeMobileNav);
+    // Permanent STAR button: opens the STAR overlay without leaving
+    // the current screen.
+    const starBtn = document.getElementById("star-btn");
+    if (starBtn) {
+      starBtn.addEventListener("click", () => {
+        if (global.StarOverlay) global.StarOverlay.open();
+      });
+    }
+    // Compact navigation control in the top bar: jump to a major
+    // destination without opening the drawer.
+    const quickNav = document.getElementById("quick-nav");
+    if (quickNav) {
+      quickNav.addEventListener("change", () => {
+        if (quickNav.value) location.hash = "#/" + quickNav.value;
+      });
+    }
     wireDrawerGestures();
     window.addEventListener("hashchange", renderRoute);
   }
@@ -209,7 +297,8 @@
     await applySavedTheme();
     // Normalize the default hash BEFORE wiring the hashchange listener, so
     // setting it here doesn't also fire a redundant second initial render.
-    if (!location.hash) location.hash = "#/dashboard";
+    // World Globe is home in the master shell.
+    if (!location.hash) location.hash = "#/globe";
     wireChrome();
     wireConnectivityIndicator();
     await renderRoute();
