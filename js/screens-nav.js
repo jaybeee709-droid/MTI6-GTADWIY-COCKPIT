@@ -9,13 +9,18 @@
   var U = global.U;
   if (!U) return;
   var SCREENS = [
-    { route: "dashboard", icon: "🏠", label: "Dashboard" },
-    { route: "globe", icon: "🌍", label: "Globe" },
+    { route: "dashboard", icon: "🏠", label: "Cockpit Status" },
+    { route: "globe", icon: "🌍", label: "World Globe" },
     { route: "crypto", icon: "₿", label: "Crypto" },
-    { route: "crypto-world", icon: "🌎", label: "Crypto World" },
+    { route: "crypto-world", icon: "💱", label: "Crypto World" },
+    { route: "bot-ops", icon: "⬢", label: "Bot Operations" },
+    { route: "wallets", icon: "◈", label: "Wallets" },
+    { route: "opportunities", icon: "◎", label: "Opportunities" },
+    { route: "earn", icon: "💵", label: "Earnings" },
+    { route: "positions", icon: "▦", label: "Positions & Assets" },
     { route: "encyclopedia", icon: "📖", label: "Encyclopedia" },
-    { route: "accounts", icon: "💼", label: "Our Accounts" },
-    { route: "earn", icon: "💵", label: "Earn" },
+    { route: "operations", icon: "⚙", label: "Operations" },
+    { route: "accounts", icon: "💼", label: "Accounts & Finance" },
     { route: "web", icon: "🌐", label: "Web" },
     { route: "analytics", icon: "📊", label: "Analytics" },
     { route: "security", icon: "🛡️", label: "Security" }
