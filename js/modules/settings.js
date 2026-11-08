@@ -15,6 +15,28 @@
       field("Currency for Expense Tracker", currencySelect(currency))
     ]));
 
+    root.appendChild(section("STAR & Tribe Appearance", [
+      field("STAR overlay", starOverlayField()),
+      field("Tribe avatar appearance", el("div", { class: "api-meta" }, "12 Tribe principal slots are unassigned. Avatars are set only when a principal is named by owner approval — no appearance is cloned or invented.")),
+      field("Worker visual / form presentation", el("div", { class: "api-meta" }, "Default form. No custom worker forms are assigned, and no worker is shown as active."))
+    ]));
+
+    root.appendChild(section("Sound & Voice", [
+      field("Master volume", volumeField()),
+      field("Interface sounds", soundsToggleField()),
+      field("Alerts", alertsToggleField()),
+      field("STAR voice", starVoiceField()),
+      field("Tribe voices", el("div", { class: "api-meta" }, "Not assigned — no Tribe voices are configured.")),
+      field("Worker voices", el("div", { class: "api-meta" }, "Not assigned — no worker voices are configured.")),
+      field("Future voice model", el("div", { class: "api-meta" }, "Future, user-authorized voice models only. No person's voice is cloned without appropriate authorization."))
+    ]));
+
+    root.appendChild(section("Device Permissions / Connections", [
+      el("div", { id: "perm-rows" }, "Checking…"),
+      field("STAR connection", el("div", { class: "api-meta" }, global.StarBackend && typeof global.StarBackend.getStatusLabel === "function" ? global.StarBackend.getStatusLabel() : "Demo mode — no AI backend connected")),
+      field("Device connection", el("div", { class: "api-meta" }, navigator.onLine ? "Online" : "Offline"))
+    ]));
+
     root.appendChild(section("Data Management", [
       field("Storage used", el("div", { id: "storage-estimate" }, "Calculating…")),
       actionRow("Export backup (encrypted)", "Save all your data to a password-protected file you can keep or move to another device.", "Export", () => openExportDialog()),
@@ -45,6 +67,116 @@
 
     populateStorageEstimate(root);
     populateAppStatus(root);
+    populatePermissionRows(root);
+  }
+
+  // ---- STAR & Tribe Appearance / Sound & Voice / Permissions (Build 1) ----
+
+  function starOverlayField() {
+    const wrap = el("div", { class: "toggle-row" });
+    const btn = el("button", { class: "btn btn-secondary" }, "Open STAR overlay");
+    btn.addEventListener("click", () => {
+      if (global.StarOverlay) global.StarOverlay.open();
+      else U.toast("STAR overlay is not available right now.");
+    });
+    wrap.appendChild(btn);
+    return wrap;
+  }
+
+  function volumeField() {
+    const wrap = el("div", { class: "toggle-row" });
+    const slider = el("input", { class: "input", type: "range", min: "0", max: "100", step: "5", value: "80", "aria-label": "Master volume" });
+    const label = el("span", { class: "api-meta" }, "80%");
+    slider.addEventListener("input", async () => {
+      label.textContent = slider.value + "%";
+      await CockpitDB.put("settings", { key: "master_volume", value: Number(slider.value) });
+    });
+    CockpitDB.get("settings", "master_volume").then((row) => {
+      if (row && typeof row.value === "number") {
+        slider.value = String(row.value);
+        label.textContent = row.value + "%";
+      }
+    }).catch(() => {});
+    wrap.appendChild(slider);
+    wrap.appendChild(label);
+    return wrap;
+  }
+
+  function simpleToggle(key, fallback, note) {
+    const wrap = el("div", { class: "toggle-row" });
+    const btn = el("button", { class: "btn btn-secondary" }, "Off");
+    btn.addEventListener("click", async () => {
+      const cur = btn.textContent === "On";
+      btn.textContent = cur ? "Off" : "On";
+      await CockpitDB.put("settings", { key, value: !cur });
+      U.toast(`${note} ${!cur ? "on" : "off"}`);
+    });
+    CockpitDB.get("settings", key).then((row) => {
+      btn.textContent = row ? (row.value ? "On" : "Off") : (fallback ? "On" : "Off");
+    }).catch(() => {});
+    wrap.appendChild(btn);
+    return wrap;
+  }
+
+  function soundsToggleField() {
+    // Honest shell: no interface sounds are wired yet — the preference
+    // is stored now so it applies when they are.
+    const wrap = el("div", { class: "toggle-row" });
+    wrap.appendChild(simpleToggle("interface_sounds", false, "Interface sounds"));
+    wrap.appendChild(el("span", { class: "api-meta" }, "Stored for when sounds are wired — none play yet."));
+    return wrap;
+  }
+
+  function alertsToggleField() {
+    return simpleToggle("alert_sounds", true, "Alert sounds");
+  }
+
+  function starVoiceField() {
+    // Same voice preference the Security screen uses, kept in sync
+    // through the shared localStorage key.
+    const KEY = "mti6_star_style_v1";
+    const select = el("select", { class: "input", "aria-label": "STAR voice" }, [
+      el("option", { value: "Default" }, "Default"),
+      el("option", { value: "Warm" }, "Warm"),
+      el("option", { value: "Bright" }, "Bright")
+    ]);
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEY) || "{}");
+      if (saved.voice) select.value = saved.voice;
+    } catch (e) {}
+    select.addEventListener("change", () => {
+      try {
+        const saved = JSON.parse(localStorage.getItem(KEY) || "{}");
+        saved.voice = select.value;
+        localStorage.setItem(KEY, JSON.stringify(saved));
+      } catch (e) {}
+      U.toast("STAR voice updated");
+    });
+    return select;
+  }
+
+  async function permissionState(name) {
+    try {
+      if (!navigator.permissions || typeof navigator.permissions.query !== "function") {
+        return "Unknown — this browser did not report a state";
+      }
+      const res = await navigator.permissions.query({ name });
+      if (res.state === "granted") return "Granted";
+      if (res.state === "denied") return "Denied";
+      return "Not granted yet — the app asks only when you use it";
+    } catch (e) {
+      return "Unknown — this browser did not report a state";
+    }
+  }
+
+  async function populatePermissionRows(root) {
+    const node = root.querySelector("#perm-rows");
+    if (!node) return;
+    node.innerHTML = "";
+    node.appendChild(statusRow("Camera permission", await permissionState("camera"), ""));
+    node.appendChild(statusRow("Microphone permission", await permissionState("microphone"), ""));
+    node.appendChild(statusRow("Speaker / output", "Default output — no separate output selection yet", ""));
+    node.appendChild(statusRow("Remote device control", "Not implemented — this app does not control other devices", ""));
   }
 
   async function populateAppStatus(root) {
