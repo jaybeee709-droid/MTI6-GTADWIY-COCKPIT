@@ -50,6 +50,7 @@
     var meta = null;
     var storeNote = null;
     var importReports = [];
+    var importSummary = null;
     try {
       if (CW) {
         await CW.ensureTaxonomyMeta();
@@ -57,7 +58,7 @@
         // in the store are counted, not rewritten), so the counts below
         // include imported entries on the first visit after an update.
         if (global.EncyclopediaImport && typeof global.EncyclopediaImport.importAll === "function") {
-          try { await global.EncyclopediaImport.importAll(); } catch (e) {}
+          try { importSummary = await global.EncyclopediaImport.importAll(); } catch (e) {}
         }
         records = await CW.getAllRecords();
         meta = await CW.getTaxonomyMeta();
@@ -166,11 +167,22 @@
           var line = rep.label + " — " + rep.imported + " imported, " + rep.pending +
             " pending, " + rep.rejected.length + " rejected (of " + rep.total + " records).";
           importKids.push(U.el("div", { class: "api-meta" }, line));
+          if (rep.blocked && rep.blockReason) {
+            importKids.push(U.el("div", { class: "api-meta" }, rep.blockReason));
+          }
           rep.rejected.forEach(function (r) {
             importKids.push(U.el("div", { class: "api-meta" },
               "Rejected: " + r.id + " — " + r.reasons.join(" ")));
           });
         });
+        // Owner-approved corrections applied by this run (Q-BGR-10): the
+        // correction mechanism reports here so an alias fix that lands on
+        // an already-imported record is visible, not silent.
+        if (importSummary && importSummary.corrected > 0) {
+          importKids.push(U.el("div", { class: "api-meta" },
+            "Owner-approved corrections applied this run: " + importSummary.corrected +
+            " (family-cross-chain aliases now [Interoperability])."));
+        }
         root.appendChild(panel("📥 Content imports", importKids));
       }
 
@@ -248,6 +260,21 @@
         U.el("div", { class: "api-meta" }, badge(entry.verificationStatus)),
         U.el("div", { class: "api-meta" }, entry.definition)
       ];
+      // THREAT/DEFENSE presentation (Batch B gate, design §F4): a fixed
+      // header making clear this is a risk/protective classification, not
+      // an executable financial Strategy. No new screen, no opportunity
+      // presentation, no transactional presentation, no bot assignment,
+      // no execution controls. Uses the existing Risks registry
+      // presentation; appliesTo links render through relatedEntries below.
+      if (entry.classification === "THREAT" || entry.classification === "DEFENSE") {
+        var threatHeader = entry.classification === "THREAT"
+          ? "⚠️ THREAT CLASSIFICATION — this describes a risk to users. It is not an opportunity, not a strategy, and the cockpit cannot perform it."
+          : "🛡️ DEFENSE CLASSIFICATION — a protective practice or monitoring capability. It is not an opportunity and creates no execution capability.";
+        kids.unshift(U.el("div", { class: "api-meta" }, threatHeader));
+        if (entry.threatKind) {
+          kids.push(U.el("div", { class: "api-meta" }, "Threat kind: " + entry.threatKind));
+        }
+      }
       if (entry.aliases && entry.aliases.length) {
         kids.push(U.el("div", { class: "api-meta" }, "Also known as: " + entry.aliases.join(", ")));
       }
