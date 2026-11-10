@@ -161,6 +161,38 @@
 
     async importAll(data, { merge = false } = {}) {
       if (!data || typeof data !== "object") throw new Error("Invalid backup payload");
+      // Backup-restore integrity wrapper (Batch B pre-import gate, U5):
+      // restored cryptoWorld records must pass the same structural
+      // guarantees as the loader gate BEFORE anything is written. The
+      // candidate is validated against the complete candidate view —
+      // existing store records (merge mode) or the candidate alone
+      // (replace mode, since the store is cleared first) — so a restore
+      // that reintroduces a parent and its child together passes, while
+      // a restore with an orphan fails as a whole. On failure NOTHING is
+      // written (no store is cleared, no record is restored): the whole
+      // restore is rejected and the caller reports the failure, rather
+      // than silently dropping only the bad record and restoring the
+      // remainder with broken relationships. Unrelated stores are never
+      // touched on a rejected restore. GENERAL cryptoWorld integrity
+      // rules apply here — Batch B import-contract fields (importBatch,
+      // ownerApprovalStatus, workspace/globeView, strategyKind) are NOT
+      // required, so valid historical user data restores unchanged.
+      // If the CryptoWorld validation layer is not loaded, there is
+      // nothing to validate against and the legacy raw path runs (the
+      // app cannot validate without its validator); in the shipped app
+      // crypto-world.js always loads before any restore can run.
+      if (Array.isArray(data.cryptoWorld) && data.cryptoWorld.length) {
+        const CW = global.CryptoWorld;
+        if (CW && typeof CW.validateCryptoWorldCandidate === "function") {
+          let existingCrypto = [];
+          try { existingCrypto = await this.getAll("cryptoWorld"); } catch (e) { existingCrypto = []; }
+          const problems = CW.validateCryptoWorldCandidate(data.cryptoWorld, merge ? existingCrypto : []);
+          if (problems.length) {
+            const shown = problems.slice(0, 5).map((p) => p.id + ": " + p.reasons.join(" ")).join("; ");
+            throw new Error("Backup restore blocked: invalid cryptoWorld content (" + problems.length + " record(s)) — " + shown);
+          }
+        }
+      }
       for (const name of Object.keys(STORES)) {
         if (!Array.isArray(data[name])) continue;
         if (!merge) await this.clear(name);

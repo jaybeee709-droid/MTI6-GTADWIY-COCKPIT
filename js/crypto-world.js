@@ -98,6 +98,46 @@
   var SECRET_FIELDS = ["seedphrase", "seed", "mnemonic", "privatekey", "apikey",
     "apisecret", "password", "secret"];
 
+  // ---- Batch B pre-import gate (Nov 10, 2026) — shared constants ----
+  // Taxonomy levels. FAMILY / MAJOR_ACTIVITY are roots (no parentRef);
+  // TYPE parents to a canonical Major Activity; STRATEGY parents to a Type.
+  var LEVELS = ["FAMILY", "MAJOR_ACTIVITY", "TYPE", "STRATEGY"];
+  var ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+  var MAJOR_ID_PATTERN = /^major-[a-z0-9-]+$/;
+
+  // THREAT/DEFENSE vocabulary (owner-approved, closed lists — extend only
+  // by owner directive). threatKind is the enumerated kind on a risks
+  // record; the denylist below is the exact-title vocabulary wall.
+  var THREAT_KINDS = ["ORACLE_MANIPULATION", "FALSE_REPORTING",
+    "RESOLUTION_MANIPULATION", "PREDATORY_LIQUIDATION", "MEV_PREDATORY",
+    "DEFENSE_MONITORING"];
+  var THREAT_TITLE_DENYLIST = [
+    "oracle lag exploitation",
+    "stale price exploitation",
+    "oracle manipulation",
+    "false reporting",
+    "resolution manipulation",
+    "predatory liquidation via oracle timing",
+    "sandwiching",
+    "predatory frontrunning",
+    "intentionally worsening another users execution"
+  ];
+
+  // Normalize a title for the denylist: lowercase, drop apostrophes,
+  // collapse hyphens/spaces/underscores to a single space. This is an
+  // exact-string match after normalization — no substring matching, no
+  // stemming, no similarity scoring. It is defense in depth only: it does
+  // NOT replace owner semantic review, and exact-string matching does not
+  // solve semantic classification of novel variants.
+  function normalizeThreatTitle(title) {
+    return String(title || "").toLowerCase().replace(/'/g, "")
+      .replace(/[-_\s]+/g, " ").replace(/\s+/g, " ").trim();
+  }
+
+  function isThreatTitle(title) {
+    return THREAT_TITLE_DENYLIST.indexOf(normalizeThreatTitle(title)) !== -1;
+  }
+
   function defaultTaxonomyMeta() {
     return {
       id: TAXONOMY_META_ID, registry: "taxonomy",
@@ -228,8 +268,17 @@
     });
   }
 
+  // A capability counts as transactional only when it IS a capability
+  // relationship record (registry "capability") AND its own mode is
+  // TRANSACTIONAL AND its verification status is VERIFIED. The registry
+  // check is load-bearing: without it, any record carrying mode
+  // TRANSACTIONAL + VERIFIED would satisfy this function, including a
+  // risks record. (The design report §F1 described this function as
+  // requiring registry "capability"; the code as written did not, so the
+  // check is added here to make the stated guarantee actually true.)
   function isTransactionalCapability(cap) {
-    return !!cap && cap.mode === "TRANSACTIONAL" && cap.verificationStatus === "VERIFIED";
+    return !!cap && cap.registry === "capability" &&
+      cap.mode === "TRANSACTIONAL" && cap.verificationStatus === "VERIFIED";
   }
 
   // ---- Encyclopedia v1: entry model (read-only reference layer) ----
@@ -243,6 +292,92 @@
   function isEntry(rec) {
     return !!rec && typeof rec.title === "string" && rec.title.trim() !== "" &&
       typeof rec.definition === "string" && rec.definition.trim() !== "";
+  }
+
+  // Batch B gate — format checks (store-blind, no existence resolution).
+  // Shared by validateEntry and by the backup-restore candidate validator
+  // below, so both paths enforce the same shape rules.
+  function levelFormatErrors(rec) {
+    var errors = [];
+    if (rec.level !== undefined) {
+      if (LEVELS.indexOf(rec.level) === -1) {
+        errors.push("level must be one of FAMILY, MAJOR_ACTIVITY, TYPE, STRATEGY.");
+      } else if (rec.level === "TYPE" || rec.level === "STRATEGY") {
+        if (typeof rec.parentRef !== "string" || !rec.parentRef.trim()) {
+          errors.push(rec.level + " records must name a parentRef.");
+        } else if (!ID_PATTERN.test(rec.parentRef)) {
+          errors.push("parentRef must be a well-formed id.");
+        } else if (rec.level === "TYPE" && rec.parentRef.indexOf("major-") !== 0) {
+          errors.push("TYPE parentRef must name a Major Activity (major-*).");
+        } else if (rec.level === "STRATEGY" && rec.parentRef.indexOf("type-") !== 0) {
+          errors.push("STRATEGY parentRef must name a Type (type-*).");
+        }
+      } else if (rec.parentRef !== undefined) {
+        // FAMILY / MAJOR_ACTIVITY are roots: they carry no structural parent.
+        errors.push(rec.level + " records must not carry a parentRef.");
+      }
+    }
+    if (rec.relatedActivities !== undefined) {
+      if (!Array.isArray(rec.relatedActivities) ||
+          rec.relatedActivities.some(function (v) { return typeof v !== "string" || !MAJOR_ID_PATTERN.test(v); })) {
+        errors.push("relatedActivities must be an array of Major Activity ids (major-*).");
+      }
+    }
+    if (rec.strategySources !== undefined) {
+      if (!Array.isArray(rec.strategySources) ||
+          rec.strategySources.some(function (v) { return typeof v !== "string"; })) {
+        errors.push("strategySources must be an array of strings.");
+      }
+    }
+    if (rec.level === "STRATEGY" && rec.strategyKind !== undefined && rec.strategyKind !== "STRATEGY") {
+      errors.push("strategyKind on a STRATEGY record must be \"STRATEGY\".");
+    }
+    return errors;
+  }
+
+  // Batch B gate — THREAT/DEFENSE hard wall (design §F3.2/F3.3).
+  // Three independent checks; any one blocks a smuggled threat:
+  // (a) classification THREAT/DEFENSE lives in the risks registry only,
+  //     with an enumerated threatKind;
+  // (b) a risks record must never carry TRANSACTIONAL mode, STRATEGY
+  //     level, or a Type parentRef — so it can never gain transactional
+  //     identity (see isTransactionalCapability above);
+  // (c) an exact-title denylist blocks the 9 named threat concepts from
+  //     appearing as activities/strategies records or STRATEGY levels.
+  // A risks record titled with a threat concept is NOT blocked by (c):
+  // the risks registry is where threats are recorded.
+  function threatWallErrors(rec) {
+    var errors = [];
+    if (rec.registry === "risks") {
+      var modes = rec.modes ? (Array.isArray(rec.modes) ? rec.modes : [rec.modes]) : [];
+      if (modes.indexOf("TRANSACTIONAL") !== -1) {
+        errors.push("Risks records must not carry TRANSACTIONAL mode.");
+      }
+      if (rec.level === "STRATEGY") {
+        errors.push("Risks records must not carry level STRATEGY.");
+      }
+      if (typeof rec.parentRef === "string" && rec.parentRef.indexOf("type-") === 0) {
+        errors.push("Risks records must not carry a Type parentRef.");
+      }
+    }
+    if (rec.classification !== undefined) {
+      if (rec.classification !== "THREAT" && rec.classification !== "DEFENSE") {
+        errors.push("classification must be THREAT or DEFENSE.");
+      } else {
+        if (rec.registry !== "risks") {
+          errors.push("THREAT/DEFENSE classification is recorded in the risks registry only.");
+        }
+        if (typeof rec.threatKind !== "string" || THREAT_KINDS.indexOf(rec.threatKind) === -1) {
+          errors.push("A THREAT/DEFENSE record must carry a known threatKind.");
+        }
+      }
+    }
+    if (rec.registry !== "risks" &&
+        (rec.registry === "activities" || rec.registry === "strategies" || rec.level === "STRATEGY") &&
+        typeof rec.title === "string" && isThreatTitle(rec.title)) {
+      errors.push("Title matches a THREAT/DEFENSE concept; threats are recorded in the risks registry only, never as Strategies.");
+    }
+    return errors;
   }
 
   function validateEntry(rec) {
@@ -269,7 +404,117 @@
         }
       }
     });
+    // Batch B pre-import gate (additive only — no existing check above
+    // was weakened or removed): level / parentRef / reference format,
+    // plus the THREAT/DEFENSE walls. Existence of referenced records is
+    // the loader gate's job, not this store-blind validator's.
+    errors = errors.concat(levelFormatErrors(rec));
+    errors = errors.concat(threatWallErrors(rec));
     return errors;
+  }
+
+  // Deep equality ignoring object key order (for same-id content
+  // comparison). Primitives compare by value; arrays compare in order.
+  function sameRecord(a, b) {
+    if (a === b) return true;
+    if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return false;
+    if (Array.isArray(a) !== Array.isArray(b)) return false;
+    if (Array.isArray(a)) {
+      if (a.length !== b.length) return false;
+      for (var i = 0; i < a.length; i++) if (!sameRecord(a[i], b[i])) return false;
+      return true;
+    }
+    var ka = Object.keys(a).sort();
+    var kb = Object.keys(b).sort();
+    if (ka.length !== kb.length) return false;
+    for (var j = 0; j < ka.length; j++) {
+      if (ka[j] !== kb[j]) return false;
+      if (!sameRecord(a[ka[j]], b[ka[j]])) return false;
+    }
+    return true;
+  }
+
+  // General cryptoWorld candidate validation — backup-restore integrity
+  // wrapper (U5). Pure and synchronous. Validates a candidate set of
+  // cryptoWorld records against the COMPLETE candidate view (existing
+  // compatible records + the candidate), so a restore that reintroduces a
+  // parent and its child together passes, while a restore with an orphan
+  // fails as a whole. Returns [{id, reasons}]; an empty array means the
+  // candidate is structurally sound.
+  //
+  // GENERAL integrity rules only — deliberately NOT the Batch B
+  // import-contract rules: importBatch, ownerApprovalStatus,
+  // workspace/globeView and strategyKind are NOT required here, and a
+  // TYPE parent need only be a Major Activity (no canonicalSet demand),
+  // so valid historical user data restores unchanged. Batch B-specific
+  // rules live only in the loader's checkBatchBRecord.
+  //
+  // Checks: entry shape (validateEntry) for entries; level/parentRef
+  // format + THREAT/DEFENSE walls for every record (including
+  // non-entries such as taxonomy-meta, which skip only the
+  // title/definition shape); parent existence + level against the
+  // candidate index; relatedActivities targets resolve to Major
+  // Activities; strategySources entries resolve to Type ids (id form
+  // only — a title-form entry cannot resolve as an id); duplicate ids
+  // within the candidate with different content. Same-id content
+  // differences vs EXISTING records are NOT rejected here: a restore
+  // legitimately overwrites stored records with backup content.
+  function validateCryptoWorldCandidate(records, existing) {
+    var problems = [];
+    var index = {};
+    function addToIndex(r) {
+      if (r && typeof r.id === "string" && !index[r.id]) index[r.id] = r;
+    }
+    (existing || []).forEach(addToIndex);
+    (records || []).forEach(addToIndex);
+    var seen = {};
+    (records || []).forEach(function (rec) {
+      if (!rec || typeof rec !== "object") {
+        problems.push({ id: "(no id)", reasons: ["Record must be an object."] });
+        return;
+      }
+      var id = typeof rec.id === "string" ? rec.id : "(no id)";
+      var reasons = [];
+      if (typeof rec.id === "string") {
+        if (seen[rec.id]) {
+          if (!sameRecord(seen[rec.id], rec)) {
+            reasons.push("Duplicate id \"" + rec.id + "\" with different content in the restore candidate.");
+          }
+        } else {
+          seen[rec.id] = rec;
+        }
+      }
+      if (isEntry(rec)) {
+        reasons = reasons.concat(validateEntry(rec));
+      } else {
+        reasons = reasons.concat(levelFormatErrors(rec));
+        reasons = reasons.concat(threatWallErrors(rec));
+      }
+      if ((rec.level === "TYPE" || rec.level === "STRATEGY") && typeof rec.parentRef === "string" && rec.parentRef) {
+        var parent = index[rec.parentRef];
+        if (!parent) {
+          reasons.push(rec.level + " parent \"" + rec.parentRef + "\" does not exist in the restore candidate or the existing store.");
+        } else if (rec.level === "TYPE" && parent.level !== "MAJOR_ACTIVITY") {
+          reasons.push("TYPE parent \"" + rec.parentRef + "\" is a " + (parent.level || "(no level)") + ", not a Major Activity.");
+        } else if (rec.level === "STRATEGY" && parent.level !== "TYPE") {
+          reasons.push("STRATEGY parent \"" + rec.parentRef + "\" is a " + (parent.level || "(no level)") + ", not a Type.");
+        }
+      }
+      (rec.relatedActivities || []).forEach(function (target) {
+        var t = index[target];
+        if (!t || t.level !== "MAJOR_ACTIVITY") {
+          reasons.push("relatedActivities target \"" + target + "\" is not a Major Activity in the restore candidate or the existing store.");
+        }
+      });
+      (rec.strategySources || []).forEach(function (entry) {
+        var s = index[entry];
+        if (!s || s.level !== "TYPE") {
+          reasons.push("strategySources entry \"" + entry + "\" does not resolve to a Type in the restore candidate or the existing store.");
+        }
+      });
+      if (reasons.length) problems.push({ id: id, reasons: reasons });
+    });
+    return problems;
   }
 
   function entriesByRegistry(records, registry) {
@@ -337,6 +582,12 @@
     capabilitiesFor: capabilitiesFor,
     isTransactionalCapability: isTransactionalCapability,
     isEntry: isEntry, validateEntry: validateEntry,
+    THREAT_KINDS: THREAT_KINDS,
+    THREAT_TITLE_DENYLIST: THREAT_TITLE_DENYLIST,
+    normalizeThreatTitle: normalizeThreatTitle,
+    isThreatTitle: isThreatTitle,
+    sameRecord: sameRecord,
+    validateCryptoWorldCandidate: validateCryptoWorldCandidate,
     entriesByRegistry: entriesByRegistry, getEntry: getEntry,
     relatedEntries: relatedEntries, danglingRefs: danglingRefs,
     searchEntries: searchEntries
