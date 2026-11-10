@@ -79,7 +79,7 @@
       verificationStatus: "UNVERIFIED", source: "canonical-import",
       importBatch: "import1-batch-a", ownerApprovalStatus: "APPROVED" },
     { id: "family-cross-chain", registry: "activities",
-      title: "Cross-Chain", aliases: ["Bridging", "Interoperability"],
+      title: "Cross-Chain", aliases: ["Interoperability"],
       definition: "Moving assets, messages, and state between different blockchains, including bridges and cross-chain messaging.",
       level: "FAMILY", familySet: "batch-a-28",
       workspace: "CROSS_CHAIN_CENTER", globeView: "NETWORK",
