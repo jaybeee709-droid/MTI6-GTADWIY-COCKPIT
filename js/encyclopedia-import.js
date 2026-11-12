@@ -28,8 +28,11 @@
  * (store activities + batch records, order-independent) and admits it
  * only as a whole — one invalid record blocks the whole candidate with
  * zero writes. The existing canonical-60 / Batch A branches are untouched.
- * No Batch B data file is wired: batches() still returns Batch A +
- * canonical-60 only. A CORRECTIONS table (owner-approved only) delivers
+ * Batch B is wired (Nov 12, 2026, owner-authorized runtime wiring):
+ * the Batch B data file (js/data/encyclopedia-batch-b.js) is loaded by
+ * index.html and registered in batches() below, so importAll() processes
+ * it on boot / Encyclopedia visit via the gate branch above.
+ * A CORRECTIONS table (owner-approved only) delivers
  * the Q-BGR-10 alias correction to already-imported records.
  */
 (function (global) {
@@ -122,6 +125,7 @@
     var list = [];
     if (global.EncyclopediaBatchA) list.push(global.EncyclopediaBatchA);
     if (global.EncyclopediaCanonical60) list.push(global.EncyclopediaCanonical60);
+    if (global.EncyclopediaBatchB) list.push(global.EncyclopediaBatchB);
     return list;
   }
 
