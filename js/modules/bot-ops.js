@@ -717,7 +717,13 @@
     return {
       star: {
         status: starStatus(),
-        connected: !!(global.StarBackend && typeof global.StarBackend.getStatusLabel === "function")
+        // "Connected" means a live AI backend is actually connected,
+        // not merely that the StarBackend module loaded: in the
+        // shipped demo mode the module is present AND isDemo() is
+        // true, and the old predicate (module present) made this card
+        // say "STAR backend connected" beside a status line that says
+        // "Demo mode — no AI backend connected".
+        connected: !!(global.StarBackend && typeof global.StarBackend.isDemo === "function" && !global.StarBackend.isDemo())
       },
       principals: {
         total: drawer.length,
@@ -1139,7 +1145,7 @@
 
     grid.appendChild(hudCard("STAR", [
       hudMetric("STAR status", hud.star.status, hud.star.connected
-        ? "STAR backend connected — the status label is live."
+        ? "Live AI backend connected — the status label is live."
         : "STAR answers in demo mode from the dashboard panel and its overlay.", true)
     ]));
 
