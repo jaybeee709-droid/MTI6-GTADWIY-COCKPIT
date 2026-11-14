@@ -213,6 +213,13 @@
     return order.slice();
   }
 
+  // True when a window with this id is currently open. Used by
+  // callers (e.g. Participants) to prune stale references to windows
+  // closed outside their own bookkeeping.
+  function isOpen(id) {
+    return !!openWindows[id];
+  }
+
   global.WindowManager = {
     open: open,
     close: close,
@@ -221,6 +228,7 @@
     toggleMaximize: toggleMaximize,
     toggleFullscreen: toggleFullscreen,
     focus: focus,
+    isOpen: isOpen,
     list: list
   };
 })(window);

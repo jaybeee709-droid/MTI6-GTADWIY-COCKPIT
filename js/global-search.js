@@ -24,6 +24,16 @@
  *      default-browser link if the page blocks browser fetches.
  * What this bar does NOT search: the phone's files, other apps,
  * or private accounts. A web page cannot reach those.
+ *
+ * Crypto World extension (spec C10): the same bar also searches the
+ * Crypto World registries — Major Activities, Types, Strategies,
+ * assets, networks, protocols, positions, opportunities — through
+ * searchCryptoWorld() below. Every source is behind a defensive
+ * typeof check (absent registry -> source skipped, never a crash);
+ * results are local only, carry no price or balance, and point at
+ * real screens. The existing Encyclopedia source is kept as-is;
+ * results it already covered are not duplicated in the Crypto World
+ * section.
  */
 (function (global) {
   "use strict";
@@ -70,8 +80,237 @@
     });
   }
 
-  function searchWeb(query) {
-    var jobs = [];
+  // ---- Crypto World extension (spec C10) -------------------------------
+  // Local-only search over the Crypto World registries. Additive: it
+  // reuses the existing architecture (same rendering, same "nothing
+  // found" honesty) and never builds a second search engine. Every
+  // source is behind a defensive typeof check: an absent registry is
+  // skipped, never a crash. Empty query -> []. No live data, no
+  // prices, no balances: a result never carries a price or balance.
+  // Every result is {kind, id, title, subtitle, route, source,
+  // verificationStatus}; route is always a real screen (the router
+  // has no per-entry drill-down route, so taxonomy results point at
+  // #/encyclopedia — the screen with the entry detail view — and
+  // carry the entry id for the UI to open).
+  var CRYPTO_SEARCH_MAX_PER_SOURCE = 10;
+  var CRYPTO_SEARCH_MAX_TOTAL = 50;
+  // Source order in the combined result list (taxonomy first).
+  var CRYPTO_SOURCE_ORDER = ["major-activity", "type", "strategy",
+    "asset", "network", "protocol", "position", "opportunity"];
+
+  // Match quality on the indexed fields: 3 exact name, 2 prefix,
+  // 1 substring, 0 no match. Case-insensitive.
+  function cryptoMatchScore(fields, q) {
+    var best = 0;
+    (fields || []).forEach(function (f) {
+      var v = String(f || "").toLowerCase().trim();
+      if (!v) return;
+      if (v === q) best = Math.max(best, 3);
+      else if (v.indexOf(q) === 0) best = Math.max(best, 2);
+      else if (v.indexOf(q) !== -1) best = Math.max(best, 1);
+    });
+    return best;
+  }
+  function cryptoSortScored(list) {
+    list.sort(function (a, b) {
+      if (b.score !== a.score) return b.score - a.score;
+      var ta = String(a.title || "").toLowerCase();
+      var tb = String(b.title || "").toLowerCase();
+      return ta < tb ? -1 : ta > tb ? 1 : 0;
+    });
+    return list;
+  }
+  function cryptoResult(kind, id, title, subtitle, route, source, verificationStatus) {
+    return { kind: kind, id: id, title: title, subtitle: subtitle || "",
+      route: route, source: source,
+      verificationStatus: verificationStatus || "UNKNOWN" };
+  }
+
+  // Encyclopedia records, via the bridge when loaded (store first,
+  // batch data fallback), else straight from CryptoWorld, else [].
+  // Never throws; an unreadable store is an empty source, not a crash.
+  function cryptoWorldRecords() {
+    if (global.EncyclopediaBridge && typeof global.EncyclopediaBridge.loadRecords === "function") {
+      try {
+        var r = global.EncyclopediaBridge.loadRecords();
+        if (r && typeof r.then === "function") {
+          return r.then(function (d) {
+            return (d && Array.isArray(d.records)) ? d.records : [];
+          }).catch(function () { return []; });
+        }
+        return Promise.resolve((r && Array.isArray(r.records)) ? r.records : []);
+      } catch (e) { return Promise.resolve([]); }
+    }
+    if (global.CryptoWorld && typeof global.CryptoWorld.getAllRecords === "function") {
+      try { return global.CryptoWorld.getAllRecords().catch(function () { return []; }); }
+      catch (e) { return Promise.resolve([]); }
+    }
+    return Promise.resolve([]);
+  }
+
+  // Tolerant read of an optional peer module's list: tries each named
+  // function in turn, then each named array. Absent module, absent
+  // function, thrown error -> [] (source skipped, never a crash).
+  function peerList(mod, fnNames, arrayNames) {
+    if (!mod) return [];
+    var i;
+    for (i = 0; i < fnNames.length; i++) {
+      if (typeof mod[fnNames[i]] === "function") {
+        try {
+          var out = mod[fnNames[i]]();
+          return Array.isArray(out) ? out : [];
+        } catch (e) { return []; }
+      }
+    }
+    for (i = 0; i < arrayNames.length; i++) {
+      if (Array.isArray(mod[arrayNames[i]])) return mod[arrayNames[i]];
+    }
+    return [];
+  }
+
+  // Search every Crypto World source. Returns a Promise of normalized
+  // results, capped at 10 per source and 50 total, ordered by source
+  // priority, then exact > prefix > substring within a source.
+  function searchCryptoWorld(query) {
+    var q = String(query || "").trim().toLowerCase();
+    if (!q) return Promise.resolve([]);
+    return cryptoWorldRecords().then(function (records) {
+      var byId = {};
+      (records || []).forEach(function (r) {
+        if (r && typeof r.id === "string") byId[r.id] = r;
+      });
+      function titleOf(id) {
+        var r = byId[id];
+        return r ? (r.title || id) : id;
+      }
+      var groups = {};
+      CRYPTO_SOURCE_ORDER.forEach(function (k) { groups[k] = []; });
+      function push(kind, fields, result) {
+        var score = cryptoMatchScore(fields, q);
+        if (score > 0) { result.score = score; groups[kind].push(result); }
+      }
+
+      // Major Activities / Types / Strategies (canonical 60 + Batch B).
+      (records || []).forEach(function (rec) {
+        if (!rec || typeof rec.title !== "string") return;
+        var fields = [rec.title].concat(rec.aliases || []);
+        if (rec.level === "MAJOR_ACTIVITY") {
+          push("major-activity", fields, cryptoResult("major-activity", rec.id, rec.title,
+            "Major Activity · Crypto World", "#/encyclopedia", "CryptoWorld", rec.verificationStatus));
+        } else if (rec.level === "TYPE") {
+          push("type", fields, cryptoResult("type", rec.id, rec.title,
+            "Type of " + titleOf(rec.parentRef), "#/encyclopedia", "CryptoWorld", rec.verificationStatus));
+        } else if (rec.level === "STRATEGY") {
+          push("strategy", fields, cryptoResult("strategy", rec.id, rec.title,
+            "Strategy of " + titleOf(rec.parentRef), "#/encyclopedia", "CryptoWorld", rec.verificationStatus));
+        }
+      });
+
+      // Assets: AssetIntelligence classes (by label / id) plus any
+      // assets-registry records (by title / canonicalName / symbol /
+      // assetClass). No individual asset is invented: only records the
+      // registries actually hold are returned.
+      peerList(global.AssetIntelligence, ["listClasses"], ["CLASSES"]).forEach(function (c) {
+        if (!c) return;
+        push("asset", [c.label || c.canonicalName, c.id, c.description],
+          cryptoResult("asset", c.id, c.label || c.canonicalName || c.id,
+            "Asset class" + (c.id ? " · " + c.id : ""), "#/crypto-world",
+            "AssetIntelligence", c.verificationStatus));
+      });
+      (records || []).forEach(function (rec) {
+        if (!rec || rec.registry !== "assets" || typeof rec.title !== "string") return;
+        push("asset", [rec.title, rec.canonicalName, rec.symbol, rec.assetClass],
+          cryptoResult("asset", rec.id, rec.title,
+            "Asset" + (rec.assetClass ? " · " + rec.assetClass : ""), "#/crypto-world",
+            "CryptoWorld", rec.verificationStatus));
+      });
+
+      // Networks: NetworkIntelligence example networks (by name / vm)
+      // plus any chains-registry records.
+      peerList(global.NetworkIntelligence, ["listNetworks", "getExampleNetworks"],
+        ["EXAMPLE_NETWORKS", "NETWORKS"]).forEach(function (n) {
+        if (!n) return;
+        push("network", [n.name || n.canonicalName, n.id, n.vm, n.ecosystem],
+          cryptoResult("network", n.id, n.name || n.canonicalName || n.id,
+            "Network" + (n.vm ? " · " + n.vm : ""), "#/crypto-world",
+            "NetworkIntelligence", n.verificationStatus));
+      });
+      (records || []).forEach(function (rec) {
+        if (!rec || rec.registry !== "chains" || typeof rec.title !== "string") return;
+        push("network", [rec.title, rec.name, rec.vm, rec.ecosystem],
+          cryptoResult("network", rec.id, rec.title,
+            "Network" + (rec.vm ? " · " + rec.vm : ""), "#/crypto-world",
+            "CryptoWorld", rec.verificationStatus));
+      });
+
+      // Protocols: ProtocolIntelligence when loaded (by name / category)
+      // plus any protocols-registry records. Absent module -> skipped.
+      peerList(global.ProtocolIntelligence, ["listProtocols", "getAllProtocols"],
+        ["PROTOCOLS", "protocols"]).forEach(function (p) {
+        if (!p) return;
+        push("protocol", [p.name, p.id, p.category],
+          cryptoResult("protocol", p.id, p.name || p.id,
+            "Protocol" + (p.category ? " · " + p.category : ""), "#/crypto-world",
+            "ProtocolIntelligence", p.verificationStatus));
+      });
+      (records || []).forEach(function (rec) {
+        if (!rec || rec.registry !== "protocols" || typeof rec.title !== "string") return;
+        push("protocol", [rec.title, rec.name, rec.category],
+          cryptoResult("protocol", rec.id, rec.title,
+            "Protocol" + (rec.category ? " · " + rec.category : ""), "#/crypto-world",
+            "CryptoWorld", rec.verificationStatus));
+      });
+
+      // Positions: PositionIntelligence when loaded (by asset / protocol
+      // / activity) plus any positions-registry records. Route is the
+      // real Wallets screen. Absent module -> skipped.
+      peerList(global.PositionIntelligence, ["listPositions", "getAllPositions"],
+        ["POSITIONS", "positions"]).forEach(function (pos) {
+        if (!pos) return;
+        var pSub = [pos.protocol, pos.activity, pos.majorActivityId]
+          .filter(function (x) { return !!x; }).join(" · ") || "Position";
+        push("position", [pos.title, pos.asset, pos.protocol, pos.activity,
+          pos.majorActivityId, pos.id],
+          cryptoResult("position", pos.id, pos.title || pos.asset || pos.id,
+            pSub, "#/wallets", "PositionIntelligence", pos.verificationStatus));
+      });
+      (records || []).forEach(function (rec) {
+        if (!rec || rec.registry !== "positions") return;
+        push("position", [rec.title, rec.asset, rec.protocol, rec.activity,
+          rec.majorActivityId, rec.id],
+          cryptoResult("position", rec.id, rec.title || rec.asset || rec.id,
+            "Position", "#/wallets", "CryptoWorld", rec.verificationStatus));
+      });
+
+      // Opportunities: OpportunityIntelligence (by asset / strategy).
+      // Route is the real Opportunities screen.
+      peerList(global.OpportunityIntelligence, ["listOpportunities"],
+        ["opportunities"]).forEach(function (op) {
+        if (!op) return;
+        var stratTitle = op.strategyId ? titleOf(op.strategyId) : "";
+        var typeTitle = op.typeId ? titleOf(op.typeId) : "";
+        var assetLabel = (op.assetRef && op.assetRef.assetClassId) || "";
+        var protoName = (op.protocolRef && op.protocolRef.name) || "";
+        var oTitle = stratTitle || op.id;
+        var oSub = [assetLabel, typeTitle, protoName]
+          .filter(function (x) { return !!x; }).join(" · ") || "Opportunity";
+        push("opportunity", [oTitle, op.id, assetLabel, stratTitle, typeTitle, protoName],
+          cryptoResult("opportunity", op.id, oTitle, oSub,
+            "#/opportunities", "OpportunityIntelligence", op.verificationStatus));
+      });
+
+      var out = [];
+      CRYPTO_SOURCE_ORDER.forEach(function (kind) {
+        cryptoSortScored(groups[kind]);
+        groups[kind].slice(0, CRYPTO_SEARCH_MAX_PER_SOURCE).forEach(function (r) {
+          if (out.length < CRYPTO_SEARCH_MAX_TOTAL) { delete r.score; out.push(r); }
+        });
+      });
+      return out;
+    });
+  }
+
+  function searchWeb(query) {    var jobs = [];
     jobs.push(fetch("https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=" + encodeURIComponent(query) + "&format=json&origin=*")
       .then(function (res) { if (!res.ok) throw new Error("http"); return res.json(); })
       .then(function (data) {
@@ -167,6 +406,20 @@
           return '<li><a href="#/encyclopedia" class="global-result-link" data-hide="1">' + esc(it.title) + '</a> · ' + esc(it.level || "") + ' · ' + esc(it.verificationStatus || "UNVERIFIED") + '</li>';
         });
       }
+      // Crypto World section (spec C10): normalized results with kind,
+      // parent context, and a real route. The Encyclopedia source is
+      // kept as-is; entries already shown here are filtered out of it
+      // below so the same record is never listed twice.
+      function cryptoSection(items) {
+        return section("Crypto World", items, function (it) {
+          return '<li><a href="' + esc(it.route) + '" class="global-result-link" data-hide="1">' + esc(it.title) + '</a> · ' + esc(it.kind) + (it.subtitle ? ' · ' + esc(it.subtitle) : '') + ' · ' + esc(it.verificationStatus || "UNKNOWN") + '</li>';
+        });
+      }
+      function dedupeEnc(items, cryptoItems) {
+        var seen = {};
+        (cryptoItems || []).forEach(function (c) { seen[c.id] = true; });
+        return (items || []).filter(function (it) { return !seen[it.id]; });
+      }
 
       if (picked.mode === "app") {
         searchAppData(query, lower).then(function (items) {
@@ -215,9 +468,11 @@
         return;
       }
       if (picked.mode === "encyclopedia") {
-        encyclopediaItems(query).then(function (items) {
+        Promise.all([encyclopediaItems(query), searchCryptoWorld(query)]).then(function (parts) {
+          var items = parts[0];
+          var cryptoItems = parts[1] || [];
           if (items === null) { finish(head + "<div class=\"api-meta\">Encyclopedia data did not load.</div>"); return; }
-          var body = encyclopediaSection(items);
+          var body = cryptoSection(cryptoItems) + encyclopediaSection(dedupeEnc(items, cryptoItems));
           finish(head + (body || "<div class=\"api-meta\">No entry in the encyclopedia matches “" + esc(query) + "” — nothing is recorded, not a guess.</div>"));
         });
         return;
@@ -255,8 +510,9 @@
         priceP = global.PriceScout.getCrypto(query.replace(/\s+price$/i, ""), {}).catch(function () { return null; });
       }
       var encP = encyclopediaItems(query);
-      Promise.all([appP, webP, priceP, encP]).then(function (parts) {
-        var appItems = parts[0], web = parts[1], price = parts[2], encItems = parts[3];
+      var cryptoP = searchCryptoWorld(query);
+      Promise.all([appP, webP, priceP, encP, cryptoP]).then(function (parts) {
+        var appItems = parts[0], web = parts[1], price = parts[2], encItems = parts[3], cryptoItems = parts[4] || [];
         var html = head;
         html += section("In this app", appItems, function (it) {
           return '<li><a href="#/' + it.route + '" class="global-result-link" data-hide="1">' + esc(it.title) + '</a> · ' + esc(it.kind) + '</li>';
@@ -273,7 +529,8 @@
         html += section("Hacker News", web.hn, function (h) {
           return "<li><a href=\"" + esc(h.url) + "\" target=\"_blank\" rel=\"noopener\">" + esc(h.title) + "</a></li>";
         });
-        if (encItems && encItems.length) html += encyclopediaSection(encItems);
+        if (encItems && encItems.length) html += encyclopediaSection(dedupeEnc(encItems, cryptoItems));
+        if (cryptoItems.length) html += cryptoSection(cryptoItems);
         if (isUrl(query)) {
           html += "<h3>Link</h3><ul class=\"price-offer-list\"><li>" + (isYouTube(query) ? "YouTube link — no embedded player; open it in your default browser." : "Public page link — open the Web window and paste it there to read its text, or open it in your default browser below.") + " <a href=\"" + esc(query) + "\" target=\"_blank\" rel=\"noopener\">Open in default browser</a></li></ul>";
         }
@@ -301,5 +558,5 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 
-  global.GlobalSearch = { isUrl: isUrl, isYouTube: isYouTube, stripTags: stripTags, pickSource: pickSource };
+  global.GlobalSearch = { isUrl: isUrl, isYouTube: isYouTube, stripTags: stripTags, pickSource: pickSource, searchCryptoWorld: searchCryptoWorld, CRYPTO_SEARCH_MAX_PER_SOURCE: CRYPTO_SEARCH_MAX_PER_SOURCE, CRYPTO_SEARCH_MAX_TOTAL: CRYPTO_SEARCH_MAX_TOTAL };
 })(window);
