@@ -43,6 +43,7 @@
 
     <div id="global-search-wrap">
       <input id="global-search-input" type="search" placeholder="Search the cockpit and the web…" aria-label="Global search" />
+      <button id="global-search-source-btn" class="btn btn-ghost hidden" type="button" aria-label="Choose search source">Source</button>
       <select id="global-search-source" aria-label="Search source">
         <option value="auto">Auto (bot picks)</option>
         <option value="app">This app</option>
@@ -54,8 +55,13 @@
         <option value="encyclopedia">Encyclopedia</option>
         <option value="page">Page (URL)</option>
       </select>
+      <span id="global-search-source-state" class="search-source-state" role="status">AVAILABLE</span>
+      <select id="global-search-web-provider" class="hidden" aria-label="Web search provider"></select>
+      <button id="global-search-new-tab" class="btn btn-ghost" type="button" aria-label="New search tab">+</button>
+      <button id="global-search-star-btn" class="btn btn-ghost" type="button" aria-label="Open STAR">🌟</button>
       <button id="global-search-btn" class="btn btn-primary" type="button">Search</button>
     </div>
+    <div id="global-search-source-menu" class="hidden" role="menu" aria-label="Search sources"></div>
     <div id="global-search-results" class="hidden" role="region" aria-label="Search results"></div>
 
     <div id="nav-scrim"></div>
@@ -129,6 +135,12 @@
   <script src="./js/star-overlay.js"></script>
   <!-- API registry (must load before price-scout) and health panel -->
   <script src="./js/api-registry.js"></script>
+  <!-- Universal Search Phase 1: provider registry, URL detection, tabs,
+       history — all before global-search.js, which consumes them. -->
+  <script src="./js/search-provider-registry.js"></script>
+  <script src="./js/search-url.js"></script>
+  <script src="./js/search-tabs.js"></script>
+  <script src="./js/search-history.js"></script>
   <script src="./js/market-intelligence.js"></script>
   <!-- Price Scouts: data layer first, then the dashboard panel -->
   <script src="./js/price-scout.js"></script>
