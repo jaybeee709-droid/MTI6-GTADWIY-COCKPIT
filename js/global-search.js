@@ -88,10 +88,11 @@
   // skipped, never a crash. Empty query -> []. No live data, no
   // prices, no balances: a result never carries a price or balance.
   // Every result is {kind, id, title, subtitle, route, source,
-  // verificationStatus}; route is always a real screen (the router
-  // has no per-entry drill-down route, so taxonomy results point at
-  // #/encyclopedia — the screen with the entry detail view — and
-  // carry the entry id for the UI to open).
+  // verificationStatus}; route is always a real screen. Taxonomy
+  // results keep route "#/encyclopedia" (pinned by
+  // global-search-crypto-test.js) and carry the entry id, so the
+  // rendered link deep-links to #/encyclopedia/<id> through the
+  // router's per-entry route.
   var CRYPTO_SEARCH_MAX_PER_SOURCE = 10;
   var CRYPTO_SEARCH_MAX_TOTAL = 50;
   // Source order in the combined result list (taxonomy first).
@@ -403,7 +404,8 @@
       }
       function encyclopediaSection(items) {
         return section("Encyclopedia", items, function (it) {
-          return '<li><a href="#/encyclopedia" class="global-result-link" data-hide="1">' + esc(it.title) + '</a> · ' + esc(it.level || "") + ' · ' + esc(it.verificationStatus || "UNVERIFIED") + '</li>';
+          var href = it.id ? "#/encyclopedia/" + esc(it.id) : "#/encyclopedia";
+          return '<li><a href="' + href + '" class="global-result-link" data-hide="1">' + esc(it.title) + '</a> · ' + esc(it.level || "") + ' · ' + esc(it.verificationStatus || "UNVERIFIED") + '</li>';
         });
       }
       // Crypto World section (spec C10): normalized results with kind,
@@ -412,7 +414,15 @@
       // below so the same record is never listed twice.
       function cryptoSection(items) {
         return section("Crypto World", items, function (it) {
-          return '<li><a href="' + esc(it.route) + '" class="global-result-link" data-hide="1">' + esc(it.title) + '</a> · ' + esc(it.kind) + (it.subtitle ? ' · ' + esc(it.subtitle) : '') + ' · ' + esc(it.verificationStatus || "UNKNOWN") + '</li>';
+          // Taxonomy results deep-link to the entry; the stored route
+          // field stays "#/encyclopedia" (pinned by the search test),
+          // so only the rendered href carries the id. Other kinds
+          // keep their real screen route.
+          var href = it.route;
+          if ((it.kind === "major-activity" || it.kind === "type" || it.kind === "strategy") && it.id) {
+            href = "#/encyclopedia/" + it.id;
+          }
+          return '<li><a href="' + esc(href) + '" class="global-result-link" data-hide="1">' + esc(it.title) + '</a> · ' + esc(it.kind) + (it.subtitle ? ' · ' + esc(it.subtitle) : '') + ' · ' + esc(it.verificationStatus || "UNKNOWN") + '</li>';
         });
       }
       function dedupeEnc(items, cryptoItems) {

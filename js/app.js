@@ -35,9 +35,27 @@
     return (location.hash || "#/globe").replace(/^#\/?/, "");
   }
 
+  // Hash router: "#/<route>" or "#/<route>/<param>". The first
+  // segment must be a known ROUTES key; anything after the first "/"
+  // is the route param, exposed as global.CockpitRouteParam (null
+  // when absent) before renderRoute() calls the module's render, so
+  // a screen can open a deep view — e.g. "#/encyclopedia/<id>" opens
+  // that entry's detail view. highlightNav still gets the base
+  // route, so the nav highlights the screen, not the param.
   function currentRoute() {
     const hash = rawHash();
-    return ROUTES[hash] ? hash : null; // null = unknown route -> "not found"
+    const slash = hash.indexOf("/");
+    const base = slash === -1 ? hash : hash.slice(0, slash);
+    if (!ROUTES[base]) {
+      global.CockpitRouteParam = null;
+      return null; // null = unknown route -> "not found"
+    }
+    let param = slash === -1 ? null : hash.slice(slash + 1);
+    if (param) {
+      try { param = decodeURIComponent(param); } catch (e) {}
+    }
+    global.CockpitRouteParam = param || null;
+    return base;
   }
 
   // Master shell drawer: TRIBES on top (12 principal slots + the real
