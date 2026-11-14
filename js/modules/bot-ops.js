@@ -972,7 +972,11 @@
     }
     var workersPanel = U.el("div", { class: "api-panel" }, [
       U.el("h3", {}, "Workers"),
-      U.el("div", { class: "api-meta" }, "WORKERS ACTIVE: " + workers.count + " — " + workers.state),
+      U.el("div", { class: "api-meta" }, ["WORKERS ACTIVE: " + workers.count + " — ",
+        // Visual Stage 1: shared status badge (§25) — colour + text label,
+        // never colour alone. Class derives from the real state string
+        // (NOT_CONNECTED → not-connected, CONNECTED → connected, …).
+        U.el("span", { class: "mti6-badge mti6-badge--" + String(workers.state || "UNKNOWN").toLowerCase().replace(/_/g, "-") }, String(workers.state))]),
       U.el("div", { class: "api-meta" }, workerQueueText),
       U.el("div", { class: "api-meta" }, workers.note),
       U.el("div", { class: "api-meta" }, "Role labels a worker may carry on an assignment: " +

@@ -83,6 +83,15 @@
     ]);
   }
 
+  // Visual Stage 1: shared status badge (§25) for a real wallet state.
+  // Class derives from the state string (NOT_CONNECTED → not-connected,
+  // CONNECTED → connected, …); unknown states fall back to the muted
+  // base badge. Colour + text label, never colour alone.
+  function stateBadge(state) {
+    var s = String(state || "UNKNOWN");
+    return U.el("span", { class: "mti6-badge mti6-badge--" + s.toLowerCase().replace(/_/g, "-") }, s);
+  }
+
   // One address line: truncated by default, with a deliberate Show /
   // Hide control and a Copy control. The full address is revealed
   // only by tapping Show — never on render, never by default.
@@ -196,11 +205,11 @@
       connectionLines.push(meta("WalletIntelligence: NOT LOADED — wallet state cannot be read. Connection state: UNAVAILABLE."));
       warnings.push("WalletIntelligence is not loaded, so no wallet state can be verified.");
     } else if (totalCount === 0) {
-      connectionLines.push(meta("Connection state: NOT CONNECTED — no wallets discovered."));
+      connectionLines.push(U.el("div", { class: "api-meta" }, ["Connection state: ", stateBadge("NOT_CONNECTED"), " — no wallets discovered."]));
       connectionLines.push(meta("Wallets appear here only when discovered through WalletIntelligence with provenance (label + discovery method). Nothing is connected, so nothing below claims a live session."));
       warnings.push("No wallet is connected.");
     } else {
-      connectionLines.push(meta("Connection state: " + connectionState + " — " + connectedCount + " of " + totalCount + " wallet(s) hold a session."));
+      connectionLines.push(U.el("div", { class: "api-meta" }, ["Connection state: ", stateBadge(connectionState), " — " + connectedCount + " of " + totalCount + " wallet(s) hold a session."]));
       var byState = summary.byState || {};
       var parts = [];
       Object.keys(byState).forEach(function (st) {
@@ -220,6 +229,12 @@
     } else if (wallets.length === 0) {
       inventoryKids.push(meta("Wallet inventory: none — NOT CONNECTED."));
       inventoryKids.push(meta("A connected read-only wallet would show here: holdings, wallet-associated positions, and permission/approval state — read-only, never signing."));
+      // Visual Stage 1: shared empty state (§26) — what is missing,
+      // whether it is expected, what can be done next.
+      inventoryKids.push(U.el("div", { class: "mti6-empty" }, [
+        U.el("div", { class: "mti6-empty__title" }, "No wallets connected"),
+        U.el("p", { class: "mti6-empty__body" }, "No wallet has been discovered yet. This is expected until a wallet is discovered through WalletIntelligence. Nothing here can sign or move funds.")
+      ]));
     } else {
       wallets.forEach(function (w) {
         var detail = describeWallet(w.id) || {};
