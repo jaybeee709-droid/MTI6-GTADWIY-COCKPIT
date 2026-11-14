@@ -98,7 +98,14 @@
       id: Date.now() + "-" + Math.floor(Math.random() * 100000),
       topic: entry.topic || "", source: entry.source || "", url: url,
       text: String(entry.text || "").slice(0, 4000),
-      kind: entry.kind || "scraped", fetchedAt: new Date().toISOString()
+      kind: entry.kind || "scraped", fetchedAt: new Date().toISOString(),
+      // Truth stamp (overnight shift, Priorities 1/8/9): new entries
+      // start UNVERIFIED with unknown confidence. Nothing is marked
+      // VERIFIED here; verification is earned later, with a source
+      // and a last-checked timestamp (see KnowledgeModel).
+      verificationStatus: "UNVERIFIED",
+      confidence: "unknown",
+      sourceType: (entry.kind === "scraped" ? "page-scrape" : (entry.source || "unknown"))
     });
     entries = entries.slice(0, MAX_ENTRIES);
     saveStore(entries);
