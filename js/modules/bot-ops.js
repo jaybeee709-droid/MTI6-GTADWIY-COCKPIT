@@ -173,9 +173,29 @@
 
     // ---- WORKERS ----
     var workers = global.Tribes ? global.Tribes.getWorkersActive() : { count: 0, state: "NOT_CONNECTED", note: "Worker orchestration is not connected." };
+    var workerQueueText = "Worker task queue: unavailable — worker task model not loaded.";
+    if (global.BotOpsModel && typeof global.BotOpsModel.summary === "function") {
+      try {
+        var wq = global.BotOpsModel.summary();
+        if (!wq || wq.total === 0) {
+          workerQueueText = "Worker tasks queued: 0 — no worker tasks have been created.";
+        } else {
+          var wqParts = [];
+          var wqOrder = global.BotOpsModel.TASK_STATES || [];
+          wqOrder.forEach(function (st) {
+            var n = wq.byState ? (wq.byState[st] || 0) : 0;
+            if (n > 0) wqParts.push(st + " " + n);
+          });
+          workerQueueText = "Worker tasks queued: " + wq.total + " (" + wqParts.join(", ") + ") — no worker runtime is connected, so no task is live.";
+        }
+      } catch (e) {
+        workerQueueText = "Worker task queue: unavailable — worker task model could not be read.";
+      }
+    }
     root.appendChild(U.el("div", { class: "api-panel" }, [
       U.el("h3", {}, "Workers"),
       U.el("div", { class: "api-meta" }, "WORKERS ACTIVE: " + workers.count + " — " + workers.state),
+      U.el("div", { class: "api-meta" }, workerQueueText),
       U.el("div", { class: "api-meta" }, workers.note),
       U.el("div", { class: "api-meta" }, "Role labels a worker may carry on an assignment: " +
         (global.Tribes ? global.Tribes.ROLE_LABELS.join(", ") : "—") + ". These are assignment labels, not bot names.")
