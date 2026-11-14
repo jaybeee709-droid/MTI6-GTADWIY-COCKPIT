@@ -554,6 +554,14 @@
 
     btn.addEventListener("click", run);
     input.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); run(); } });
+    // Stage 2 fix-up (Nov 14, 2026, Defect 1): the results panel must
+    // close on route change. Result links and the footer link hide it
+    // via [data-hide], but sidebar / quick-nav / STAR navigation changes
+    // the hash without touching the panel, so it used to persist across
+    // navigation until the page was reloaded. This listener closes it on
+    // every hashchange. It lives here (the panel's owner) — the router in
+    // app.js is not touched.
+    window.addEventListener("hashchange", hide);
     // Lets other screens (e.g. the dashboard search) hand a query to the
     // top bar instead of dead-ending, so every search box behaves like a
     // browser search: local first, web when nothing local matches.
