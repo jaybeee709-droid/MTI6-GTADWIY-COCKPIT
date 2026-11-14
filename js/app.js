@@ -140,11 +140,16 @@
     const titleEl = document.getElementById("app-title");
     if (titleEl) titleEl.textContent = route && ROUTES[route] ? ROUTES[route].label : "Not Found";
     const quickNav = document.getElementById("quick-nav");
-    if (quickNav && route && ROUTES[route]) {
-      // The compact control only lists major destinations; leave it
-      // untouched for routes it does not list.
-      const hasOption = Array.from(quickNav.options).some((o) => o.value === route);
-      if (hasOption) quickNav.value = route;
+    if (quickNav) {
+      // The compact control only lists major destinations. For any
+      // other route (Analytics, Security, ...) show the neutral
+      // placeholder instead of a stale label from the previous
+      // screen (Fix-up #2, Defect 3: the label read "Wallets" on
+      // Analytics and "Crypto World" on Security, because those
+      // routes are not among the select's options and the value was
+      // left untouched).
+      const hasOption = route && ROUTES[route] && Array.from(quickNav.options).some((o) => o.value === route);
+      quickNav.value = hasOption ? route : "";
     }
   }
 
@@ -197,6 +202,14 @@
 
   // ---- Router: skeleton while loading, timeout + error panel, 404 ----
   async function renderRoute() {
+    // Fix-up #2, Defect 2: any navigation closes the drawer. The
+    // drawer-link handlers already close it on click, but navigation
+    // from quick-nav, STAR, or dashboard actions went through the
+    // router only — so the drawer stayed open over the new screen
+    // until manually closed. Closing here is the general safety net
+    // (idempotent class removal; at >=768px the sidebar is sticky
+    // in-flow, so this is a visual no-op there).
+    closeMobileNav();
     const route = currentRoute();
     const root = document.getElementById("view-root");
 
@@ -289,6 +302,11 @@
     const quickNav = document.getElementById("quick-nav");
     if (quickNav) {
       quickNav.addEventListener("change", () => {
+        // Fix-up #2, Defect 2: close the drawer immediately on
+        // quick-nav navigation, matching the drawer-link pattern —
+        // the router's renderRoute close is the safety net, this is
+        // the instant one (no one-tick lag while hashchange fires).
+        closeMobileNav();
         if (quickNav.value) location.hash = "#/" + quickNav.value;
       });
     }
