@@ -33,16 +33,56 @@
     ]);
   }
 
+  // Visual Stage 1 (spec §29): Escape closes STAR and focus returns to
+  // the control that opened it. The window node itself is fully removed
+  // from the DOM by WindowManager.close, so nothing invisible can be
+  // left intercepting pointer input after close.
+  var savedFocus = null;
+  var escapeBound = false;
+  function onEscape(e) {
+    if (e.key === "Escape" && global.WindowManager &&
+        typeof global.WindowManager.isOpen === "function" &&
+        global.WindowManager.isOpen("star-overlay")) {
+      global.WindowManager.close("star-overlay");
+    }
+  }
+  function handleClose() {
+    if (escapeBound) {
+      document.removeEventListener("keydown", onEscape);
+      escapeBound = false;
+    }
+    var target = savedFocus;
+    savedFocus = null;
+    if (target && typeof target.focus === "function") {
+      try { target.focus(); } catch (e) {}
+    }
+  }
+
   // Opens (or focuses) the STAR overlay window. Safe to call repeatedly.
   function open() {
     if (!global.WindowManager) {
       U.toast("The window manager did not load — reload and try again.");
       return null;
     }
+    if (typeof global.WindowManager.isOpen === "function" &&
+        global.WindowManager.isOpen("star-overlay")) {
+      // Already open: just focus it; do not re-save focus or
+      // double-bind the Escape handler.
+      if (typeof global.WindowManager.focus === "function") {
+        global.WindowManager.focus("star-overlay");
+      }
+      return "star-overlay";
+    }
+    savedFocus = document.activeElement;
+    if (!escapeBound) {
+      document.addEventListener("keydown", onEscape);
+      escapeBound = true;
+    }
     return global.WindowManager.open({
       id: "star-overlay",
       title: "🌟 STAR 3.0",
       subtitle: "Command chat — overlay",
+      onClose: handleClose,
       build: function (body) {
         body.appendChild(U.el("div", { class: "star-channels" }, [
           channel("TEXT", "active", "Text chat is active in this window."),
