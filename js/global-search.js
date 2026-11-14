@@ -15,7 +15,9 @@
  *   - Anything else -> app + saved knowledge + web together.
  * Sources searched:
  *   1. This app (local only): vault notes, tasks, projects, expenses
- *      from IndexedDB via CockpitDB.getAll. Nothing leaves the device.
+ *      from IndexedDB via CockpitDB.getAll, plus the local Crypto World
+ *      encyclopedia (imported records — no prices, no network).
+ *      Nothing leaves the device.
  *   2. Saved bot knowledge (local only).
  *   3. The web, no key, browser-direct: Wikipedia summaries and
  *      Hacker News search, plus crypto via PriceScout's triple
@@ -544,7 +546,12 @@
     // modules when loaded; these locals only track which tab/session
     // this bar is currently working in.
     var currentSessionId = null;
+    var previousSessionId = null;
     var activeTabId = null;
+    // Tabs the user renamed by hand: the next search must not
+    // overwrite the custom title with the query (see openTabForSearch).
+    // Keyed by tabId; carried forward when a renamed tab is restored.
+    var renamedTabIds = {};
     var plainTextOverride = false;
     var lastQuery = "";
     var lastSource = "auto";
@@ -666,9 +673,31 @@
         '<button type="button" data-tab-action="restore">Restore recently closed</button></div>';
       return strip;
     }
+    // Inline rename editor (Phase 1 fix-up): the tab's current title
+    // prefilled, Save / Cancel buttons. No native prompt() — it is
+    // suppressed in some browsers/PWAs and a suppressed prompt made
+    // Rename look dead. Flows through the existing delegated
+    // resultsClick handler (data-tab-action), so no new listener.
+    function renameRowHtml() {
+      var cur = null;
+      if (global.SearchTabs && typeof global.SearchTabs.getTab === "function") {
+        try { cur = global.SearchTabs.getTab(activeTabId); } catch (e) { cur = null; }
+      }
+      return '<div class="search-rename-row"><label>Tab name <input id="global-search-rename-input" type="text" value="' +
+        esc(cur ? (cur.title || "") : "") + '" maxlength="60"></label>' +
+        ' <button type="button" class="btn btn-ghost btn-sm" data-tab-action="rename-save">Save name</button>' +
+        ' <button type="button" class="btn btn-ghost btn-sm" data-tab-action="rename-cancel">Cancel</button></div>';
+    }
     function workspaceHeader(query, source, providerName) {
+      // A temporary session hides the other tabs from the strip (the
+      // strip lists only the current session's tabs), so say so here:
+      // the other tabs are kept, not discarded, and return when this
+      // session ends.
+      var sessionNote = currentSessionTemporary()
+        ? " · Session: MTI6 TEMPORARY SESSION — your other tabs are kept and return when this session ends"
+        : "";
       return "<div class=\"search-workspace-header\"><div class=\"search-query-header\">Query: “" + esc(query) +
-        "” · Source: " + esc(source) + (providerName ? " · Provider: " + esc(providerName) : "") +
+        "” · Source: " + esc(source) + (providerName ? " · Provider: " + esc(providerName) : "") + sessionNote +
         ' · <span class="search-origin">ORIGIN: MANUAL SEARCH</span></div></div>';
     }
     function finish(html) {
@@ -734,9 +763,20 @@
       try {
         if (typeof global.SearchTabs.getActiveTab === "function" && typeof global.SearchTabs.updateTab === "function") {
           var active = global.SearchTabs.getActiveTab();
-          if (active && tabIdOf(active)) {
+          // Reuse the active tab only when it belongs to the session
+          // this search runs in. A specific session is current only
+          // for a temporary session in Phase 1 (currentSessionId is
+          // null for the default session, where any active tab is
+          // reused as before). Without this, the first search in a
+          // temporary session overwrote a tab of the previous session
+          // instead of opening a tab in the temporary session.
+          if (active && tabIdOf(active) && (!currentSessionId || active.sessionId === currentSessionId)) {
             activeTabId = tabIdOf(active);
-            global.SearchTabs.updateTab(tabIdOf(active), { query: query, source: source, title: query });
+            var patch = { query: query, source: source };
+            // A tab the user renamed keeps its custom title; every
+            // other tab's title tracks its latest search as before.
+            if (!renamedTabIds[tabIdOf(active)]) patch.title = query;
+            global.SearchTabs.updateTab(tabIdOf(active), patch);
             return;
           }
         }
@@ -804,8 +844,14 @@
       if (global.SearchTabs && typeof global.SearchTabs.temporaryNote === "function") {
         try { tempNote = global.SearchTabs.temporaryNote() || ""; } catch (e) {}
       }
+      // The label must describe effective recording, not just the
+      // global flag: in a temporary session nothing is recorded even
+      // when history is ON. "Paused" (not "OFF") so the user is not
+      // misled into thinking they turned history off.
+      var effectiveEnabled = enabled && !currentSessionTemporary();
+      var saveLabel = effectiveEnabled ? "ON" : (enabled ? "ON — paused in temporary session" : "OFF");
       var body = "<h3>Search history</h3>" +
-        '<div class="api-meta">Save history: ' + (enabled ? "ON" : "OFF") +
+        '<div class="api-meta">Save history: ' + saveLabel +
         ' · Session: ' + (currentSessionTemporary() ? "MTI6 TEMPORARY SESSION" : "default") +
         (tempNote ? " — " + esc(tempNote) : "") + "</div>";
       if (!entries.length) body += '<div class="api-meta">No search history recorded.</div>';
@@ -814,7 +860,7 @@
           ' <button type="button" class="btn btn-ghost btn-sm" data-history-action="run-again" data-history-query="' + esc(en.query || "") + '">Run again</button></li>';
       }).join("") + "</ul>";
       body += '<div class="search-history-actions">' +
-        '<button type="button" class="btn btn-ghost btn-sm" data-history-action="toggle-save">Save history: ' + (enabled ? "ON — turn off" : "OFF — turn on") + "</button> " +
+        '<button type="button" class="btn btn-ghost btn-sm" data-history-action="toggle-save">Save history: ' + (effectiveEnabled ? "ON — turn off" : (enabled ? "Paused in temporary session" : "OFF — turn on")) + "</button> " +
         '<button type="button" class="btn btn-ghost btn-sm" data-history-action="toggle-temp">Temporary session</button> ' +
         '<button type="button" class="btn btn-ghost btn-sm" data-history-action="clear-session">Clear session</button> ' +
         '<button type="button" class="btn btn-ghost btn-sm" data-history-action="clear-all">Clear all</button> ' +
@@ -836,9 +882,13 @@
         try {
           if (currentSessionTemporary()) {
             if (typeof T.setTemporary === "function") T.setTemporary(currentSessionId, false);
-            currentSessionId = null;
+            // Return to the session the temporary one was entered
+            // from (null = default), not to "all sessions mixed".
+            currentSessionId = previousSessionId;
+            previousSessionId = null;
           } else {
             var s = null;
+            previousSessionId = currentSessionId;
             if (typeof T.createSession === "function") s = T.createSession("MTI6 TEMPORARY SESSION", { temporary: true });
             if (s && (s.sessionId || s.id)) currentSessionId = s.sessionId || s.id;
             else if (typeof s === "string") currentSessionId = s;
@@ -884,6 +934,10 @@
       try {
         var ga = typeof T.getActiveTab === "function" ? T.getActiveTab() : null;
         if (ga && tabIdOf(ga)) activeTabId = tabIdOf(ga);
+        // The module has no active tab (all closed): the closure's
+        // pointer is stale — clear it so the guards below report
+        // "no active tab" instead of acting on a dead id.
+        else activeTabId = null;
       } catch (e) {}
       var id = target.getAttribute ? target.getAttribute("data-tab-id") : null;
       try {
@@ -892,7 +946,11 @@
             var nt = T.newTab({ query: "", source: selectedSourceId(), sessionId: currentSessionId, title: "New search" });
             if (nt && tabIdOf(nt)) activeTabId = tabIdOf(nt);
           }
-          input.value = ""; input.focus(); finish(workspaceHeader("", selectedSourceId(), lastProvider) + tabStripHtml("", selectedSourceId()) + '<div class="api-meta">New tab — type a search above.</div>');
+          // finish() already adds the workspace header + tab strip:
+          // passing them again here rendered both twice. Clear the
+          // stale query so the header does not show the old search.
+          lastQuery = ""; lastSource = selectedSourceId();
+          input.value = ""; input.focus(); finish('<div class="api-meta">New tab — type a search above.</div>');
           return;
         }
         if (action === "menu") {
@@ -906,27 +964,59 @@
           if (tab && tab.query) { input.value = tab.query; plainTextOverride = true; run(); }
           return;
         }
-        if (action === "close" && id && typeof T.closeTab === "function") { T.closeTab(id); finish(tabStripHtml(lastQuery, lastSource) + '<div class="api-meta">Tab closed.</div>'); return; }
-        if (action === "duplicate" && activeTabId && typeof T.duplicateTab === "function") { T.duplicateTab(activeTabId); finish(tabStripHtml(lastQuery, lastSource) + '<div class="api-meta">Tab duplicated.</div>'); return; }
+        if (action === "close" && id && typeof T.closeTab === "function") { T.closeTab(id); finish('<div class="api-meta">Tab closed.</div>'); return; }
+        if (action === "duplicate" && activeTabId && typeof T.duplicateTab === "function") { T.duplicateTab(activeTabId); finish('<div class="api-meta">Tab duplicated.</div>'); return; }
         if (action === "pin" && activeTabId && typeof T.pinTab === "function") {
           var cur = typeof T.getTab === "function" ? T.getTab(activeTabId) : null;
-          T.pinTab(activeTabId, !(cur && cur.pinned)); finish(tabStripHtml(lastQuery, lastSource) + '<div class="api-meta">Tab pin toggled.</div>'); return;
+          T.pinTab(activeTabId, !(cur && cur.pinned)); finish('<div class="api-meta">Tab pin toggled.</div>'); return;
         }
+        // Rename opens an inline editor in the workspace (no native
+        // prompt(): it is suppressed in some browsers/PWAs, and a
+        // suppressed prompt made the button look dead with no feedback).
+        // The row is rendered through finish() so the header + strip
+        // appear exactly once and the footer buttons stay wired.
         if (action === "rename" && activeTabId && typeof T.renameTab === "function") {
-          var name = (typeof prompt === "function") ? prompt("Rename tab:", "") : null;
-          if (name) { T.renameTab(activeTabId, name); finish(tabStripHtml(lastQuery, lastSource) + '<div class="api-meta">Tab renamed.</div>'); }
+          finish(renameRowHtml());
+          var ri = document.getElementById("global-search-rename-input");
+          if (ri) { ri.focus(); if (typeof ri.select === "function") ri.select(); }
           return;
         }
+        if (action === "rename" && (!activeTabId || typeof T.renameTab !== "function")) {
+          finish('<div class="api-meta">No active tab to rename.</div>');
+          return;
+        }
+        if (action === "rename-save" && activeTabId && typeof T.renameTab === "function") {
+          var ri2 = document.getElementById("global-search-rename-input");
+          var name2 = ri2 ? String(ri2.value || "").trim() : "";
+          if (!name2) { setSaveStatus("Enter a tab name first."); return; }
+          if (T.renameTab(activeTabId, name2)) {
+            renamedTabIds[activeTabId] = true;
+            finish('<div class="api-meta">Tab renamed.</div>');
+          } else {
+            finish('<div class="api-meta">Could not rename that tab.</div>');
+          }
+          return;
+        }
+        if (action === "rename-cancel") { finish('<div class="api-meta">Rename cancelled.</div>'); return; }
         if ((action === "move-left" || action === "move-right") && activeTabId && typeof T.moveTab === "function") {
-          T.moveTab(activeTabId, action === "move-left" ? -1 : 1); finish(tabStripHtml(lastQuery, lastSource) + '<div class="api-meta">Tab moved.</div>'); return;
+          T.moveTab(activeTabId, action === "move-left" ? -1 : 1); finish('<div class="api-meta">Tab moved.</div>'); return;
         }
         if (action === "close-others" && activeTabId && typeof T.closeOthers === "function") {
-          T.closeOthers(activeTabId); finish(tabStripHtml(lastQuery, lastSource) + '<div class="api-meta">Other tabs closed.</div>'); return;
+          T.closeOthers(activeTabId); finish('<div class="api-meta">Other tabs closed.</div>'); return;
         }
         if (action === "restore" && typeof T.listClosed === "function" && typeof T.restoreClosed === "function") {
           var closed = T.listClosed() || [];
+          var restoredFrom = closed.length ? tabIdOf(closed[0]) : null;
           if (closed.length) T.restoreClosed(tabIdOf(closed[0]));
-          finish(tabStripHtml(lastQuery, lastSource) + '<div class="api-meta">' + (closed.length ? "Tab restored." : "Nothing recently closed.") + "</div>");
+          // A restored tab gets a new tabId: carry a rename forward so
+          // the next search does not overwrite its custom title.
+          if (restoredFrom && renamedTabIds[restoredFrom]) {
+            try {
+              var ga2 = typeof T.getActiveTab === "function" ? T.getActiveTab() : null;
+              if (ga2 && tabIdOf(ga2)) renamedTabIds[tabIdOf(ga2)] = true;
+            } catch (e2) {}
+          }
+          finish('<div class="api-meta">' + (closed.length ? "Tab restored." : "Nothing recently closed.") + "</div>");
           return;
         }
       } catch (e) {}
@@ -978,6 +1068,13 @@
       }
     }
     if (results && typeof results.addEventListener === "function") results.addEventListener("click", resultsClick);
+    // The source menu is a sibling of the results panel, not inside
+    // it, so its data-source-pick buttons never bubbled to
+    // resultsClick and menu clicks were dead while the combobox
+    // worked. Delegate the same handler on the menu itself
+    // (delegation survives renderSourceMenu() replacing innerHTML
+    // on every open; per-button listeners would not).
+    if (sourceMenu && typeof sourceMenu.addEventListener === "function") sourceMenu.addEventListener("click", resultsClick);
     if (select) select.addEventListener("change", function () { updateSourceChip(); toggleWebProvider(); });
     if (webProviderSelect) webProviderSelect.addEventListener("change", function () {
       lastProvider = webProviderSelect.value || lastProvider;
@@ -1140,11 +1237,26 @@
         return (items || []).filter(function (it) { return !seen[it.id]; });
       }
 
+      // "This app" searches the local app: vault notes, tasks,
+      // projects, expenses AND the local Crypto World encyclopedia
+      // (imported records, no prices, no network) — the same real
+      // entries AUTO shows. The old branch searched only the four
+      // user-data stores, so "bitcoin" (an encyclopedia topic, not a
+      // vault note) returned nothing; and `head + section(...) || ...`
+      // could never reach its fallback because `head` alone is
+      // truthy, so even the "Nothing found" message never appeared.
       if (picked.mode === "app") {
-        searchAppData(query, lower).then(function (items) {
-          finish(head + section("In this app", items, function (it) {
+        Promise.all([searchAppData(query, lower), encyclopediaItems(query), searchCryptoWorld(query)]).then(function (parts) {
+          var items = parts[0], encItems = parts[1], cryptoItems = parts[2] || [];
+          var body = section("In this app", items, function (it) {
             return '<li><a href="#/' + it.route + '" class="global-result-link" data-hide="1">' + esc(it.title) + '</a> · ' + esc(it.kind) + acts(it.title, "#/" + it.route, "MANUAL SEARCH", it.title) + '</li>';
-          }, { origin: "MANUAL SEARCH" }) || head + "<div class=\"api-meta\">Nothing found in the app for “" + esc(query) + "”.</div>");
+          }, { origin: "MANUAL SEARCH" });
+          if (encItems === null) {
+            body += '<div class="api-meta">Encyclopedia data did not load.</div>';
+          } else {
+            body += cryptoSection(cryptoItems) + encyclopediaSection(dedupeEnc(encItems, cryptoItems));
+          }
+          finish(head + (body || '<div class="api-meta">Nothing found in the app for “' + esc(query) + '”.</div>'));
         });
         return;
       }
@@ -1181,9 +1293,12 @@
       if (picked.mode === "knowledge") {
         var hits = [];
         try { hits = global.KnowledgeScout ? global.KnowledgeScout.searchKnowledge(query) : []; } catch (e) { hits = []; }
-        finish(head + section("Saved bot knowledge", hits, function (e) {
+        // Same precedence fix as the app branch: `head + section(...)`
+        // is truthy even when the section is empty, so the old `||`
+        // fallback could never fire.
+        finish(head + (section("Saved bot knowledge", hits, function (e) {
           return "<li>“" + esc(e.topic) + "” · " + esc(e.source) + " · saved " + esc(String(e.fetchedAt || "").slice(0, 10)) + acts(e.topic, e.url || "", "SAVED KNOWLEDGE", e.text || "") + "</li>";
-        }, { origin: "SAVED KNOWLEDGE" }) || head + "<div class=\"api-meta\">No saved bot knowledge matched. Scrape and save a page on this topic in the Scouts panel first.</div>");
+        }, { origin: "SAVED KNOWLEDGE" }) || "<div class=\"api-meta\">No saved bot knowledge matched. Scrape and save a page on this topic in the Scouts panel first.</div>"));
         return;
       }
       if (picked.mode === "encyclopedia") {

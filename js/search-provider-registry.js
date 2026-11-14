@@ -304,7 +304,8 @@
             sourceState("encyclopedia") === "AVAILABLE" ||
             sourceState("page") === "AVAILABLE") ? "AVAILABLE" : "NOT_CONNECTED";
         case "app":
-          // This app: IndexedDB via CockpitDB.getAll (global-search.js).
+          // This app: IndexedDB via CockpitDB.getAll (global-search.js),
+          // plus the local Crypto World encyclopedia (imported records).
           return (layerPresent("CockpitDB") && typeof global.CockpitDB.getAll === "function")
             ? "AVAILABLE" : "NOT_CONNECTED";
         case "web":

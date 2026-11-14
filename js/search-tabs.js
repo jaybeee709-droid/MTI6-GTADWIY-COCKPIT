@@ -224,7 +224,7 @@
       navigationType: navigationType,
       currentUrl: safeCurrentUrl(opts.currentUrl),
       history: [],
-      pinned: false,
+      pinned: opts.pinned === true,
       temporary: opts.temporary === true ? true : session.temporary,
       status: "active"
     };
@@ -437,7 +437,8 @@
       sessionId: original.sessionId,
       navigationType: original.navigationType,
       currentUrl: original.currentUrl,
-      temporary: original.temporary
+      temporary: original.temporary,
+      pinned: original.pinned
     }, original.navigationType);
     if (!copy) return null;
     copy.history = cloneHistory(original.history);
@@ -541,7 +542,8 @@
       sessionId: closed.sessionId,
       navigationType: "restored",
       currentUrl: closed.currentUrl,
-      temporary: closed.temporary
+      temporary: closed.temporary,
+      pinned: closed.pinned
     }, "restored");
     if (!restored) return null;
     restored.history = cloneHistory(closed.history);
