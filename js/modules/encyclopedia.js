@@ -89,6 +89,25 @@
       if (storeNote) root.appendChild(U.el("div", { class: "api-meta" }, storeNote));
     }
 
+    // Back navigation goes through the router (location.hash), so the URL
+    // always matches the view — Back from a routed detail (#/encyclopedia/<id>)
+    // resets the hash to #/encyclopedia instead of leaving the entry hash
+    // on an index view. Setting the hash to its current value fires no
+    // hashchange, so when the detail was opened in-page (hash already
+    // "#/encyclopedia") the target view is rendered in place instead.
+    function currentHashPath() {
+      return (location.hash || "").replace(/^#\/?/, "");
+    }
+    function goIndex() {
+      if (currentHashPath() !== "encyclopedia") location.hash = "#/encyclopedia";
+      else showIndex();
+    }
+    function goDetail(id) {
+      var target = "encyclopedia/" + encodeURIComponent(id);
+      if (currentHashPath() !== target) location.hash = "#/" + target;
+      else showDetail(id, { view: "index" });
+    }
+
     function showIndex() {
       root.innerHTML = "";
       header();
@@ -220,7 +239,7 @@
     function showList(registry) {
       root.innerHTML = "";
       header();
-      root.appendChild(backBtn("← Back to index", showIndex));
+      root.appendChild(backBtn("← Back to index", goIndex));
       var entries = CW ? CW.entriesByRegistry(records, registry) : [];
       var kids = [U.el("div", { class: "api-meta" }, entries.length + (entries.length === 1 ? " entry." : " entries."))];
       if (registry === "ways") {
@@ -247,7 +266,9 @@
       root.innerHTML = "";
       header();
       root.appendChild(backBtn("← Back", function () {
-        if (prev && prev.view === "list") showList(prev.registry); else showIndex();
+        if (prev && prev.view === "list") showList(prev.registry);
+        else if (prev && prev.view === "detail" && prev.id) goDetail(prev.id);
+        else goIndex();
       }));
       var entry = CW ? CW.getEntry(records, id) : null;
       if (!entry || !CW.isEntry(entry)) {

@@ -27,16 +27,59 @@
     { type: "spend_chart", order: 4 }
   ];
 
+  // Seeding guard: the check-then-act in ensureDefaultWidgets spans
+  // awaits, so two overlapping dashboard renders (rapid navigation, or
+  // two tabs sharing one IndexedDB) could both see an empty store and
+  // each seed a full default set — every widget twice, same type and
+  // order, distinct ids. Concurrent callers share one seeding pass.
+  // (A second tab can still double-seed in principle; the render-time
+  // dedupe below heals that too, so it stays invisible.)
+  let seedingWidgets = null;
+
   async function ensureDefaultWidgets() {
     const existing = await CockpitDB.getAll("widgets");
     if (existing.length) return existing;
-    const seeded = [];
-    for (const w of DEFAULT_WIDGETS) {
-      const record = { id: CockpitDB.uuid(), type: w.type, order: w.order, title: "" };
-      await CockpitDB.put("widgets", record);
-      seeded.push(record);
+    if (seedingWidgets) return seedingWidgets;
+    seedingWidgets = (async () => {
+      // Re-check inside the shared pass: another caller may have
+      // seeded already while this call was awaiting getAll.
+      const rechecked = await CockpitDB.getAll("widgets");
+      if (rechecked.length) return rechecked;
+      const seeded = [];
+      for (const w of DEFAULT_WIDGETS) {
+        const record = { id: CockpitDB.uuid(), type: w.type, order: w.order, title: "" };
+        await CockpitDB.put("widgets", record);
+        seeded.push(record);
+      }
+      return seeded;
+    })();
+    try {
+      return await seedingWidgets;
+    } finally {
+      seedingWidgets = null;
     }
-    return seeded;
+  }
+
+  // A store that already holds duplicate default records (same type,
+  // order, and title — the fingerprint of a double seed) renders each
+  // widget twice. Collapse exact duplicates at read time and delete
+  // the extras, so a polluted store heals itself on the next visit.
+  // User-added widgets always get a fresh max+1 order, so two
+  // legitimate widgets of one type never share (type, order) and are
+  // never collapsed.
+  async function dedupeWidgets(widgets) {
+    const seen = new Map();
+    const keep = [];
+    const extras = [];
+    for (const w of widgets) {
+      const key = w.type + "|" + (w.order || 0) + "|" + (w.title || "");
+      if (seen.has(key)) extras.push(w);
+      else { seen.set(key, w); keep.push(w); }
+    }
+    for (const w of extras) {
+      try { await CockpitDB.delete("widgets", w.id); } catch (e) {}
+    }
+    return keep;
   }
 
   async function render(root) {
@@ -49,6 +92,7 @@
       CockpitDB.getAll("activity")
     ]);
     let widgets = await ensureDefaultWidgets();
+    widgets = await dedupeWidgets(widgets);
     widgets = widgets.slice().sort((a, b) => (a.order || 0) - (b.order || 0));
 
     const data = { notes, tasks, expenses, projects, milestones };
