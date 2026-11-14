@@ -127,6 +127,48 @@
       setStatus("thinking");
       var routed = global.StarRouter.route(text);
       var context = { summaryHint: global.StarState.getSummaryHint(), routed: routed };
+      // StarCommand (Priorities 2 + 3): fail-closed command layer. It
+      // runs before the scouts and the demo backend, but it never steals
+      // a question the read-only scouts can answer: price questions stay
+      // with PriceScout, and GitHub-activity / news questions stay with
+      // KnowledgeScout. Approval-required and transactional requests are
+      // always intercepted — buying, selling, deploying, or delegating
+      // is never a price question, even when the text names a coin.
+      // General conversation (no command shape) falls through to the
+      // existing flow unchanged.
+      var starCmd = null;
+      if (global.StarCommand && typeof global.StarCommand.parseCommand === "function") {
+        try { starCmd = global.StarCommand.parseCommand(text); } catch (e) { starCmd = null; }
+      }
+      var blocksExecution = !!starCmd && (starCmd.intent === "APPROVAL_REQUIRED" ||
+        starCmd.permission === "TRANSACTIONAL" || starCmd.resultState === "NEEDS_REVIEW");
+      var priceQuestion = routed.bot === "prices" && global.PriceScout && typeof global.PriceScout.answer === "function";
+      var scoutQuestion = (routed.bot === "activity" || routed.bot === "news") && !!global.KnowledgeScout;
+      var executableCmd = !!starCmd && (starCmd.intent === "NAVIGATION" || starCmd.intent === "OPEN" ||
+        starCmd.intent === "SEARCH" || starCmd.intent === "KNOWLEDGE" || starCmd.intent === "EXPLAIN" ||
+        starCmd.intent === "STATUS");
+      var commandAttempt = !!starCmd && starCmd.intent === "UNAVAILABLE" && starCmd.errorState === "unknown command" &&
+        /^(go|open|show|search|find|buy|sell|trade|swap|deploy|delegate|assign|create|run|set|start|do|make)\b/i.test(text.trim());
+      if (starCmd && (blocksExecution || commandAttempt || (executableCmd && !priceQuestion && !scoutQuestion))) {
+        var cmdResult = null;
+        try { cmdResult = global.StarCommand.execute(starCmd); } catch (e) { cmdResult = null; }
+        var finishStarCommand = function (r) {
+          var reply = (r && r.message) ? r.message : "Star command: that could not be run, and nothing was changed.";
+          if (r && r.resultState === "APPROVAL_REQUIRED") {
+            var notice = global.StarRouter.approvalNotice(routed);
+            if (notice) reply += notice;
+          }
+          if (reply) global.StarState.addMessage("star", reply);
+          renderMessages();
+          setStatus("ready");
+        };
+        if (cmdResult && typeof cmdResult.then === "function") {
+          cmdResult.then(function (r) { finishStarCommand(r); }).catch(function () { finishStarCommand(null); });
+        } else {
+          finishStarCommand(cmdResult);
+        }
+        return;
+      }
       // Price questions are read-only, so they go to PriceScout first
       // instead of the generic demo backend — a live crypto price, a
       // stock not-connected status, or a price help answer, always
