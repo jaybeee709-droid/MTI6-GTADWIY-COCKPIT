@@ -31,6 +31,18 @@
 
   const ROUTE_RENDER_TIMEOUT_MS = 10000;
 
+  // Render generation (Fix-up #3, defect A): hashchange navigation and
+  // "Try again" can start a new renderRoute while an earlier one is
+  // still awaiting its module (slow IndexedDB read, slow panel). The
+  // earlier render's timeout or catch must not wipe the newer render's
+  // finished screen with a stale error panel — that made "Try again"
+  // look dead: the retry could succeed and still be replaced by the
+  // first render's late error. Only the latest generation may write
+  // the error/timeout panel, dispatch route-rendered, or clear
+  // aria-busy; a stale render logs its error and otherwise does
+  // nothing to the DOM.
+  let renderGeneration = 0;
+
   function rawHash() {
     return (location.hash || "#/globe").replace(/^#\/?/, "");
   }
@@ -211,6 +223,7 @@
     // in-flow, so this is a visual no-op there).
     closeMobileNav();
     const route = currentRoute();
+    const myGeneration = ++renderGeneration;
     const root = document.getElementById("view-root");
 
     if (!route) {
@@ -228,7 +241,7 @@
 
     let settled = false;
     const timeout = setTimeout(() => {
-      if (settled) return;
+      if (settled || myGeneration !== renderGeneration) return;
       root.innerHTML = "";
       root.appendChild(
         U.errorPanel({
@@ -244,13 +257,33 @@
       await CockpitModules[route].render(root);
       settled = true;
       clearTimeout(timeout);
+      // Fix-up #3, defect C safety net: the router appends a skeleton
+      // while loading and relies on each module to clear root before
+      // appending content. Four more modules (accounts, crypto, earn,
+      // web) never clear root, so a leftover skeleton would persist
+      // above their content. Remove any leftover skeleton after a
+      // successful render — belt-and-braces alongside the module clears
+      // in analytics.js/security.js. Generation-guarded like the
+      // dispatch below: a stale render must not touch the newer
+      // render's screen.
+      if (myGeneration === renderGeneration && root.querySelectorAll) {
+        var leftovers = root.querySelectorAll(".skeleton-view");
+        for (var s = 0; s < leftovers.length; s++) leftovers[s].remove();
+      }
       // Lets a caller (e.g. the Dashboard's Quick Actions) act the instant a
       // module has finished rendering after a hash navigation it triggered.
-      window.dispatchEvent(new CustomEvent("cockpit:route-rendered", { detail: { route } }));
+      // Only the latest generation dispatches: a stale render finishing
+      // after a newer navigation must not fire for the old route.
+      if (myGeneration === renderGeneration) {
+        window.dispatchEvent(new CustomEvent("cockpit:route-rendered", { detail: { route } }));
+      }
     } catch (err) {
       settled = true;
       clearTimeout(timeout);
       console.error(err);
+      // A stale render's failure must not wipe the newer render's
+      // finished screen (see renderGeneration above).
+      if (myGeneration !== renderGeneration) return;
       root.innerHTML = "";
       root.appendChild(
         U.errorPanel({
@@ -261,7 +294,7 @@
         })
       );
     }
-    root.setAttribute("aria-busy", "false");
+    if (myGeneration === renderGeneration) root.setAttribute("aria-busy", "false");
   }
 
   function notFoundPanel() {

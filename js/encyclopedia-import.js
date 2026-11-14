@@ -129,6 +129,21 @@
     return list;
   }
 
+  // ---- Single-flight guard (Fix-up #3, defect B) ----
+  // importAll is called from TWO places: fire-and-forget at boot
+  // (js/app.js:343-344) and awaited on every encyclopedia screen render
+  // (js/modules/encyclopedia.js:60-61). Without a guard those two calls
+  // run as two interleaved full import sequences (~1656 puts for one
+  // boot + one visit) with two divergent summaries. The interleaving
+  // does not corrupt a healthy store — puts are idempotent by id and
+  // every batch re-reads the store before validating — but it doubles
+  // the write storm and makes the outcome non-deterministic, so
+  // concurrent callers now share ONE in-flight run and receive the same
+  // summary. The guard clears when the run settles, so a later call
+  // (next visit, after a failure) starts a fresh run and can self-heal.
+  var importAllInFlight = null;
+  function clearInFlight() { importAllInFlight = null; }
+
   // Family ids known from the store (imported Batch A families) plus the
   // Batch A data file when it is loaded. Used only to validate a
   // canonical-60 record's primaryFamily / relatedFamilies.
@@ -382,6 +397,11 @@
         existing.push(d.rec);
         out.imported++;
       } catch (e) {
+        // A write failure is NOT a gate verdict: it means the store
+        // could not be written, and the summary must say so (defect B).
+        out.writeFailed++;
+        out.failed = true;
+        if (!out.writeError) out.writeError = "Store write failed: " + (e && e.message ? e.message : String(e));
         out.rejected.push({ id: d.rec.id, reasons: ["Store write failed: " + (e && e.message ? e.message : String(e))] });
       }
     }
@@ -398,11 +418,21 @@
     return global.CockpitDB || null;
   }
 
+  // Read the store WITHOUT swallowing a read failure (Fix-up #3,
+  // defect B). CryptoWorld.getAllRecords() catches read errors and
+  // returns [] — an unreadable store then looks exactly like an empty
+  // one, and the Batch B gate evaluated against that phantom-empty
+  // snapshot reports the misleading "356 records failed the
+  // parent-integrity gate" (the live v37 symptom). CockpitDB.getAll
+  // propagates the rejection, so it is the read path here; a failure
+  // now throws to the caller, which records it instead of validating
+  // against []. Falls back to CryptoWorld.getAllRecords only when
+  // CockpitDB is not available at all.
   function readStore() {
-    var CW = global.CryptoWorld;
-    if (CW && typeof CW.getAllRecords === "function") return CW.getAllRecords();
     var d = db();
     if (d && typeof d.getAll === "function") return d.getAll("cryptoWorld");
+    var CW = global.CryptoWorld;
+    if (CW && typeof CW.getAllRecords === "function") return CW.getAllRecords();
     return Promise.resolve([]);
   }
 
@@ -444,12 +474,21 @@
   // per-record skip-and-report loop used by Batch A / canonical-60.
   async function importBatch(batch) {
     var out = { batch: batch.batch, label: batch.label || batch.batch,
-      total: batch.records.length, imported: 0, alreadyPresent: 0, corrected: 0, rejected: [] };
+      total: batch.records.length, imported: 0, alreadyPresent: 0, corrected: 0, rejected: [],
+      failed: false, readError: null, writeFailed: 0, writeError: null, error: null };
     var existing;
     try {
       existing = await readStore();
     } catch (e) {
-      existing = [];
+      // The store could not be read: fail this batch WITHOUT evaluating
+      // any gate against a phantom-empty snapshot and WITHOUT attempting
+      // blind writes. Nothing here may claim the Batch B gate failed (or
+      // that the store is empty) when the store was never observed. The
+      // next importAll run (next boot / next visit) retries from scratch
+      // and self-heals once the store is readable again.
+      out.failed = true;
+      out.readError = e && e.message ? e.message : String(e);
+      return out;
     }
     var CW = global.CryptoWorld;
     if (batch.kind === "batch-b") {
@@ -475,35 +514,112 @@
         existing.push(rec);
         out.imported++;
       } catch (e) {
+        // A write failure is NOT a validation rejection: the record was
+        // valid, the store could not take it. Count it separately so the
+        // summary (and the screen) can say the store could not be
+        // written instead of silently reporting empty registries.
+        out.writeFailed++;
+        out.failed = true;
+        if (!out.writeError) out.writeError = "Store write failed: " + (e && e.message ? e.message : String(e));
         out.rejected.push({ id: rec.id, reasons: ["Store write failed: " + (e && e.message ? e.message : String(e))] });
       }
     }
     return out;
   }
 
-  async function importAll() {
-    var summary = { imported: 0, alreadyPresent: 0, corrected: 0, rejected: [], batches: [] };
-    var list = batches();
-    for (var i = 0; i < list.length; i++) {
-      var one = await importBatch(list[i]);
-      summary.batches.push(one);
-      summary.imported += one.imported;
-      summary.alreadyPresent += one.alreadyPresent;
-      summary.corrected += one.corrected || 0;
-      summary.rejected = summary.rejected.concat(one.rejected);
+  // One import run. Never rejects for bad records or a bad store: the
+  // failure is carried on the summary (failed / readFailed /
+  // writeFailed / error) so every caller — including the fire-and-forget
+  // boot call, whose return value is otherwise ignored — can be reported
+  // by a visible surface. A batch that throws unexpectedly must not
+  // abort the remaining batches: it is recorded as failed and the run
+  // continues, so a failure in Batch A can never silently skip the
+  // canonical 60 or Batch B. The Batch B gate itself is unchanged: a
+  // genuine gate block (blocked, no read/write failure behind it) is
+  // still a gate verdict, not an import failure. But when Batch B is
+  // blocked BECAUSE an earlier batch failed to land its parents, the
+  // summary says so explicitly — the 356-style block in that case is a
+  // consequence of the failed import, not a problem with the Batch B data.
+  async function runImportAll() {
+    var summary = { imported: 0, alreadyPresent: 0, corrected: 0, rejected: [], batches: [],
+      failed: false, readFailed: false, writeFailed: 0, error: null };
+    try {
+      var list = batches();
+      for (var i = 0; i < list.length; i++) {
+        var one;
+        try {
+          one = await importBatch(list[i]);
+        } catch (e) {
+          one = { batch: list[i].batch, label: list[i].label || list[i].batch,
+            total: (list[i].records || []).length, imported: 0, alreadyPresent: 0, corrected: 0, rejected: [],
+            failed: true, readError: null, writeFailed: 0, writeError: null,
+            error: "Import failed: " + (e && e.message ? e.message : String(e)) };
+        }
+        summary.batches.push(one);
+        summary.imported += one.imported;
+        summary.alreadyPresent += one.alreadyPresent;
+        summary.corrected += one.corrected || 0;
+        summary.rejected = summary.rejected.concat(one.rejected);
+        if (one.readError) summary.readFailed = true;
+        summary.writeFailed += one.writeFailed || 0;
+        if (one.failed) summary.failed = true;
+      }
+      try { await syncTaxonomyMeta(); } catch (e) {}
+    } catch (e) {
+      summary.failed = true;
+      summary.error = "Import failed: " + (e && e.message ? e.message : String(e));
+      return summary;
     }
-    try { await syncTaxonomyMeta(); } catch (e) {}
+    if (summary.failed) {
+      var parts = [];
+      summary.batches.forEach(function (b) {
+        if (b.readError) {
+          parts.push(b.label + ": could not read the local store (" + b.readError + ").");
+        } else if (b.writeFailed) {
+          parts.push(b.label + ": " + b.writeFailed + " record(s) could not be written to the local store (" + (b.writeError || "store write failed") + ").");
+        } else if (b.failed && b.error) {
+          parts.push(b.label + ": " + b.error);
+        }
+      });
+      var bBlocked = summary.batches.some(function (b) { return b.blocked; });
+      var earlierFailed = summary.batches.some(function (b, idx) {
+        return b.failed && summary.batches.slice(idx + 1).some(function (later) { return later.blocked; });
+      });
+      if (bBlocked && earlierFailed) {
+        parts.push("Batch B was blocked as a consequence of the failed import — its parent records were never written, so the parent-integrity gate could not pass. This is not a problem with the Batch B data.");
+      }
+      summary.error = parts.join(" ");
+    }
     return summary;
+  }
+
+  function importAll() {
+    if (importAllInFlight) return importAllInFlight;
+    importAllInFlight = runImportAll();
+    importAllInFlight.then(clearInFlight, clearInFlight);
+    return importAllInFlight;
   }
 
   // Live report for the encyclopedia panel: no writes, derived from the
   // batch data plus the current store contents.
   async function report() {
     var existing;
+    var storeError = null;
     try {
       existing = await readStore();
     } catch (e) {
-      existing = [];
+      // The store could not be read: report THAT, not a gate verdict.
+      // Deriving "Batch B blocked: 356" from an unread store was the
+      // live v37 misdiagnosis — the gate never saw the store at all.
+      storeError = e && e.message ? e.message : String(e);
+      var failed = batches().map(function (batch) {
+        return { batch: batch.batch, label: batch.label || batch.batch,
+          total: batch.records.length, imported: 0, pending: 0, rejected: [],
+          correctionsPending: 0, blocked: false, storeReadFailed: true, storeError: storeError };
+      });
+      failed.storeReadFailed = true;
+      failed.storeError = storeError;
+      return failed;
     }
     var CW = global.CryptoWorld;
     return batches().map(function (batch) {
