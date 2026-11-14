@@ -2534,6 +2534,12 @@ html, body { overflow-x: hidden; }
 #global-search-web-provider { height: 44px; border-radius: 10px; border: 1px solid var(--border, #ddd); padding: 0 8px; font-size: 15px; background: var(--surface, #fff); color: inherit; flex: 0 1 auto; min-width: 0; max-width: 160px; }
 #global-search-new-tab, #global-search-star-btn { flex: none; min-width: 44px; height: 44px; }
 #global-search-source-btn { flex: none; height: 44px; white-space: nowrap; }
+/* The compact source button is the ≤640px replacement for the
+ * select (see the media query below); above that width it stays
+ * hidden. There is no generic .hidden rule, so this scoped rule
+ * does the hiding — without it the button showed at desktop too,
+ * next to the select it duplicates. */
+#global-search-source-btn.hidden { display: none; }
 #global-search-source-menu { position: fixed; z-index: 85; left: 12px; top: 168px; background: #0b0f14; border: 1px solid #1c2530; border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 4px; max-width: calc(100vw - 24px); }
 #global-search-source-menu.hidden { display: none; }
 #global-search-source-menu button { text-align: left; background: transparent; border: 1px solid transparent; border-radius: 8px; color: #e5e7eb; padding: 8px 10px; font-size: 15px; }
@@ -2552,6 +2558,8 @@ html, body { overflow-x: hidden; }
 .search-tabs-menu { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .search-tabs-menu.hidden { display: none; }
 .search-tabs-menu button { background: #0b0f14; border: 1px solid #1c2530; color: #e5e7eb; border-radius: 8px; padding: 6px 10px; font-size: 14px; }
+.search-rename-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 14px; color: #e5e7eb; }
+.search-rename-row input { flex: 1 1 160px; min-width: 0; background: #0b0f14; border: 1px solid #1c2530; color: #e5e7eb; border-radius: 8px; padding: 6px 10px; font-size: 14px; }
 .search-origin { font-size: 11px; font-weight: 700; letter-spacing: 0.05em; color: #38bdf8; border: 1px solid #155e75; border-radius: 999px; padding: 1px 7px; margin-left: 6px; white-space: nowrap; }
 .wallet-warning { display: inline-block; font-size: 12px; font-weight: 700; color: #fbbf24; border: 1px solid #713f12; border-radius: 8px; padding: 2px 8px; margin-left: 6px; }
 .search-freshness { font-size: 13px; color: #9ca3af; margin: 8px 0; }
@@ -2567,7 +2575,7 @@ html, body { overflow-x: hidden; }
 @media (max-width: 640px) {
   #global-search-source { display: none; max-width: none; }
   #global-search-source-state { display: none; }
-  #global-search-source-btn { display: inline-block; }
+  #global-search-source-btn.hidden { display: inline-block; }
   #global-search-web-provider { flex: 1 1 100%; max-width: none; }
   #global-search-results { left: 12px; right: 12px; overflow-x: hidden; }
   #global-search-wrap { overflow-x: hidden; }
