@@ -2231,3 +2231,238 @@ html, body { overflow-x: hidden; }
 .globe-mode-intelligence .globe-mode-note {
   color: var(--violet);
 }
+
+/* =====================================================================
+   Visual Build Stage 2 (§120): Globe / Crypto World / Wallets /
+   Bot Ops HUD / Angel Security. Every class below is used by a Stage 2
+   worker; nothing here restyles Analytics or the Master Shell.
+   Tokens only — no new colour literals outside the --mti6-* aliases.
+   ===================================================================== */
+
+/* ---- Status badge (§25): variants the Stage 2 states can produce ---- */
+/* Data / connection states: not an error, muted. */
+.mti6-badge--not-loaded,
+.mti6-badge--no-data,
+.mti6-badge--disconnected,
+.mti6-badge--discovered { color: var(--mti6-text-muted); border-color: var(--mti6-text-muted); }
+/* Healthy-empty: zero alerts / fresh data is verified-healthy, green. */
+.mti6-badge--no-alerts,
+.mti6-badge--fresh { color: var(--mti6-green-verified); border-color: var(--mti6-green-verified); }
+/* Capability: watch-only reads like read-only (muted); account access
+   and signing capability are live capabilities (electric blue). */
+.mti6-badge--watch-only { color: var(--mti6-text-muted); border-color: var(--mti6-text-muted); }
+.mti6-badge--account-accessed,
+.mti6-badge--signing { color: var(--mti6-blue-electric); border-color: var(--mti6-blue-electric); }
+/* Security / caution. */
+.mti6-badge--security-hold { color: var(--mti6-red-alarm); border-color: var(--mti6-red-alarm); }
+.mti6-badge--aging,
+.mti6-badge--transaction-approved { color: var(--mti6-yellow-caution); border-color: var(--mti6-yellow-caution); }
+.mti6-badge--post-incident-review { color: var(--mti6-green-verified); border-color: var(--mti6-green-verified); }
+
+/* ---- Metric (§24): base layout; sentence values take the text variant ---- */
+.mti6-metric { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
+.mti6-metric__value--text {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  font-variant-numeric: normal;
+}
+
+/* ---- Tabs (§41-44, §32-39): one tab system for Globe modes/layers and
+   Crypto World views. Colour + active state, never colour alone. ---- */
+.mti6-tabs { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.mti6-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--mti6-border);
+  background: transparent;
+  color: var(--mti6-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mti6-tab:hover { border-color: var(--mti6-border-active); color: var(--mti6-text-primary); }
+.mti6-tab--active {
+  background: var(--mti6-blue-electric);
+  border-color: var(--mti6-blue-electric);
+  color: #04131a;
+}
+/* A state badge inside the active tab reads dark-on-electric, so the
+   state text stays legible instead of clashing with the tab fill. */
+.mti6-tab--active .mti6-badge { color: #04131a; border-color: rgba(4, 19, 26, 0.55); }
+/* Light theme: the electric fill darkens to #0077a6, so the active tab
+   takes white text (5.01:1) — the dark text would fail AA at 3.76:1. */
+:root[data-theme="light"] .mti6-tab--active { color: #ffffff; }
+:root[data-theme="light"] .mti6-tab--active .mti6-badge { color: #ffffff; border-color: rgba(255, 255, 255, 0.6); }
+
+/* ---- World Globe (§32-39): the stage dominates; the 2D visual shell
+   is honest black/navy with a cyan outline, never a fake 3D terrain. ---- */
+.globe-stage {
+  background: var(--mti6-bg-void);
+  border: 1px solid var(--mti6-border);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+.globe-visual {
+  position: relative;
+  min-height: 320px;
+  padding: 14px;
+  border: 1px solid var(--mti6-border-active);
+  border-radius: 12px;
+  background: var(--mti6-bg-black);
+  /* The visual stays black in both themes (electric-command identity),
+     so its text stays the dark-theme light value in both themes —
+     the light-theme text colour on black would fail WCAG AA. */
+  color: #eaf2fb;
+  overflow: hidden;
+  transform-origin: center center;
+}
+.globe-visual.globe-mode-terrain { background: var(--mti6-bg-navy); }
+.globe-visual.globe-mode-intelligence { border-color: var(--mti6-purple-ai); }
+.globe-visual.globe-mode-boundaries { border-color: var(--mti6-silver-dark); }
+.globe-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.globe-controls--layers { flex-direction: column; align-items: stretch; }
+.globe-controls__heading { margin: 0; font-size: 14px; color: var(--mti6-text-primary); }
+.globe-side-panel {
+  display: none;
+  border: 1px solid var(--mti6-border);
+  border-radius: 12px;
+  background: var(--mti6-bg-panel);
+  padding: 12px;
+}
+.globe-side-panel--open { display: block; }
+@media (min-width: 768px) {
+  .globe-visual { min-height: 420px; }
+}
+@media (min-width: 1200px) {
+  .globe-visual { min-height: 480px; }
+}
+
+/* ---- Crypto World (§41-44): breadcrumbs, chips, filter input -------- */
+.mti6-breadcrumb {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 8px 0;
+  font-size: 14px;
+  color: var(--mti6-text-secondary);
+}
+.mti6-breadcrumb__sep { color: var(--mti6-text-muted); }
+.mti6-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid var(--mti6-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--mti6-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+/* The Activities filter lives in a flex .price-input-row: it grows to
+   fill the row instead of truncating its placeholder. Themed like
+   .input (it does not carry that class). */
+.cw-filter-input {
+  flex: 1 1 280px;
+  min-width: 0;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  color: var(--text-0);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+/* ---- Wallet Command Center (§49-53): cards, watch-only, hold -------- */
+.wallet-card {
+  background: var(--mti6-bg-panel);
+  border: 1px solid var(--mti6-border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin: 12px 0;
+}
+/* Watch-only / read-only: dashed border — restricted by design, not broken. */
+.wallet-card--watch-only { border-style: dashed; }
+/* Security hold: clear red frame; what is blocked is in the card text. */
+.wallet-card--security-hold { border-color: var(--mti6-red-alarm); border-left-width: 4px; }
+.wallet-card__addr {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+/* ---- Bot Operations HUD (§59-68): dark AI identity, purple sparingly ---- */
+.botops-hud { display: grid; gap: 12px; grid-template-columns: 1fr; margin: 12px 0; }
+.botops-hud .mti6-card { margin: 0; }
+@media (min-width: 640px) {
+  .botops-hud { grid-template-columns: repeat(2, 1fr); }
+}
+@media (min-width: 1024px) {
+  .botops-hud { grid-template-columns: repeat(3, 1fr); }
+}
+.principal-card { text-align: start; }
+.principal-card__avatar { font-size: 13px; }
+.principal-card__meta {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--mti6-text-secondary);
+  margin-top: 6px;
+  word-break: break-word;
+}
+.task-queue { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+.task-queue__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  align-items: center;
+  background: var(--mti6-bg-panel);
+  border: 1px solid var(--mti6-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--mti6-text-secondary);
+}
+.task-queue__row > span:first-child {
+  flex-basis: 100%;
+  font-weight: 700;
+  color: var(--mti6-text-primary);
+}
+@media (max-width: 640px) {
+  .task-queue__row { flex-direction: column; align-items: stretch; }
+  .task-queue__row > span:first-child { flex-basis: auto; }
+}
+
+/* ---- Angel Security (§69-71): silver/white mechanical + dark internal,
+   cyan/blue illumination — distinct from Tribe operations. ------------- */
+.angel-dash { display: flex; flex-direction: column; gap: 4px; }
+.angel-domain-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 0;
+  border-top: 1px solid var(--mti6-border);
+}
+.angel-alert-card {
+  background: var(--mti6-bg-panel);
+  border: 1px solid var(--mti6-border);
+  border-left-width: 4px;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 12px 0;
+}
+.angel-alert-card h4 { margin: 8px 0 4px; font-size: 15px; color: var(--mti6-text-primary); }
+.angel-alert-card p { margin: 0 0 8px; font-size: 14px; line-height: 1.5; color: var(--mti6-text-secondary); }
+/* Informational alerts stay calm (blue); caution is amber; critical is
+   the only full red frame — never the whole dashboard. */
+.angel-alert-card--info { border-left-color: var(--mti6-blue-electric); }
+.angel-alert-card--caution { border-left-color: var(--mti6-yellow-caution); }
+.angel-alert-card--critical { border-color: var(--mti6-red-alarm); }
+.angel-alert-card--critical h4 { color: var(--mti6-red-alarm); }
