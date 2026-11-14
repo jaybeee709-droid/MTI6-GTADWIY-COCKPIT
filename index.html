@@ -50,6 +50,7 @@
         <option value="github">GitHub</option>
         <option value="news">News</option>
         <option value="knowledge">Saved knowledge</option>
+        <option value="encyclopedia">Encyclopedia</option>
         <option value="page">Page (URL)</option>
       </select>
       <button id="global-search-btn" class="btn btn-primary" type="button">Search</button>
@@ -71,6 +72,9 @@
   <noscript>This app needs JavaScript enabled to run — it still works fully offline once loaded, with no server involved.</noscript>
 
   <script src="./js/utils.js"></script>
+  <!-- Overnight shift (Nov 13–14, 2026): shared truthful-state vocabulary
+       (Truth) — no dependencies, loads first so other layers can use it. -->
+  <script src="./js/truth.js"></script>
   <script src="./js/api-client.js"></script>
   <script src="./js/db.js"></script>
   <script src="./js/backup.js"></script>
@@ -78,10 +82,16 @@
   <script src="./js/star-state.js"></script>
   <script src="./js/star-backend.js"></script>
   <script src="./js/star-router.js"></script>
+  <!-- Overnight shift: StarCommand fail-closed command layer (P2/P3),
+       after the router, before the Star UI that calls it. -->
+  <script src="./js/star-command.js"></script>
   <script src="./js/modules/star.js"></script>
   <!-- Master shell (Build 1): tribes, navigation structure, floating
        windows, summonable participants, STAR overlay -->
   <script src="./js/tribes.js"></script>
+  <!-- Overnight shift: BotOpsModel (P4/P5) — bot identity + worker-task
+       orchestration model; reads Tribes, no worker runtime exists. -->
+  <script src="./js/bot-ops-model.js"></script>
   <script src="./js/nav.js"></script>
   <script src="./js/window-manager.js"></script>
   <script src="./js/participants.js"></script>
@@ -91,6 +101,9 @@
   <!-- Price Scouts: data layer first, then the dashboard panel -->
   <script src="./js/price-scout.js"></script>
   <script src="./js/knowledge.js"></script>
+  <!-- Overnight shift: KnowledgeModel (P1) — knowledge object model on
+       the existing mti6_knowledge_v1 store. -->
+  <script src="./js/knowledge-model.js"></script>
   <script src="./js/github-dev.js"></script>
   <script src="./js/crypto-world.js"></script>
   <script src="./js/data/encyclopedia-batch-a.js"></script>
@@ -103,6 +116,10 @@
   <script src="./js/modules/devcenter.js"></script>
   <script src="./js/modules/crypto-world.js"></script>
   <script src="./js/modules/encyclopedia.js"></script>
+  <!-- Overnight shift: EncyclopediaBridge (P6) — STAR ↔ Encyclopedia
+       structural retrieval; loads after the data files + import layer,
+       before global-search.js which calls it. -->
+  <script src="./js/encyclopedia-bridge.js"></script>
   <script src="./js/screens-nav.js"></script>
   <script src="./js/modules/globe.js"></script>
   <script src="./js/modules/crypto.js"></script>
