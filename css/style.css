@@ -19,6 +19,42 @@
   --radius: 14px;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
   color-scheme: dark;
+  /* Visual Stage 1 (Nov 14, 2026): before this, --surface was undefined,
+     so every var(--surface, #fff) fell back to WHITE in both themes —
+     white cards with near-white --text-0 in dark theme (1.13:1,
+     invisible). Panels take the theme panel colour now; Analytics keeps
+     its locked black panels via the more specific .analytics-grid
+     .api-panel rules. */
+  --surface: var(--bg-1);
+  /* Visual Stage 1: --mti6-* canonical tokens (spec §3). Aliases over the
+     existing tokens — existing names keep working; new semantic names
+     (gold, purple-ai, orange-high, deep/muted blue, silver/steel) are
+     introduced here in the same style. Components use these names. */
+  --mti6-bg-void: var(--bg-0);
+  --mti6-bg-black: #000000;
+  --mti6-bg-navy: var(--bg-2);
+  --mti6-bg-panel: var(--bg-1);
+  --mti6-bg-panel-raised: var(--bg-2);
+  --mti6-bg-overlay: rgba(5, 7, 10, 0.92);
+  --mti6-blue-electric: var(--cyan);
+  --mti6-blue-cyan: var(--cyan);
+  --mti6-blue-deep: #0a4a7a;
+  --mti6-blue-muted: #6f8fb0;
+  --mti6-silver: #c9d4e2;
+  --mti6-silver-dark: #8a9bb0;
+  --mti6-steel: #9fb0c3;
+  --mti6-gold: #d4a017;
+  --mti6-purple-ai: #8b5cf6;
+  --mti6-green-verified: var(--green);
+  --mti6-yellow-caution: var(--amber);
+  --mti6-orange-high: #ff8c42;
+  --mti6-red-alarm: var(--red);
+  --mti6-text-primary: var(--text-0);
+  --mti6-text-secondary: var(--text-1);
+  --mti6-text-muted: var(--text-2);
+  --mti6-border: var(--line);
+  --mti6-border-active: var(--cyan);
+  --mti6-focus: var(--cyan);
 }
 
 :root[data-theme="light"] {
@@ -37,6 +73,38 @@
   --text-2: #76838f;
   --shadow: 0 10px 24px rgba(20, 30, 50, 0.12);
   color-scheme: light;
+  /* Visual Stage 1: same --surface definition as dark; here --bg-1 is
+     #ffffff, so every var(--surface, #fff) keeps its old light-theme
+     value and nothing changes in light mode. */
+  --surface: var(--bg-1);
+  /* Visual Stage 1: --mti6-* canonical tokens, light-theme values.
+     Same names as dark; silver/gold/purple/orange are darkened here so
+     they stay readable on light surfaces. */
+  --mti6-bg-void: var(--bg-0);
+  --mti6-bg-black: #000000;
+  --mti6-bg-navy: var(--bg-2);
+  --mti6-bg-panel: var(--bg-1);
+  --mti6-bg-panel-raised: var(--bg-2);
+  --mti6-bg-overlay: rgba(238, 242, 248, 0.92);
+  --mti6-blue-electric: var(--cyan);
+  --mti6-blue-cyan: var(--cyan);
+  --mti6-blue-deep: #004e89;
+  --mti6-blue-muted: #557a99;
+  --mti6-silver: #6b7d90;
+  --mti6-silver-dark: #4a5a6b;
+  --mti6-steel: #5f7285;
+  --mti6-gold: #8a6d00;
+  --mti6-purple-ai: #6d28d9;
+  --mti6-green-verified: var(--green);
+  --mti6-yellow-caution: var(--amber);
+  --mti6-orange-high: #c2571b;
+  --mti6-red-alarm: var(--red);
+  --mti6-text-primary: var(--text-0);
+  --mti6-text-secondary: var(--text-1);
+  --mti6-text-muted: var(--text-2);
+  --mti6-border: var(--line);
+  --mti6-border-active: var(--cyan);
+  --mti6-focus: var(--cyan);
 }
 
 * {
@@ -186,6 +254,12 @@ body.nav-open #nav-scrim {
 /* ---- Main content ---- */
 #main-content {
   flex: 1;
+  /* Visual Stage 1: a flex item defaults to min-width:auto, so a wide
+     unbreakable descendant could force this column wider than the
+     viewport (latent overflow; it would spill right, not under the
+     sidebar). min-width:0 lets the column shrink; content inside still
+     lays out normally. */
+  min-width: 0;
   /* Was 56px to clear the fixed top bar. The top-bar clearance now
      comes from the search bar's own row (margin-block-start: 56px on
      #global-search-wrap, see below), so the extra 56px here would
@@ -1522,9 +1596,12 @@ html, body { overflow-x: hidden; }
   white-space: nowrap;
 }
 .star-top-btn {
-  border: 1px solid rgba(212, 175, 55, 0.55);
-  background: rgba(212, 175, 55, 0.12);
-  color: var(--gold-soft);
+  /* Visual Stage 1 (spec §11): STAR's identity is an electric white/blue
+     core, not gold (gold means value/treasury, §4). Subtle idle pulse
+     only — never flashing; off entirely under reduced motion (§98). */
+  border: 1px solid rgba(0, 212, 255, 0.55);
+  background: rgba(0, 212, 255, 0.12);
+  color: var(--mti6-blue-electric);
   border-radius: 10px;
   min-height: 40px;
   min-width: 44px;
@@ -1533,6 +1610,14 @@ html, body { overflow-x: hidden; }
   cursor: pointer;
   white-space: nowrap;
   flex: none;
+  animation: mti6-star-idle 3.2s ease-in-out infinite;
+}
+@keyframes mti6-star-idle {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 212, 255, 0); }
+  50% { box-shadow: 0 0 12px 1px rgba(0, 212, 255, 0.35); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .star-top-btn { animation: none; }
 }
 #quick-nav {
   height: 40px;
@@ -1731,11 +1816,14 @@ html, body { overflow-x: hidden; }
 }
 
 /* ---- Bot Operations card contrast (Nov 14, 2026) ----
- * Root cause: every Bot Ops card is a plain .api-panel, whose
- * background is var(--surface, #fff) — and --surface is never defined
- * anywhere, so the fallback makes every card WHITE in both themes,
+ * Root cause (pre-Stage 1): every Bot Ops card is a plain .api-panel,
+ * whose background is var(--surface, #fff) — and --surface was
+ * undefined, so the fallback made every card WHITE in both themes,
  * while its h3/body text inherits near-white --text-0 (#eaf2fb) in the
- * dark theme: 1.13:1, effectively invisible.
+ * dark theme: 1.13:1, effectively invisible. Stage 1 now defines
+ * --surface: var(--bg-1) in both themes, so the base panel resolves
+ * dark; this scoped rule stays as the explicit Bot Ops panel treatment
+ * (theme background + theme border) and the h3 colour rule.
  * Fix, Bot Ops only: scope to a #view-root that contains .botops-grid
  * (created only by js/modules/bot-ops.js, nowhere else, and wiped on
  * every navigation by root.innerHTML = ""), so no other screen's
@@ -1755,6 +1843,225 @@ html, body { overflow-x: hidden; }
 }
 #view-root:has(.botops-grid) .api-panel > h3 {
   color: var(--text-0);
+}
+
+/* ---- Wide-screen shell, Stage 1 follow-up (Nov 14, 2026) ----
+ * Live verification of the v33 preview at 1920px showed the campaign's
+ * flex-wrap fix had landed (search bar horizontal) but a ~410px solid
+ * black column still sat on the left: (1920-1100)/2 = 410. Cause: the
+ * Analytics-grid block's `#app-shell { max-width: 1100px; margin: 0 auto; }`
+ * (inside @media (min-width:768px)) comes LATER in this file than the
+ * DeX rule `@media (min-width:1200px) { #app-shell { max-width: 1600px; } }`
+ * and overrides it by source order at every width >=768px. This later
+ * >=1200px rule restores the full-width shell so the sidebar sits at the
+ * far left and content uses the whole viewport; #view-root still caps
+ * text content at 1100px. The Analytics-block rule itself is NOT touched
+ * (locked), and Analytics keeps its locked panels and look. */
+@media (min-width: 1200px) {
+  #app-shell {
+    max-width: none;
+  }
+}
+
+/* ===================== MTI6 reusable visual primitives (Stage 1) =====================
+ * One shared component system (spec §110). Screens use these classes
+ * instead of hand-coding a different button/card/badge per module.
+ * Every status uses color PLUS a text label, never color alone (§96).
+ * All colours come from --mti6-* tokens (§3); no new hex values here
+ * except the translucent variant tints, which reuse the token hues.
+ * Analytics is NOT restyled: its locked .analytics-grid rules keep
+ * higher specificity and are untouched. */
+
+/* ---- Screen header (§19): icon + title + description + status + actions ---- */
+.mti6-screen-header {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-block: 4px 14px;
+}
+.mti6-screen-header__icon { font-size: 26px; line-height: 1.2; }
+.mti6-screen-header__title {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.25;
+  color: var(--mti6-text-primary);
+}
+.mti6-screen-header__desc {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--mti6-text-secondary);
+}
+.mti6-screen-header__status { margin-inline-start: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+.mti6-screen-header__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ---- Status badge (§25): one system, five families. Base + variant. ---- */
+.mti6-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--mti6-border);
+  background: transparent;
+  color: var(--mti6-text-secondary);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* Truth */
+.mti6-badge--verified { color: var(--mti6-green-verified); border-color: var(--mti6-green-verified); }
+.mti6-badge--live { color: var(--mti6-blue-electric); border-color: var(--mti6-blue-electric); }
+.mti6-badge--unverified,
+.mti6-badge--unknown { color: var(--mti6-text-muted); border-color: var(--mti6-text-muted); }
+.mti6-badge--stale { color: var(--mti6-yellow-caution); border-color: var(--mti6-yellow-caution); }
+/* Connection */
+.mti6-badge--connected { color: var(--mti6-green-verified); border-color: var(--mti6-green-verified); }
+.mti6-badge--connecting { color: var(--mti6-yellow-caution); border-color: var(--mti6-yellow-caution); }
+.mti6-badge--not-connected,
+.mti6-badge--unavailable { color: var(--mti6-text-muted); border-color: var(--mti6-text-muted); }
+.mti6-badge--degraded { color: var(--mti6-orange-high); border-color: var(--mti6-orange-high); }
+/* Work */
+.mti6-badge--queued,
+.mti6-badge--assigned { color: var(--mti6-blue-electric); border-color: var(--mti6-blue-electric); }
+.mti6-badge--active { color: var(--mti6-green-verified); border-color: var(--mti6-green-verified); }
+.mti6-badge--paused { color: var(--mti6-yellow-caution); border-color: var(--mti6-yellow-caution); }
+.mti6-badge--blocked,
+.mti6-badge--failed { color: var(--mti6-red-alarm); border-color: var(--mti6-red-alarm); }
+.mti6-badge--completed { color: var(--mti6-green-verified); border-color: var(--mti6-green-verified); }
+/* Security */
+.mti6-badge--detected,
+.mti6-badge--verifying { color: var(--mti6-yellow-caution); border-color: var(--mti6-yellow-caution); }
+.mti6-badge--confirmed { color: var(--mti6-orange-high); border-color: var(--mti6-orange-high); }
+.mti6-badge--mitigating { color: var(--mti6-blue-electric); border-color: var(--mti6-blue-electric); }
+.mti6-badge--resolved { color: var(--mti6-green-verified); border-color: var(--mti6-green-verified); }
+/* Capability */
+.mti6-badge--disabled,
+.mti6-badge--read-only { color: var(--mti6-text-muted); border-color: var(--mti6-text-muted); }
+.mti6-badge--simulation { color: var(--mti6-purple-ai); border-color: var(--mti6-purple-ai); }
+.mti6-badge--prepare { color: var(--mti6-blue-electric); border-color: var(--mti6-blue-electric); }
+.mti6-badge--approval-required { color: var(--mti6-yellow-caution); border-color: var(--mti6-yellow-caution); }
+.mti6-badge--execution-disabled { color: var(--mti6-red-alarm); border-color: var(--mti6-red-alarm); }
+
+/* ---- Card (§21): dark layered background, thin metallic/blue border ---- */
+.mti6-card {
+  background: var(--mti6-bg-panel);
+  border: 1px solid var(--mti6-border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin: 12px 0;
+}
+.mti6-card > h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: var(--mti6-text-primary);
+}
+.mti6-card--warning { border-color: var(--mti6-yellow-caution); }
+.mti6-card--critical { border-color: var(--mti6-red-alarm); }
+.mti6-card--selected { border-color: var(--mti6-border-active); box-shadow: 0 0 0 1px var(--mti6-border-active); }
+.mti6-card--disabled { opacity: 0.6; }
+.mti6-card--not-connected { border-style: dashed; color: var(--mti6-text-secondary); }
+.mti6-card--interactive { cursor: pointer; }
+.mti6-card--interactive:hover { border-color: var(--mti6-border-active); }
+
+/* ---- Metric (§24): big aligned value + muted label; UNKNOWN stays text ---- */
+.mti6-metric__value {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--mti6-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.mti6-metric__label {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mti6-text-muted);
+}
+.mti6-metric__freshness { font-size: 12px; color: var(--mti6-text-secondary); }
+
+/* ---- Alert (§28/§71): title + affected system + safe action; never raw traces ---- */
+.mti6-alert {
+  border: 1px solid var(--mti6-border);
+  border-left-width: 4px;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 12px 0;
+  background: var(--mti6-bg-panel);
+}
+.mti6-alert__title { margin: 0 0 4px; font-size: 15px; font-weight: 700; color: var(--mti6-text-primary); }
+.mti6-alert__body { margin: 0; font-size: 14px; line-height: 1.5; color: var(--mti6-text-secondary); }
+.mti6-alert--info { border-left-color: var(--mti6-blue-electric); }
+.mti6-alert--caution { border-left-color: var(--mti6-yellow-caution); }
+.mti6-alert--high { border-left-color: var(--mti6-orange-high); }
+.mti6-alert--critical { border-left-color: var(--mti6-red-alarm); border-color: var(--mti6-red-alarm); }
+.mti6-alert--critical .mti6-alert__title { color: var(--mti6-red-alarm); }
+
+/* ---- Empty state (§26): what is missing, whether expected, what next ---- */
+.mti6-empty {
+  text-align: center;
+  padding: 28px 16px;
+  border: 1px dashed var(--mti6-border);
+  border-radius: var(--radius);
+  color: var(--mti6-text-secondary);
+}
+.mti6-empty__title { margin: 0 0 6px; font-size: 16px; font-weight: 700; color: var(--mti6-text-primary); }
+.mti6-empty__body { margin: 0 auto 12px; max-width: 460px; font-size: 14px; line-height: 1.55; }
+
+/* ---- Loading state (§27): labelled, bounded; spinner stops under reduced motion ---- */
+.mti6-loading { display: flex; align-items: center; gap: 10px; padding: 12px 0; color: var(--mti6-text-secondary); font-size: 14px; }
+.mti6-spinner {
+  width: 18px; height: 18px; flex: 0 0 auto;
+  border-radius: 50%;
+  border: 2px solid var(--mti6-border);
+  border-top-color: var(--mti6-blue-electric);
+  animation: mti6-spin 0.9s linear infinite;
+}
+@keyframes mti6-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .mti6-spinner { animation: none; border-top-color: var(--mti6-border); }
+}
+
+/* ---- Button hierarchy (§111): one primary per screen; danger is explicit ---- */
+.mti6-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--mti6-border);
+  background: transparent;
+  color: var(--mti6-text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mti6-btn--primary {
+  background: var(--mti6-blue-electric);
+  border-color: var(--mti6-blue-electric);
+  color: #04131a;
+}
+.mti6-btn--secondary { background: transparent; border-color: var(--mti6-border); color: var(--mti6-text-primary); }
+.mti6-btn--tertiary { background: transparent; border: none; color: var(--mti6-text-secondary); }
+.mti6-btn--danger { background: transparent; border-color: var(--mti6-red-alarm); color: var(--mti6-red-alarm); }
+.mti6-btn:disabled,
+.mti6-btn--disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* ---- Keyboard focus (§29): visible ring on keyboard navigation only ---- */
+:focus-visible {
+  outline: 2px solid var(--mti6-focus);
+  outline-offset: 2px;
+}
+#global-search-input:focus,
+#global-search-source:focus {
+  border-color: var(--mti6-border-active);
+  outline: 2px solid var(--mti6-focus);
+  outline-offset: 1px;
 }
 
 /* ---- Floating window manager ---- */
