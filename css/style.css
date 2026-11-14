@@ -2508,3 +2508,68 @@ html, body { overflow-x: hidden; }
 @media (max-width: 640px) {
   #global-search-source { max-width: 120px; }
 }
+
+/* ================================================================
+ * UNIVERSAL SEARCH — PHASE 1 (Nov 14, 2026; manual search only)
+ * This section is the replacement the fix-up #2 comment promised
+ * ("will be replaced properly" by Phase 1): at phone width the
+ * source select is hidden and replaced by a compact source button +
+ * menu (see below), so the 120px phone cap above no longer governs
+ * anything — display:none on the select supersedes it. The fix-up
+ * #2 rules that still hold (wrap, min-width, button protection) are
+ * kept untouched. No existing rule above is edited; this section
+ * only adds new rules and explicitly overrides the search bar /
+ * results panel for the Phase 1 workspace. Analytics rules and the
+ * light badge tokens are not touched.
+ * Bar: dark recessed row; electric-blue focus ring on the input.
+ * Workspace: black/navy panels inside the existing fixed overlay.
+ * ================================================================ */
+#global-search-wrap { background: #0b0f14; border: 1px solid #1c2530; border-radius: 12px; }
+#global-search-input:focus { border-color: #38bdf8; outline: 2px solid #38bdf8; outline-offset: 1px; box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25); }
+#global-search-source-state { align-self: center; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; color: #9ca3af; border: 1px solid #1c2530; border-radius: 999px; padding: 4px 8px; white-space: nowrap; background: #0b0f14; }
+#global-search-source-state[data-state="AVAILABLE"] { color: #4ade80; border-color: #14532d; }
+#global-search-source-state[data-state="NOT_CONNECTED"] { color: #facc15; border-color: #713f12; }
+#global-search-source-state[data-state="REQUIRES_SETUP"] { color: #fbbf24; border-color: #713f12; }
+#global-search-source-state[data-state="UNAVAILABLE"] { color: #f87171; border-color: #7f1d1d; }
+#global-search-web-provider { height: 44px; border-radius: 10px; border: 1px solid var(--border, #ddd); padding: 0 8px; font-size: 15px; background: var(--surface, #fff); color: inherit; flex: 0 1 auto; min-width: 0; max-width: 160px; }
+#global-search-new-tab, #global-search-star-btn { flex: none; min-width: 44px; height: 44px; }
+#global-search-source-btn { flex: none; height: 44px; white-space: nowrap; }
+#global-search-source-menu { position: fixed; z-index: 85; left: 12px; top: 168px; background: #0b0f14; border: 1px solid #1c2530; border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 4px; max-width: calc(100vw - 24px); }
+#global-search-source-menu.hidden { display: none; }
+#global-search-source-menu button { text-align: left; background: transparent; border: 1px solid transparent; border-radius: 8px; color: #e5e7eb; padding: 8px 10px; font-size: 15px; }
+#global-search-source-menu button:hover, #global-search-source-menu button:focus-visible { border-color: #38bdf8; }
+/* Workspace panels (inside #global-search-results, the existing fixed overlay). */
+#global-search-results { background: #070b12; color: #e5e7eb; border-color: #1c2530; overflow-x: hidden; }
+#global-search-results h3 { color: #e5e7eb; }
+#global-search-results a { color: #7dd3fc; }
+.search-workspace-header { border-bottom: 1px solid #1c2530; padding-bottom: 8px; margin-bottom: 8px; }
+.search-query-header { font-size: 14px; color: #d1d5db; overflow-wrap: anywhere; }
+.search-tab-strip { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid #1c2530; scrollbar-width: thin; }
+.search-tab { flex: none; background: #9ca3af; color: #111827; border: 1px solid #6b7280; border-radius: 8px 8px 0 0; padding: 6px 10px; font-size: 14px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-tab.active { background: #0284c7; border-color: #38bdf8; color: #ffffff; }
+.search-tab-close { margin-left: 6px; font-weight: 700; }
+.search-tab-new, .search-tab-menu-btn { flex: none; background: transparent; border: 1px solid #1c2530; color: #e5e7eb; border-radius: 8px; padding: 6px 10px; font-size: 14px; }
+.search-tabs-menu { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.search-tabs-menu.hidden { display: none; }
+.search-tabs-menu button { background: #0b0f14; border: 1px solid #1c2530; color: #e5e7eb; border-radius: 8px; padding: 6px 10px; font-size: 14px; }
+.search-origin { font-size: 11px; font-weight: 700; letter-spacing: 0.05em; color: #38bdf8; border: 1px solid #155e75; border-radius: 999px; padding: 1px 7px; margin-left: 6px; white-space: nowrap; }
+.wallet-warning { display: inline-block; font-size: 12px; font-weight: 700; color: #fbbf24; border: 1px solid #713f12; border-radius: 8px; padding: 2px 8px; margin-left: 6px; }
+.search-freshness { font-size: 13px; color: #9ca3af; margin: 8px 0; }
+.search-angel { font-size: 13px; color: #9ca3af; border-top: 1px solid #1c2530; padding-top: 8px; margin: 8px 0; }
+.search-workspace-footer { margin-top: 8px; }
+.search-history-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+#global-search-results .price-offer-list li { overflow-wrap: anywhere; }
+/* Mobile collapse (§61): at <=640px the source select and its state
+ * chip are hidden and replaced by the compact source button; the Web
+ * provider select drops to its own row (flex-wrap on the bar); the
+ * tab strip scrolls horizontally; results stay one column; STAR stays
+ * visible; nothing may overflow horizontally. */
+@media (max-width: 640px) {
+  #global-search-source { display: none; max-width: none; }
+  #global-search-source-state { display: none; }
+  #global-search-source-btn { display: inline-block; }
+  #global-search-web-provider { flex: 1 1 100%; max-width: none; }
+  #global-search-results { left: 12px; right: 12px; overflow-x: hidden; }
+  #global-search-wrap { overflow-x: hidden; }
+  .search-tab { max-width: 160px; }
+}
