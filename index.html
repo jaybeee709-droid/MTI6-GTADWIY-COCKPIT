@@ -75,6 +75,8 @@
   <!-- Overnight shift (Nov 13–14, 2026): shared truthful-state vocabulary
        (Truth) — no dependencies, loads first so other layers can use it. -->
   <script src="./js/truth.js"></script>
+  <script src="./js/star-accountant.js"></script>
+  <script src="./js/self-healing.js"></script>
   <!-- Campaign (Nov 14, 2026): Asset + Network Intelligence foundations —
        depend on Truth only, load right after it. -->
   <script src="./js/asset-intelligence.js"></script>
@@ -92,8 +94,18 @@
   <!-- Campaign (Nov 14, 2026): Model Router, Wallet Intelligence, Tool Router —
        depend on Truth + StarCommand; load after StarCommand, before the Star UI. -->
   <script src="./js/model-router.js"></script>
+  <script src="./js/learning-engine.js"></script>
   <script src="./js/wallet-intelligence.js"></script>
+  <script src="./js/position-intelligence.js"></script>
+  <script src="./js/wallet-providers.js"></script>
+  <script src="./js/wallet-ecosystems.js"></script>
+  <script src="./js/wallet-health.js"></script>
+  <script src="./js/off-ramp.js"></script>
+  <script src="./js/cost-intelligence.js"></script>
   <script src="./js/tool-router.js"></script>
+  <script src="./js/autonomy.js"></script>
+  <script src="./js/treasury-mandates.js"></script>
+  <script src="./js/transaction-preparation.js"></script>
   <script src="./js/modules/star.js"></script>
   <!-- Master shell (Build 1): tribes, navigation structure, floating
        windows, summonable participants, STAR overlay -->
@@ -101,15 +113,22 @@
   <!-- Overnight shift: BotOpsModel (P4/P5) — bot identity + worker-task
        orchestration model; reads Tribes, no worker runtime exists. -->
   <script src="./js/bot-ops-model.js"></script>
+  <script src="./js/tribe-principals.js"></script>
+  <script src="./js/worker-engine.js"></script>
+  <script src="./js/crypto-bot-assignments.js"></script>
+  <script src="./js/bot-body.js"></script>
   <!-- Campaign (Nov 14, 2026): Angel Security — depends on Truth + BotOpsModel;
        loads right after the BotOps model. -->
   <script src="./js/angel-security.js"></script>
+  <script src="./js/angel-identities.js"></script>
+  <script src="./js/circuit-breakers.js"></script>
   <script src="./js/nav.js"></script>
   <script src="./js/window-manager.js"></script>
   <script src="./js/participants.js"></script>
   <script src="./js/star-overlay.js"></script>
   <!-- API registry (must load before price-scout) and health panel -->
   <script src="./js/api-registry.js"></script>
+  <script src="./js/market-intelligence.js"></script>
   <!-- Price Scouts: data layer first, then the dashboard panel -->
   <script src="./js/price-scout.js"></script>
   <script src="./js/knowledge.js"></script>
@@ -118,9 +137,12 @@
   <script src="./js/knowledge-model.js"></script>
   <script src="./js/github-dev.js"></script>
   <script src="./js/crypto-world.js"></script>
+  <script src="./js/risk-intelligence.js"></script>
+  <script src="./js/protocol-intelligence.js"></script>
   <script src="./js/data/encyclopedia-batch-a.js"></script>
   <script src="./js/data/encyclopedia-canonical-60.js"></script>
   <script src="./js/data/encyclopedia-batch-b.js"></script>
+  <script src="./js/data/bot-naming-pool.js"></script>
   <script src="./js/encyclopedia-import.js"></script>
   <script src="./js/modules/prices.js"></script>
   <script src="./js/modules/api-health.js"></script>
@@ -132,6 +154,8 @@
        structural retrieval; loads after the data files + import layer,
        before global-search.js which calls it. -->
   <script src="./js/encyclopedia-bridge.js"></script>
+  <script src="./js/opportunity-intelligence.js"></script>
+  <script src="./js/globe-intelligence.js"></script>
   <script src="./js/screens-nav.js"></script>
   <script src="./js/modules/globe.js"></script>
   <script src="./js/modules/crypto.js"></script>
