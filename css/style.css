@@ -2471,3 +2471,40 @@ html, body { overflow-x: hidden; }
 .angel-alert-card--caution { border-left-color: var(--mti6-yellow-caution); }
 .angel-alert-card--critical { border-color: var(--mti6-red-alarm); }
 .angel-alert-card--critical h4 { color: var(--mti6-red-alarm); }
+
+/* ============================================================
+ * VISUAL BUILD STAGE 2 — FIX-UP #2 (Nov 14, 2026)
+ * Three defects found live at 886px width (v36 re-verification).
+ * Additive rules only — no existing rule is edited, so the
+ * Universal Search Phase 1 bar rework can replace this header
+ * freely and Analytics / Stage 1 tokens are untouched.
+ * ============================================================ */
+
+/* Defect 1 — header search row overflow at intermediate widths:
+ * live at ~886px the source select was cut at the right edge and
+ * the Search button was off-screen (search submittable only with
+ * Enter). Static width audit of the base rules: the row's children
+ * fit at 886px with ~590px spare (input flex:1 min-width:0, select
+ * ~170px intrinsic, button ~90px), so the overflow could not be
+ * reproduced from the stylesheet alone — the live cause is most
+ * likely browser-specific select sizing (a <select>'s intrinsic
+ * width is set by its longest option and varies by browser/font)
+ * and/or a zoomed or chrome-reduced viewport in that browser.
+ * The fix is therefore defensive at the layout level, and it holds
+ * under every one of those causes: (a) the row may wrap, so a
+ * too-wide control set drops the button to a second line instead
+ * of pushing it off-screen; (b) the select is capped (180px fits
+ * the longest label "Auto (bot picks)" at 15px, ~156px, with room
+ * to spare) so it can never grow past the row; (c) the button can
+ * never shrink and its label never wraps, so it stays whole and
+ * clickable; the shrinking input absorbs all remaining width.
+ * At phone width (<=640px, the existing #quick-nav breakpoint) the
+ * select cap tightens to 120px so the input keeps a usable width;
+ * the label truncates to "Auto (bot…" there, which Phase 1's
+ * collapse-into-icon/menu rework will replace properly. */
+#global-search-wrap { flex-wrap: wrap; min-width: 0; }
+#global-search-source { flex: 0 1 auto; min-width: 0; max-width: 180px; }
+#global-search-btn { flex: none; white-space: nowrap; }
+@media (max-width: 640px) {
+  #global-search-source { max-width: 120px; }
+}
