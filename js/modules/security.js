@@ -361,6 +361,11 @@
   }
 
   async function render(root) {
+    // Fix-up #3, Defect C: clear the router's skeleton (js/app.js
+    // renderRoute appends U.skeletonBlock() while loading). This module
+    // never cleared root, so the skeleton bars persisted above the
+    // Screens icon row. Established contract, as in dashboard.js.
+    root.innerHTML = "";
     root.appendChild(global.ScreensNav ? global.ScreensNav.renderDots("security") : U.el("div", {}, ""));
     root.appendChild(U.el("h2", { class: "section-title" }, "🛡️ Security & Bot Style"));
     root.appendChild(U.el("p", { class: "api-subtitle" }, "Look and voice are cosmetic choices stored on this device. Camera is a local preview only. Real device security comes from checking signed-in devices in each account — not from a camera watching you."));

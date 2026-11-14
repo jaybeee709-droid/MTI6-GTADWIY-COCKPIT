@@ -72,6 +72,7 @@
     const keep = [];
     const extras = [];
     for (const w of widgets) {
+      if (!w || typeof w !== "object") continue;
       const key = w.type + "|" + (w.order || 0) + "|" + (w.title || "");
       if (seen.has(key)) extras.push(w);
       else { seen.set(key, w); keep.push(w); }
@@ -82,17 +83,77 @@
     return keep;
   }
 
+  // Fix-up #3, defect A — one unreadable store must not kill the whole
+  // dashboard. The old render read its six stores with a single
+  // all-or-nothing Promise.all, so one store throwing on read rejected
+  // the entire render and the app.js error boundary showed "Something
+  // went wrong" — and "Try again" re-ran the same read against the
+  // same still-failing store, so the retry could never succeed. Each
+  // store now loads on its own: a failed store contributes an empty
+  // list, is named in `failedStores` for the honest note below, and
+  // the rest of the dashboard renders. A later retry re-reads the
+  // store, so a transient failure recovers.
+  async function safeGetAll(storeName, failedStores) {
+    try {
+      const rows = await CockpitDB.getAll(storeName);
+      return Array.isArray(rows) ? rows : [];
+    } catch (e) {
+      console.error("Dashboard: could not load store \"" + storeName + "\"; continuing without it.", e);
+      failedStores.push(storeName);
+      return [];
+    }
+  }
+
+  // Fix-up #3, defect A — a dashboard panel must never kill the
+  // dashboard. Each panel's UI layer and its data layer load as
+  // separate scripts, so the UI can be present while its data layer
+  // is missing (slow/failed script load, mixed cache) — and a panel's
+  // render can throw on unexpected local data. The Scouts panel was
+  // the live hole: dashboard.js guarded `global.ScoutsUI` but
+  // scouts.js renderPanel() calls `global.KnowledgeScout
+  // .listKnowledge()` unconditionally, so a session without the
+  // KnowledgeScout layer threw TypeError inside render, the boundary
+  // showed the error panel, and retry re-ran the same render against
+  // the same still-missing layer (dead button) while a reload
+  // re-fetched the scripts and rendered fine. A panel that cannot
+  // render is skipped (and logged) instead of failing the screen;
+  // its name is collected for the honest note below. Panels whose
+  // own renderPanel already reports a missing layer (Prices,
+  // ApiHealth) keep that in-panel message and need no dataCheck here.
+  function safePanel(ui, dataCheck) {
+    if (!ui || typeof ui.renderPanel !== "function") return null;
+    if (dataCheck && !dataCheck()) return null;
+    try {
+      return ui.renderPanel();
+    } catch (e) {
+      console.error("Dashboard: panel failed to render, skipped.", e);
+      return null;
+    }
+  }
+
   async function render(root) {
+    const failedStores = [];
     const [notes, tasks, expenses, projects, milestones, activity] = await Promise.all([
-      CockpitDB.getAll("notes"),
-      CockpitDB.getAll("tasks"),
-      CockpitDB.getAll("expenses"),
-      CockpitDB.getAll("projects"),
-      CockpitDB.getAll("milestones"),
-      CockpitDB.getAll("activity")
+      safeGetAll("notes", failedStores),
+      safeGetAll("tasks", failedStores),
+      safeGetAll("expenses", failedStores),
+      safeGetAll("projects", failedStores),
+      safeGetAll("milestones", failedStores),
+      safeGetAll("activity", failedStores)
     ]);
-    let widgets = await ensureDefaultWidgets();
-    widgets = await dedupeWidgets(widgets);
+    let widgets = [];
+    try {
+      widgets = await ensureDefaultWidgets();
+      widgets = await dedupeWidgets(widgets);
+    } catch (e) {
+      // Seeding/reading widgets failed (e.g. the widgets store threw
+      // on read): render without widgets rather than failing the
+      // whole screen. A retry re-runs the seed/read, so a transient
+      // failure recovers; a partial seed is kept as-is.
+      console.error("Dashboard: could not load widgets; continuing without them.", e);
+      if (failedStores.indexOf("widgets") === -1) failedStores.push("widgets");
+      widgets = [];
+    }
     widgets = widgets.slice().sort((a, b) => (a.order || 0) - (b.order || 0));
 
     const data = { notes, tasks, expenses, projects, milestones };
@@ -115,41 +176,52 @@
     );
     root.appendChild(el("div", { id: "dash-search-results" }));
 
-    // ---- Star 3.0 Command Chat (V1) ----------------------------------
-    // Primary AI assistant panel, rendered on the dashboard only. It is
-    // additive: if the Star layers fail to load, the dashboard still
-    // renders everything else below, unchanged.
-    if (global.StarChatUI && typeof global.StarChatUI.renderPanel === "function") {
-      root.appendChild(el("h2", { class: "section-title" }, "Star 3.0 Command Chat"));
-      root.appendChild(global.StarChatUI.renderPanel());
+    // ---- Dashboard panels --------------------------------------------
+    // Each panel is additive: if its layers fail to load, or its
+    // render throws, the panel is skipped and the dashboard still
+    // renders everything else below, unchanged. safePanel (above)
+    // does the guarding + try/catch; appendPanel records skipped
+    // panels for the honest note after the last panel.
+    const skippedPanels = [];
+    function appendPanel(title, panelName, node) {
+      if (!node) { skippedPanels.push(panelName); return; }
+      root.appendChild(el("h2", { class: "section-title" }, title));
+      root.appendChild(node);
     }
 
-    // ---- Price Scouts (V1) -------------------------------------------
-    // Read-only price panel, rendered on the dashboard only. Same guard
-    // as Star: if the price layers fail to load, the rest of the
-    // dashboard still renders unchanged.
-    if (global.PriceUI && typeof global.PriceUI.renderPanel === "function") {
-      root.appendChild(el("h2", { class: "section-title" }, "Price Scouts"));
-      root.appendChild(global.PriceUI.renderPanel());
-    }
+    // Star 3.0 Command Chat (V1): primary AI assistant panel,
+    // rendered on the dashboard only.
+    appendPanel("Star 3.0 Command Chat", "Star 3.0 Command Chat", safePanel(global.StarChatUI));
 
-    // API health/usage panel, after Prices. Same guard: if the registry
-    // or panel fails to load, the rest of the dashboard still renders.
-    if (global.ApiHealthUI && typeof global.ApiHealthUI.renderPanel === "function") {
-      root.appendChild(el("h2", { class: "section-title" }, "API Health & Usage"));
-      root.appendChild(global.ApiHealthUI.renderPanel());
-    }
+    // Price Scouts (V1): read-only price panel, dashboard only.
+    appendPanel("Price Scouts", "Price Scouts", safePanel(global.PriceUI));
 
-    // Scouts & Bot Knowledge panel, after API Health. Same guard.
-    if (global.ScoutsUI && typeof global.ScoutsUI.renderPanel === "function") {
-      root.appendChild(el("h2", { class: "section-title" }, "Scouts & Bot Knowledge"));
-      root.appendChild(global.ScoutsUI.renderPanel());
-    }
+    // API health/usage panel, after Prices.
+    appendPanel("API Health & Usage", "API Health & Usage", safePanel(global.ApiHealthUI));
 
-    // Development Center panel (read-only GitHub data), after Scouts. Same guard.
-    if (global.DevCenterUI && typeof global.DevCenterUI.renderPanel === "function") {
-      root.appendChild(el("h2", { class: "section-title" }, "Development Center"));
-      root.appendChild(global.DevCenterUI.renderPanel());
+    // Scouts & Bot Knowledge panel, after API Health. Its data layer
+    // (KnowledgeScout) is checked as well as its UI layer: the panel
+    // itself dereferences KnowledgeScout unguarded, so without this
+    // check a missing layer threw inside render (defect A).
+    appendPanel("Scouts & Bot Knowledge", "Scouts & Bot Knowledge",
+      safePanel(global.ScoutsUI, function () {
+        return global.KnowledgeScout && typeof global.KnowledgeScout.listKnowledge === "function";
+      }));
+
+    // Development Center panel (read-only GitHub data), after Scouts.
+    appendPanel("Development Center", "Development Center", safePanel(global.DevCenterUI));
+
+    // Honest note when part of the dashboard could not load: counts
+    // and lists below cover only what loaded, so a failed store must
+    // never silently read as zero, and a skipped panel must never
+    // silently vanish. No numbers are invented here.
+    if (failedStores.length || skippedPanels.length) {
+      const problems = [];
+      if (failedStores.length) problems.push("data: " + failedStores.join(", "));
+      if (skippedPanels.length) problems.push("panels unavailable: " + skippedPanels.join(", "));
+      root.appendChild(el("div", { class: "empty-state" },
+        "Some dashboard content couldn't be loaded (" + problems.join("; ") +
+        "). Your data is safe — try again or reload to retry."));
     }
 
     // ---- Quick Actions: jump straight into creating a new record, no

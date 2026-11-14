@@ -51,6 +51,7 @@
     var storeNote = null;
     var importReports = [];
     var importSummary = null;
+    var importError = null;
     try {
       if (CW) {
         await CW.ensureTaxonomyMeta();
@@ -58,7 +59,7 @@
         // in the store are counted, not rewritten), so the counts below
         // include imported entries on the first visit after an update.
         if (global.EncyclopediaImport && typeof global.EncyclopediaImport.importAll === "function") {
-          try { importSummary = await global.EncyclopediaImport.importAll(); } catch (e) {}
+          try { importSummary = await global.EncyclopediaImport.importAll(); } catch (e) { importError = e; }
         }
         records = await CW.getAllRecords();
         meta = await CW.getTaxonomyMeta();
@@ -68,6 +69,33 @@
       }
     } catch (e) {
       storeNote = "Local registry store could not be read on this device — counts below are unavailable, not zero by proof.";
+    }
+    // Import-failure banner (Fix-up #3, defect B): a failed import must
+    // be VISIBLE, not swallowed. Before this fix the import summary was
+    // discarded (only .corrected was ever read) and the screen presented
+    // empty registries plus a "Batch B blocked: 356" gate verdict as if
+    // nothing had happened — while the real cause (the store could not
+    // be read or written in that profile) was invisible. The banner
+    // names which batch failed, why, and what to do (reload / revisit
+    // to retry — the import is idempotent and self-heals), and it
+    // renders at the top of the screen (header) as well as in the
+    // Content imports panel, so an empty search result is never the
+    // only thing the user sees.
+    var importNote = null;
+    if (importSummary && importSummary.failed && importSummary.error) {
+      importNote = "⚠️ Encyclopedia import did not complete on this device — " + importSummary.error +
+        " Empty registries below mean the import did not finish, not that nothing exists." +
+        " Reload the page or revisit this screen to retry the import.";
+    } else if (importError) {
+      importNote = "⚠️ Encyclopedia import did not complete on this device — " +
+        (importError && importError.message ? importError.message : String(importError)) +
+        " Empty registries below mean the import did not finish, not that nothing exists." +
+        " Reload the page or revisit this screen to retry the import.";
+    } else if (importReports && importReports.storeReadFailed) {
+      importNote = "⚠️ The local encyclopedia store could not be read on this device" +
+        (importReports.storeError ? " (" + importReports.storeError + ")" : "") +
+        " — counts below are unavailable, not zero by proof." +
+        " Reload the page or revisit this screen to retry the import.";
     }
     if (!CW) storeNote = "Crypto World data layer is not loaded, so the encyclopedia cannot read entries.";
     meta = meta || (CW ? CW.defaultTaxonomyMeta() : { expectedCategoryCount: 60, importedCategoryCount: 0, status: "TAXONOMY_IMPORT_PENDING" });
@@ -87,6 +115,7 @@
           "at the top of the app remains the path to the web.")
       );
       if (storeNote) root.appendChild(U.el("div", { class: "api-meta" }, storeNote));
+      if (importNote) root.appendChild(U.el("div", { class: "api-meta" }, importNote));
     }
 
     // Back navigation goes through the router (location.hash), so the URL
@@ -177,23 +206,43 @@
 
       // Content imports — live report, derived from batch data + store.
       // UNVERIFIED means approved for inclusion, not externally verified.
-      if (importReports.length) {
+      // When the store could not be read, the per-batch lines are NOT
+      // rendered: "0 imported, 356 rejected" derived from an unread store
+      // is the defect-B misdiagnosis, and the failure banner above (in
+      // the header) plus the note here is the honest report instead.
+      var showImportPanel = importReports.length > 0 || !!importNote;
+      if (showImportPanel) {
         var importKids = [U.el("div", { class: "api-meta" },
           "Each batch is validated record by record before writing. Rejected records are " +
           "listed with reasons and never written; the validator is never weakened to fill " +
           "the encyclopedia.")];
-        importReports.forEach(function (rep) {
-          var line = rep.label + " — " + rep.imported + " imported, " + rep.pending +
-            " pending, " + rep.rejected.length + " rejected (of " + rep.total + " records).";
-          importKids.push(U.el("div", { class: "api-meta" }, line));
-          if (rep.blocked && rep.blockReason) {
-            importKids.push(U.el("div", { class: "api-meta" }, rep.blockReason));
-          }
-          rep.rejected.forEach(function (r) {
-            importKids.push(U.el("div", { class: "api-meta" },
-              "Rejected: " + r.id + " — " + r.reasons.join(" ")));
+        if (importNote) {
+          importKids.push(U.el("div", { class: "api-meta" }, importNote));
+        }
+        if (importReports.storeReadFailed) {
+          importKids.push(U.el("div", { class: "api-meta" },
+            "The local encyclopedia store could not be read on this device" +
+            (importReports.storeError ? " (" + importReports.storeError + ")" : "") +
+            " — no import counts can be reported until it can be read." +
+            " Reload the page or revisit this screen to retry the import."));
+        } else {
+          importReports.forEach(function (rep) {
+            var line = rep.label + " — " + rep.imported + " imported, " + rep.pending +
+              " pending, " + rep.rejected.length + " rejected (of " + rep.total + " records).";
+            importKids.push(U.el("div", { class: "api-meta" }, line));
+            if (rep.blocked && rep.blockReason) {
+              importKids.push(U.el("div", { class: "api-meta" }, rep.blockReason));
+              if (importSummary && importSummary.failed) {
+                importKids.push(U.el("div", { class: "api-meta" },
+                  "That Batch B block is a consequence of the failed import above — its parent records were never written — not a problem with the Batch B data."));
+              }
+            }
+            rep.rejected.forEach(function (r) {
+              importKids.push(U.el("div", { class: "api-meta" },
+                "Rejected: " + r.id + " — " + r.reasons.join(" ")));
+            });
           });
-        });
+        }
         // Owner-approved corrections applied by this run (Q-BGR-10): the
         // correction mechanism reports here so an alias fix that lands on
         // an already-imported record is visible, not silent.
