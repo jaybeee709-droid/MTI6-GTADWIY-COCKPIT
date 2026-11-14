@@ -35,6 +35,17 @@
  * tests: buildTaxonomyIndex, buildDrillDown, buildOverview,
  * buildModuleStates, buildFreshness, buildAngelSummary,
  * buildBotSummary, buildOpportunitySummary.
+ *
+ * Stage 2 tab switcher: OVERVIEW is the default tab and renders the
+ * whole screen stacked, exactly as before — the tabs filter from
+ * ALL. Each other tab shows only its section(s). The default stays
+ * stacked so the render smoke test's assertions (60 majors, the
+ * NOT LOADED sections, freshness, knowledge) hold without touching
+ * the test: the test file lives outside this worker's edit scope.
+ * Drill-down levels carry real breadcrumbs, relationship chips
+ * (family / verification / source, ADVANCED and ALL only — STANDARD
+ * stays titles + counts), a source/verification panel, and an
+ * "Open in Encyclopedia" link per item to #/encyclopedia/<id>.
  */
 (function (global) {
   "use strict";
@@ -53,6 +64,26 @@
   var selectedTypeId = null;
   var currentRoot = null;
   var activitiesListBox = null;
+
+  // Stage 2 tab switcher. OVERVIEW is the default and renders the
+  // whole screen stacked (tabs filter from ALL); every other tab
+  // shows only its section(s). Tab ids are the section tags used in
+  // render(); "overview" is also the tag for the overview panel,
+  // the 60-way taxonomy, freshness, and the reference sections.
+  var TABS = [
+    { id: "overview", label: "OVERVIEW" },
+    { id: "activities", label: "ACTIVITIES" },
+    { id: "assets", label: "ASSETS" },
+    { id: "networks", label: "NETWORKS" },
+    { id: "protocols", label: "PROTOCOLS" },
+    { id: "positions", label: "POSITIONS" },
+    { id: "opportunities", label: "OPPORTUNITIES" },
+    { id: "risk", label: "RISK" },
+    { id: "costs", label: "COSTS" },
+    { id: "bots", label: "BOTS" },
+    { id: "security", label: "SECURITY" }
+  ];
+  var activeTab = "overview";
 
   try {
     var savedView = (typeof localStorage !== "undefined") ? localStorage.getItem(VIEW_KEY) : null;
@@ -126,12 +157,16 @@
     var majors = [];
     var typesByMajor = {};
     var strategiesByType = {};
+    var familyTitles = {};
     var typeCount = 0;
     var strategyCount = 0;
     var verifiedCount = 0;
     recs.forEach(function (r) {
       if (!r || typeof r !== "object") return;
       if (r.verificationStatus === "VERIFIED") verifiedCount++;
+      if (r.level === "FAMILY" && typeof r.id === "string" && typeof r.title === "string") {
+        familyTitles[r.id] = r.title;
+      }
       if (r.level === "MAJOR_ACTIVITY") {
         majors.push(r);
       } else if (r.level === "TYPE") {
@@ -148,6 +183,7 @@
       majors: majors,
       typesByMajor: typesByMajor,
       strategiesByType: strategiesByType,
+      familyTitles: familyTitles,
       counts: {
         majors: majors.length,
         types: typeCount,
@@ -173,7 +209,7 @@
     return hay.indexOf(q) !== -1;
   }
 
-  function drillItem(record, childCount, childKind, filter) {
+  function drillItem(record, childCount, childKind, filter, family) {
     return {
       id: record.id,
       title: record.title || record.id,
@@ -181,6 +217,7 @@
       verificationStatus: record.verificationStatus || "UNKNOWN",
       source: (filter === "ADVANCED" || filter === "ALL") ? (record.source || "") : "",
       importBatch: (filter === "ADVANCED" || filter === "ALL") ? (record.importBatch || "") : "",
+      family: family || "",
       childCount: childCount,
       childKind: childKind
     };
@@ -198,6 +235,15 @@
     var majorId = typeof sel.majorId === "string" ? sel.majorId : null;
     var typeId = typeof sel.typeId === "string" ? sel.typeId : null;
 
+    // Resolve a Major Activity's family id to its Batch A family
+    // title when the family record is loaded; otherwise the raw
+    // family id is the honest value. Types and Strategies carry no
+    // family of their own — they inherit their Major Activity's.
+    function familyLabelFor(record) {
+      if (!record || typeof record.primaryFamily !== "string" || !record.primaryFamily) return "";
+      return (index.familyTitles && index.familyTitles[record.primaryFamily]) || record.primaryFamily;
+    }
+
     if (majorId) {
       var major = null;
       index.majors.forEach(function (m) { if (m.id === majorId) major = m; });
@@ -205,7 +251,7 @@
         return {
           level: "majors", major: null, type: null, breadcrumb: null,
           items: index.majors.filter(function (m) { return matchesQuery(m, query); })
-            .map(function (m) { return drillItem(m, (index.typesByMajor[m.id] || []).length, "Types", f); }),
+            .map(function (m) { return drillItem(m, (index.typesByMajor[m.id] || []).length, "Types", f, familyLabelFor(m)); }),
           note: "The selected Major Activity is not in the loaded records — showing all Major Activities."
         };
       }
@@ -216,7 +262,7 @@
           return {
             level: "types", major: major, type: null, breadcrumb: "All Major Activities",
             items: (index.typesByMajor[majorId] || []).map(function (t) {
-              return drillItem(t, (index.strategiesByType[t.id] || []).length, "Strategies", f);
+              return drillItem(t, (index.strategiesByType[t.id] || []).length, "Strategies", f, familyLabelFor(major));
             }),
             note: "The selected Type is not under \"" + (major.title || majorId) + "\" — showing its Types."
           };
@@ -225,7 +271,7 @@
           level: "strategies", major: major, type: type,
           breadcrumb: "Types under " + (major.title || majorId),
           items: (index.strategiesByType[typeId] || []).map(function (s) {
-            return drillItem(s, 0, "Actions", f);
+            return drillItem(s, 0, "Actions", f, familyLabelFor(major));
           }),
           note: ACTIONS_NOT_IMPORTED_NOTE
         };
@@ -233,7 +279,7 @@
       return {
         level: "types", major: major, type: null, breadcrumb: "All Major Activities",
         items: (index.typesByMajor[majorId] || []).map(function (t) {
-          return drillItem(t, (index.strategiesByType[t.id] || []).length, "Strategies", f);
+          return drillItem(t, (index.strategiesByType[t.id] || []).length, "Strategies", f, familyLabelFor(major));
         }),
         note: (index.typesByMajor[majorId] || []).length === 0
           ? "No Types are recorded under \"" + (major.title || majorId) + "\" — nothing is recorded, not a guess."
@@ -244,7 +290,7 @@
       level: "majors", major: null, type: null, breadcrumb: null,
       items: index.majors.filter(function (m) { return matchesQuery(m, query); })
         .map(function (m) {
-          var item = drillItem(m, (index.typesByMajor[m.id] || []).length, "Types", f);
+          var item = drillItem(m, (index.typesByMajor[m.id] || []).length, "Types", f, familyLabelFor(m));
           item.strategyCount = strategiesUnderMajor(index, m.id);
           return item;
         }),
@@ -452,6 +498,112 @@
     return btn;
   }
 
+  // ---- Drill-down chrome: breadcrumbs, chips, encyclopedia links -----
+  // Relationship chips show only real values, and only in ADVANCED /
+  // ALL: STANDARD stays titles + counts only, per the filter's
+  // contract. A chip is text, never colour alone.
+  function chip(text) {
+    return U.el("span", { class: "mti6-chip" }, text);
+  }
+
+  function chipsRow(parts) {
+    var chips = [];
+    (parts || []).forEach(function (p) { if (p) chips.push(chip(p)); });
+    if (!chips.length) return null;
+    return U.el("div", {}, chips);
+  }
+
+  function showDetailChips() {
+    return viewFilter === "ADVANCED" || viewFilter === "ALL";
+  }
+
+  // Family title for a raw record, resolved through the index's
+  // Batch A family titles; the raw family id is the honest fallback.
+  function familyTitleOf(record, index) {
+    if (!record || typeof record.primaryFamily !== "string" || !record.primaryFamily) return "";
+    return (index.familyTitles && index.familyTitles[record.primaryFamily]) || record.primaryFamily;
+  }
+
+  // Chips for one drill-down item (a buildDrillDown item: family is
+  // already resolved on it).
+  function itemChips(item) {
+    if (!showDetailChips()) return null;
+    return chipsRow([
+      item.family ? "Family: " + item.family : "",
+      item.verificationStatus ? "Verification: " + item.verificationStatus : "",
+      item.source ? "Source: " + item.source : ""
+    ]);
+  }
+
+  // Chips for a raw parent record (the Major at Types level, the Type
+  // at Strategies level). A Type has no family of its own, so an
+  // inherited family label from its Major may be passed in.
+  function recordChips(record, index, inheritedFamily) {
+    if (!showDetailChips() || !record) return null;
+    var family = familyTitleOf(record, index) || inheritedFamily || "";
+    return chipsRow([
+      family ? "Family: " + family : "",
+      record.verificationStatus ? "Verification: " + record.verificationStatus : "",
+      record.source ? "Source: " + record.source : ""
+    ]);
+  }
+
+  // Source / verification panel for one level's parent record: the
+  // cited source and the import batch it arrived in. Both fields are
+  // ADVANCED / ALL fields, so the panel only renders in those views.
+  function sourcePanel(record) {
+    if (!showDetailChips() || !record) return null;
+    return meta("Source: " + (record.source || "not recorded") +
+      " · Imported by: " + (record.importBatch || "not recorded"));
+  }
+
+  function encyclopediaLink(id) {
+    return U.el("a", {
+      class: "btn btn-secondary btn-sm",
+      href: "#/encyclopedia/" + encodeURIComponent(id)
+    }, "Open in Encyclopedia");
+  }
+
+  // Real breadcrumb for the drill-down level: every level above the
+  // current one is a clickable button, the current level is plain
+  // text. Separators carry .mti6-breadcrumb__sep.
+  function breadcrumbBar(state, index) {
+    var bar = U.el("div", { class: "mti6-breadcrumb" });
+    function crumbBtn(label, onPick) {
+      var b = U.el("button", { class: "btn btn-secondary btn-sm", type: "button" }, label);
+      b.addEventListener("click", function () {
+        onPick();
+        renderActivitiesList(index);
+      });
+      return b;
+    }
+    function sep() {
+      return U.el("span", { class: "mti6-breadcrumb__sep" }, ">");
+    }
+    if (state.level === "majors") {
+      bar.appendChild(U.el("span", {}, "All Major Activities"));
+    } else if (state.level === "types") {
+      bar.appendChild(crumbBtn("All Major Activities", function () {
+        selectedMajorId = null;
+        selectedTypeId = null;
+      }));
+      bar.appendChild(sep());
+      bar.appendChild(U.el("span", {}, state.major.title || state.major.id));
+    } else {
+      bar.appendChild(crumbBtn("All Major Activities", function () {
+        selectedMajorId = null;
+        selectedTypeId = null;
+      }));
+      bar.appendChild(sep());
+      bar.appendChild(crumbBtn(state.major.title || state.major.id, function () {
+        selectedTypeId = null;
+      }));
+      bar.appendChild(sep());
+      bar.appendChild(U.el("span", {}, state.type.title || state.type.id));
+    }
+    return bar;
+  }
+
   // Renders one drill-down level into the activities list box, from
   // the pure buildDrillDown builder. Clicking a row moves one level
   // deeper; the breadcrumb moves back up. Only this box is rebuilt —
@@ -461,15 +613,7 @@
     activitiesListBox.innerHTML = "";
     var state = buildDrillDown(index,
       { majorId: selectedMajorId, typeId: selectedTypeId }, viewFilter, searchQuery);
-    if (state.breadcrumb) {
-      var crumb = U.el("button", { class: "btn btn-secondary btn-sm", type: "button" }, "← " + state.breadcrumb);
-      crumb.addEventListener("click", function () {
-        if (state.level === "strategies") selectedTypeId = null;
-        else selectedMajorId = null;
-        renderActivitiesList(index);
-      });
-      activitiesListBox.appendChild(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [crumb]));
-    }
+    activitiesListBox.appendChild(breadcrumbBar(state, index));
     if (state.level === "types" && state.major) {
       activitiesListBox.appendChild(U.el("h3", {}, state.major.title || state.major.id));
       if (state.major.definition && (viewFilter === "ADVANCED" || viewFilter === "ALL")) {
@@ -477,6 +621,10 @@
       }
       activitiesListBox.appendChild(meta("Verification: " + (state.major.verificationStatus || "UNKNOWN") +
         " · Types under this Major Activity: " + state.items.length));
+      var majorChips = recordChips(state.major, index, "");
+      if (majorChips) activitiesListBox.appendChild(majorChips);
+      var majorSource = sourcePanel(state.major);
+      if (majorSource) activitiesListBox.appendChild(majorSource);
     }
     if (state.level === "strategies" && state.type) {
       activitiesListBox.appendChild(U.el("h3", {}, state.type.title || state.type.id));
@@ -485,11 +633,25 @@
       }
       activitiesListBox.appendChild(meta("Verification: " + (state.type.verificationStatus || "UNKNOWN") +
         " · Strategies under this Type: " + state.items.length));
+      var typeChips = recordChips(state.type, index, familyTitleOf(state.major, index));
+      if (typeChips) activitiesListBox.appendChild(typeChips);
+      var typeSource = sourcePanel(state.type);
+      if (typeSource) activitiesListBox.appendChild(typeSource);
     }
     if (state.level === "majors") {
       activitiesListBox.appendChild(meta(state.items.length + " of " + index.majors.length +
         " Major Activities shown" + (searchQuery ? " (filter: \"" + searchQuery + "\")" : "") +
         " — one canonical backbone, never a separate taxonomy per view."));
+      if (showDetailChips()) {
+        var verifiedMajors = index.majors.filter(function (m) { return m.verificationStatus === "VERIFIED"; }).length;
+        var sources = {};
+        index.majors.forEach(function (m) {
+          if (typeof m.source === "string" && m.source) sources[m.source] = true;
+        });
+        var sourceNames = Object.keys(sources);
+        activitiesListBox.appendChild(meta("Verification: " + verifiedMajors + " of " + index.majors.length + " VERIFIED" +
+          (sourceNames.length ? " · Source: " + sourceNames.join(", ") : "")));
+      }
     }
     if (state.items.length === 0) {
       activitiesListBox.appendChild(meta(state.level === "majors"
@@ -512,6 +674,9 @@
           U.el("span", { class: "status-value" }, item.verificationStatus)
         ]));
         if (item.definition) activitiesListBox.appendChild(meta(item.definition));
+        var sChips = itemChips(item);
+        if (sChips) activitiesListBox.appendChild(sChips);
+        activitiesListBox.appendChild(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [encyclopediaLink(item.id)]));
       } else {
         var btn = U.el("button", { class: "btn btn-secondary", type: "button" }, label);
         btn.addEventListener("click", function () {
@@ -525,6 +690,9 @@
         });
         activitiesListBox.appendChild(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [btn]));
         if (item.definition) activitiesListBox.appendChild(meta(item.definition));
+        var iChips = itemChips(item);
+        if (iChips) activitiesListBox.appendChild(iChips);
+        activitiesListBox.appendChild(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [encyclopediaLink(item.id)]));
       }
     });
     if (state.note) activitiesListBox.appendChild(meta(state.note));
@@ -532,23 +700,9 @@
 
   async function render(root) {
     currentRoot = root;
+    activitiesListBox = null;
     root.innerHTML = "";
     root.appendChild(global.ScreensNav ? global.ScreensNav.renderDots("crypto-world") : U.el("div", {}, ""));
-    root.appendChild(
-      U.el("div", { class: "view-header" }, [
-        U.el("h1", {}, "MTI6 Crypto World"),
-        U.el("span", { class: "badge badge-cat cockpit-callsign" }, "REGISTRY FOUNDATION — READ ONLY")
-      ])
-    );
-    root.appendChild(
-      U.el("p", { class: "about-text" },
-        "Part 1 maps the Crypto World so Star can later answer what an asset can do, " +
-        "which protocols support an activity, and what the risks are. Mapping an opportunity " +
-        "is not promising income: prices, yields, and positions can gain or lose.")
-    );
-    root.appendChild(
-      U.el("a", { class: "btn btn-primary btn-sm", href: "#/encyclopedia" }, "📖 Open the Crypto Encyclopedia")
-    );
 
     var CW = global.CryptoWorld;
     var records = [];
@@ -566,10 +720,62 @@
     try { metaRec = CW ? await CW.getTaxonomyMeta() : null; } catch (e) { metaRec = null; }
     metaRec = metaRec || (CW ? CW.defaultTaxonomyMeta() : { expectedCategoryCount: 60, importedCategoryCount: 0, status: "TAXONOMY_IMPORT_PENDING" });
 
-    if (storeNote) root.appendChild(U.el("div", { class: "api-meta" }, storeNote));
-
     var index = buildTaxonomyIndex(records);
     var overview = buildOverview(records, counts, metaRec);
+
+    // Screen header (Stage 1 primitives): taxonomy status and real
+    // record counts as badges — colour + text label, never colour
+    // alone. IMPORTED is deliberately not green: imported is not
+    // verified, so it takes the muted unverified variant.
+    var taxBadgeClass = metaRec.status === "TAXONOMY_IMPORTED" ? "mti6-badge--unverified" : "mti6-badge--unknown";
+    root.appendChild(
+      U.el("div", { class: "mti6-screen-header" }, [
+        U.el("span", { class: "mti6-screen-header__icon" }, "💱"),
+        U.el("h1", { class: "mti6-screen-header__title" }, "MTI6 Crypto World"),
+        U.el("p", { class: "mti6-screen-header__desc" },
+          "Part 1 maps the Crypto World so Star can later answer what an asset can do, " +
+          "which protocols support an activity, and what the risks are. Mapping an opportunity " +
+          "is not promising income: prices, yields, and positions can gain or lose."),
+        U.el("div", { class: "mti6-screen-header__status" }, [
+          U.el("span", { class: "mti6-badge mti6-badge--read-only" }, "REGISTRY FOUNDATION — READ ONLY"),
+          U.el("span", { class: "mti6-badge " + taxBadgeClass }, String(metaRec.status).replace(/_/g, " ")),
+          U.el("span", { class: "mti6-badge" }, overview.majors + " / " + overview.taxonomyExpected + " MAJOR ACTIVITIES"),
+          U.el("span", { class: "mti6-badge" }, overview.totalRecords + " RECORDS")
+        ]),
+        U.el("div", { class: "mti6-screen-header__actions" }, [
+          U.el("a", { class: "btn btn-primary btn-sm", href: "#/encyclopedia" }, "📖 Open the Crypto Encyclopedia")
+        ])
+      ])
+    );
+
+    // Tab switcher. OVERVIEW (the default) renders the whole screen
+    // stacked; each other tab narrows to its section(s).
+    var tabBar = U.el("div", { class: "mti6-tabs", role: "tablist" });
+    TABS.forEach(function (tab) {
+      var btn = U.el("button", {
+        class: "mti6-tab" + (activeTab === tab.id ? " mti6-tab--active" : ""),
+        type: "button",
+        role: "tab",
+        "aria-selected": activeTab === tab.id ? "true" : "false"
+      }, tab.label);
+      btn.addEventListener("click", function () {
+        if (activeTab === tab.id) return;
+        activeTab = tab.id;
+        if (currentRoot) render(currentRoot);
+      });
+      tabBar.appendChild(btn);
+    });
+    root.appendChild(tabBar);
+
+    if (storeNote) root.appendChild(U.el("div", { class: "api-meta" }, storeNote));
+
+    // Sections are collected with their tab tag, then appended per
+    // the active tab: OVERVIEW shows everything, any other tab shows
+    // only its own sections.
+    var sections = [];
+    function addSection(tab, el) {
+      sections.push({ tab: tab, el: el });
+    }
 
     // ---- 1. Overview -----------------------------------------------------
     var overviewKids = [
@@ -584,7 +790,7 @@
       row("Positions (registry records)", String(counts.positions || 0)),
       row("Risks (registry records)", String(counts.risks || 0))
     ];
-    root.appendChild(panel("Overview", overviewKids));
+    addSection("overview", panel("Overview", overviewKids));
 
     // ---- 2. Activities drill-down ----------------------------------------
     var activitiesPanel = U.el("div", { class: "api-panel" }, [
@@ -593,7 +799,7 @@
       U.el("div", { class: "price-input-row" }, VIEW_FILTERS.map(function (f) { return filterButton(f, viewFilter === f); }))
     ]);
     var searchInput = U.el("input", {
-      type: "search", placeholder: "Filter Major Activities by name…",
+      class: "cw-filter-input", type: "search", placeholder: "Filter Major Activities by name…",
       value: searchQuery, "aria-label": "Filter Major Activities by name"
     });
     searchInput.addEventListener("input", function () {
@@ -605,8 +811,7 @@
     activitiesPanel.appendChild(U.el("div", { class: "price-input-row" }, [searchInput]));
     activitiesListBox = U.el("div", {});
     activitiesPanel.appendChild(activitiesListBox);
-    root.appendChild(activitiesPanel);
-    renderActivitiesList(index);
+    addSection("activities", activitiesPanel);
 
     // ---- 3. 60-WAY TAXONOMY (preserved from the Part 1 screen) -----------
     var verifiedMajorCount = records.filter(function (r) { return r.level === "MAJOR_ACTIVITY" && r.verificationStatus === "VERIFIED"; }).length;
@@ -629,7 +834,7 @@
     } else {
       taxKids.push(U.el("div", { class: "api-meta" }, "Canonical 60 imported — browse the Major Activities in the Encyclopedia."));
     }
-    root.appendChild(U.el("div", { class: "api-panel" }, taxKids));
+    addSection("overview", U.el("div", { class: "api-panel" }, taxKids));
 
     // ---- 4. Assets --------------------------------------------------------
     var assetKids = [
@@ -646,8 +851,8 @@
         ". Classification is reference data, not holdings. No individual asset is named here; a class describes a structure, never a specific coin or token."));
     }
     assetKids.push(meta("Balances: UNAVAILABLE — no balance source is connected. No balance figure is shown, and none is estimated."));
-    root.appendChild(panel("💰 Assets", assetKids));
-    root.appendChild(labelList(CW ? CW.ASSET_CLASSES : []));
+    addSection("assets", panel("💰 Assets", assetKids));
+    addSection("assets", labelList(CW ? CW.ASSET_CLASSES : []));
 
     // ---- 5. Networks ------------------------------------------------------
     var networkKids = [meta((counts.chains || 0) + " chain records.")];
@@ -667,7 +872,7 @@
       }
     }
     networkKids.push(meta("Live network coverage: NOT CONNECTED — no network provider is connected, so no chain is confirmed reachable."));
-    root.appendChild(panel("⛓️ Chains / Networks", networkKids));
+    addSection("networks", panel("⛓️ Chains / Networks", networkKids));
 
     // ---- 6. Protocols -----------------------------------------------------
     var protocolKids = [meta((counts.protocols || 0) + " protocol records.")];
@@ -684,7 +889,7 @@
     } else {
       protocolKids.push(meta("No protocol records are loaded — nothing is claimed about which protocols support which activity."));
     }
-    root.appendChild(panel("🏛️ Protocols / DApps", protocolKids));
+    addSection("protocols", panel("🏛️ Protocols / DApps", protocolKids));
 
     // ---- 7. Positions -----------------------------------------------------
     var positionKids = [meta((counts.positions || 0) + " position records in the registry.")];
@@ -692,7 +897,7 @@
       positionKids.push(meta(notLoadedLine("PositionIntelligence", "position state")));
     }
     positionKids.push(meta("Positions are recorded relationships (asset, network, venue, source) — no balance, no value, and no gain/loss figure is shown, because no position source is connected."));
-    root.appendChild(panel("📍 Positions", positionKids));
+    addSection("positions", panel("📍 Positions", positionKids));
 
     // ---- 8. Opportunities -------------------------------------------------
     var opp = buildOpportunitySummary();
@@ -705,7 +910,7 @@
       oppKids.push(meta("Costs on recorded opportunities: " + opp.costsSourced + " sourced, " + opp.costsUnknown + " UNKNOWN. A cost is UNKNOWN until a sourced value exists — never assumed, never zeroed."));
       oppKids.push(meta(opp.note));
     }
-    root.appendChild(panel("🎯 Opportunities", oppKids));
+    addSection("opportunities", panel("🎯 Opportunities", oppKids));
 
     // ---- 9. Risk ----------------------------------------------------------
     var riskKids = [
@@ -726,8 +931,8 @@
       riskKids.push(meta("THREAT/DEFENSE classifications on risk records: " + threatCount + " THREAT, " + defenseCount +
         " DEFENSE. Threats are recorded in the risks registry only — never as Strategies."));
     }
-    root.appendChild(panel("⚠️ Risks (dimensions, no scores)", riskKids));
-    root.appendChild(labelList(CW ? CW.RISK_DIMENSIONS : []));
+    addSection("risk", panel("⚠️ Risks (dimensions, no scores)", riskKids));
+    addSection("risk", labelList(CW ? CW.RISK_DIMENSIONS : []));
 
     // ---- 10. Costs --------------------------------------------------------
     var costKids = [];
@@ -742,7 +947,7 @@
       costKids.push(meta(notLoadedLine("MarketIntelligence", "market prices")));
       costKids.push(meta("No price is shown on this screen — prices live on the Crypto Market screen, from live sources only, never from this registry."));
     }
-    root.appendChild(panel("💸 Costs", costKids));
+    addSection("costs", panel("💸 Costs", costKids));
 
     // ---- 11. Bots assigned ------------------------------------------------
     var bots = buildBotSummary();
@@ -761,7 +966,7 @@
       if (bots.note) botKids.push(meta(bots.note));
     }
     botKids.push(meta("Role labels a worker may carry on an assignment (Research, Risk, Yield, Routing, Security, Builder, Analysis, Monitoring) are assignment labels, not bot names."));
-    root.appendChild(panel("🤖 Bots assigned", botKids));
+    addSection("bots", panel("🤖 Bots assigned", botKids));
 
     // ---- 12. Security alerts ----------------------------------------------
     var angel = buildAngelSummary();
@@ -782,7 +987,7 @@
         angelKids.push(meta("Showing the first 20 of " + angel.alerts.length + " alerts — see the Security screen for the full list."));
       }
     }
-    root.appendChild(panel("🛡️ Security alerts", angelKids));
+    addSection("security", panel("🛡️ Security alerts", angelKids));
 
     // ---- 13. Data freshness -----------------------------------------------
     var fresh = buildFreshness(records);
@@ -794,7 +999,7 @@
       row("Verified / unverified", fresh.verified + " / " + fresh.unverified),
       row("Taxonomy status", String(metaRec.status).replace(/_/g, " "))
     ];
-    root.appendChild(panel("🕒 Data freshness", freshKids));
+    addSection("overview", panel("🕒 Data freshness", freshKids));
 
     // ---- 14. Knowledge / explanations --------------------------------------
     var knowKids = [
@@ -815,29 +1020,37 @@
       knowKids.push(meta("EncyclopediaBridge is loaded: record lookups, Types under a Major Activity, and Strategies under a Type all read the same loaded records as this screen."));
     }
     knowKids.push(meta("Definitions on this screen come from the canonical encyclopedia records (source \"canonical-import\"). A definition that merely repeats a title, promises a return, or names a protocol without a source is not a definition this screen will show."));
-    root.appendChild(panel("📚 Knowledge / explanations", knowKids));
+    addSection("overview", panel("📚 Knowledge / explanations", knowKids));
 
     // ---- Activity families — organizational labels only (preserved) --------
-    root.appendChild(section("🧭 Activity Families (organizational only)",
+    addSection("activities", section("🧭 Activity Families (organizational only)",
       "Families organize activities. They are not opportunities, earning guarantees, " +
       "protocols, assets, strategies, or the 60 Ways. Part 2 fills activities family-by-family."));
-    root.appendChild(labelList(CW ? CW.ACTIVITY_FAMILIES.map(function (f) { return f.id + ". " + f.name; }) : []));
+    addSection("activities", labelList(CW ? CW.ACTIVITY_FAMILIES.map(function (f) { return f.id + ". " + f.name; }) : []));
 
-    root.appendChild(section("🤖 Bot Capabilities",
+    addSection("bots", section("🤖 Bot Capabilities",
       (counts.botcapabilities || 0) + " bot capability records. Part 1 capabilities are research-only; " +
       "nothing here can transact, and INFORMATIONAL never implies TRANSACTIONAL."));
-    root.appendChild(section("🔌 Data Sources",
+    addSection("overview", section("🔌 Data Sources",
       (counts.datasources || 0) + " data-source records added in Part 1. No new live source was connected; " +
       "the existing API registry is unchanged."));
-    root.appendChild(section("🔭 Intelligence (future questions)",
+    addSection("overview", section("🔭 Intelligence (future questions)",
       "Once records exist, this layer will answer from real state only: what can I do with this asset, " +
       "which protocols support this activity, which chains can I use, what activities exist under a Way, " +
       "what are the risks, what can bots research, what needs wallet approval, and what is informational " +
       "versus transactional."));
-    root.appendChild(section("🧭 Discovery",
+    addSection("overview", section("🧭 Discovery",
       "New findings follow DISCOVERED → VERIFY → CLASSIFY → OWNER APPROVAL → ADD. " +
       "Nothing discovered by a bot becomes authoritative on its own; rejected, duplicate, stale, " +
       "and needs-review outcomes are kept as statuses."));
+
+    // Append per the active tab: OVERVIEW shows everything, any other
+    // tab shows only its own sections. The drill-down list is only
+    // built when its panel is on screen.
+    sections.forEach(function (s) {
+      if (activeTab === "overview" || s.tab === activeTab) root.appendChild(s.el);
+    });
+    if (activitiesListBox) renderActivitiesList(index);
   }
 
   global.CockpitModules = global.CockpitModules || {};

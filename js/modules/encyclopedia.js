@@ -307,7 +307,14 @@
       root.appendChild(panel(entry.title + " — " + LABELS[entry.registry], kids));
     }
 
-    showIndex();
+    // Per-entry route (#/encyclopedia/<id>): the router exposes the
+    // id as global.CockpitRouteParam. A routed id opens that entry's
+    // detail view directly; an unknown id renders the existing
+    // "Entry not found" panel. The in-page Back button from a routed
+    // detail returns to the index.
+    var routedId = (typeof global.CockpitRouteParam === "string" && global.CockpitRouteParam)
+      ? global.CockpitRouteParam : null;
+    if (routedId) showDetail(routedId, { view: "index" }); else showIndex();
   }
 
   global.CockpitModules = global.CockpitModules || {};

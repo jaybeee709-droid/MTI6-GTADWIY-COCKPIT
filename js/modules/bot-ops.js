@@ -2,7 +2,11 @@
  * Bot Operations Advancement, continuous development campaign)
  *
  * Four conceptual sections: STAR, TRIBES, WORKERS, LIVE WORK — plus
- * Wallet task templates and an Angel Security summary.
+ * Wallet and Crypto task templates, a Task queue, and an Angel
+ * Security summary. The overview is a .botops-hud grid of .mti6-card
+ * metrics built from the same real data the sections below read;
+ * Tribe principal cards carry a Tribe mark (order number + initial)
+ * and a meta line (stable ID, role, real worker count, status).
  *
  * Identity rules, enforced here: STAR is the main persistent named
  * assistant. The 12 Tribe principals are persistent named principal
@@ -49,7 +53,7 @@
  * buildWorkerDetail, getWorkersActive, buildAngelSummary,
  * buildWalletTaskTemplates, createWalletTaskFromTemplate,
  * buildCryptoTaskTemplates, createCryptoTaskFromTemplate,
- * bringPrincipal, participantsAvailable.
+ * buildHud, buildTaskQueue, bringPrincipal, participantsAvailable.
  */
 (function (global) {
   "use strict";
@@ -61,7 +65,10 @@
   var currentRoot = null;
   var selectedSlotId = null;
   var selectedWorkerId = null;
-  var lastTemplateMessage = "";
+  // One confirmation message per template panel (same message
+  // pattern in both): a creation confirms in the panel it came from.
+  var lastWalletTemplateMessage = "";
+  var lastCryptoTemplateMessage = "";
 
   // ---- Canonical roster fallback ---------------------------------------
   // Used ONLY when TribePrincipals is not loaded. Same ids, names and
@@ -357,6 +364,13 @@
     return value === "—" ? null : value;
   }
 
+  // One history entry as a single honest line. Shared by the detail
+  // view and the HUD recent-outcomes card so both read the same text.
+  function formatHistoryEntry(h) {
+    if (!h || typeof h !== "object") return String(h);
+    return (h.at || "") + " — " + (h.change || h.note || ((h.from || "") + " -> " + (h.to || ""))) + (h.by ? " (" + h.by + ")" : "");
+  }
+
   // Full truthful detail record for one canonical principal. Every
   // spec field is always present: unknown values are null (or
   // "UNKNOWN" for the closed-set fields, [] for the list fields),
@@ -385,6 +399,7 @@
       id: p.id,
       displayName: p.displayName,
       canonicalName: identity && identity.canonicalName ? identity.canonicalName : p.displayName,
+      order: p.order,
       parentTribe: p.displayName,
       organizationalParent: identity && identity.organizationalParent ? identity.organizationalParent : null,
       role: identity && identity.role !== undefined ? identity.role : (p.currentRole || null),
@@ -401,6 +416,9 @@
       evidence: null,
       dependencies: bot ? dashToNull(bot.dependencies) : null,
       warnings: warnings,
+      // No risk assessment is recorded for any principal: risk stays
+      // null (rendered UNKNOWN), never an invented dimension or score.
+      risk: null,
       permission: identity && Array.isArray(identity.permissions) && identity.permissions.length
         ? identity.permissions[0] : null,
       permissions: identity && Array.isArray(identity.permissions) ? identity.permissions.slice() : [],
@@ -488,6 +506,9 @@
       dependencies: null,
       warnings: [],
       errors: [],
+      // No risk assessment is recorded for any worker: risk stays
+      // null (rendered UNKNOWN), never an invented dimension or score.
+      risk: null,
       cost: null,
       gain: null,
       loss: null,
@@ -618,6 +639,117 @@
     };
   }
 
+  // ---- HUD aggregate (pure data — the .botops-hud grid reads this) -----
+  // Every figure comes from the same real data the sections below
+  // read: buildDrawerPrincipals, buildPrincipalDetail,
+  // buildWorkerDetail, BotOpsModel.summary/listTasks, getWorkersActive,
+  // buildAngelSummary, and the module-availability probes. Nothing is
+  // derived from a card, a queued task, or a saved object, and nothing
+  // is invented to fill a card: absent values stay null, 0, or
+  // UNKNOWN. tasks.active is always 0 — no worker runtime exists.
+  function buildHud() {
+    var drawer = buildDrawerPrincipals();
+    var assigned = 0;
+    drawer.forEach(function (e) { if (e.assignmentState !== "UNASSIGNED") assigned++; });
+    var workersActive = getWorkersActive();
+    var angel = buildAngelSummary();
+
+    // Model / tool assignments, warnings, and recent outcomes, from
+    // the real detail records of all 12 principals plus every worker
+    // record. A warning is listed with the principal or worker it
+    // came from; an outcome is a real history entry or task creation.
+    var modelsAssigned = 0;
+    var toolsAssigned = 0;
+    var warnings = [];
+    var outcomes = [];
+    drawer.forEach(function (e) {
+      var d = buildPrincipalDetail(e.id);
+      if (!d) return;
+      if (d.model !== null && d.model !== undefined) modelsAssigned++;
+      if (Array.isArray(d.tools)) toolsAssigned += d.tools.length;
+      d.warnings.forEach(function (w) { warnings.push(e.displayName + ": " + w); });
+      (Array.isArray(d.history) ? d.history : []).forEach(function (h) {
+        outcomes.push({ at: h && h.at ? String(h.at) : "", text: formatHistoryEntry(h) + " — " + e.displayName });
+      });
+    });
+    var workerRecords = [];
+    if (global.WorkerEngine && typeof global.WorkerEngine.listWorkers === "function") {
+      try { workerRecords = global.WorkerEngine.listWorkers() || []; } catch (e) { workerRecords = []; }
+    }
+    workerRecords.forEach(function (rec) {
+      if (!rec || !rec.workerId) return;
+      var w = buildWorkerDetail(rec.workerId);
+      if (!w) return;
+      if (w.model !== null && w.model !== undefined) modelsAssigned++;
+      if (Array.isArray(w.tools)) toolsAssigned += w.tools.length;
+      w.warnings.forEach(function (x) { warnings.push((w.canonicalName || w.workerId) + ": " + x); });
+      w.errors.forEach(function (x) { warnings.push((w.canonicalName || w.workerId) + " (error): " + x); });
+    });
+
+    // Tasks: real stored records only (summary + listTasks agree —
+    // both read the same store).
+    var bom = global.BotOpsModel;
+    var taskSummary = null;
+    var tasks = [];
+    if (bom && typeof bom.summary === "function") {
+      try { taskSummary = bom.summary(); } catch (e) { taskSummary = null; }
+    }
+    if (bom && typeof bom.listTasks === "function") {
+      try { tasks = bom.listTasks() || []; } catch (e) { tasks = []; }
+    }
+    var cryptoTasks = 0;
+    tasks.forEach(function (t) {
+      if (t && typeof t.dataProvenance === "string" &&
+          t.dataProvenance.indexOf("crypto-bot-assignments:") === 0) cryptoTasks++;
+      if (t && t.createdAt) {
+        outcomes.push({
+          at: String(t.createdAt),
+          text: "Task created: " + (t.title || t.id) + " (state " + (t.state || "UNKNOWN") + ")"
+        });
+      }
+    });
+    outcomes.sort(function (a, b) {
+      if (b.at < a.at) return -1;
+      if (b.at > a.at) return 1;
+      return 0;
+    });
+
+    return {
+      star: {
+        status: starStatus(),
+        connected: !!(global.StarBackend && typeof global.StarBackend.getStatusLabel === "function")
+      },
+      principals: {
+        total: drawer.length,
+        assigned: assigned,
+        unassigned: drawer.length - assigned,
+        entries: drawer
+      },
+      tasks: {
+        total: taskSummary ? taskSummary.total : tasks.length,
+        byState: taskSummary ? taskSummary.byState : {},
+        active: 0,
+        // The only creation paths on this screen are the two template
+        // panels: a task with crypto provenance came from a crypto
+        // template, the rest from a wallet template.
+        cryptoTemplateTasks: cryptoTasks,
+        walletTemplateTasks: tasks.length - cryptoTasks
+      },
+      workersActive: workersActive,
+      angel: angel,
+      models: { assigned: modelsAssigned, toolsAssigned: toolsAssigned },
+      warnings: warnings,
+      modules: {
+        botOpsModel: !!bom,
+        tribePrincipals: !!global.TribePrincipals,
+        workerEngine: !!global.WorkerEngine,
+        angelSecurity: !!global.AngelSecurity,
+        starBackend: !!(global.StarBackend && typeof global.StarBackend.getStatusLabel === "function")
+      },
+      recentOutcomes: outcomes.slice(0, 5).map(function (o) { return o.text; })
+    };
+  }
+
   // Wallet task templates, as copies (callers mutating one never touch
   // the registry).
   function buildWalletTaskTemplates() {
@@ -729,14 +861,55 @@
     }
   }
 
+  // ---- Task queue (pure data — the .task-queue list reads this) ---------
+  // Real stored task records only (BotOpsModel.listTasks). One row per
+  // task, with only fields that really exist on the record: the record
+  // carries no priority field, so priority is always null (rendered
+  // UNKNOWN). A queued task is never presented as an active bot.
+  function buildTaskQueue() {
+    var bom = global.BotOpsModel;
+    if (!bom || typeof bom.listTasks !== "function") return [];
+    var tasks;
+    try { tasks = bom.listTasks() || []; } catch (e) { return []; }
+    return tasks.map(function (t) {
+      if (!t || typeof t !== "object") return null;
+      return {
+        id: typeof t.id === "string" && t.id ? t.id : "UNKNOWN",
+        title: typeof t.title === "string" && t.title ? t.title : "UNKNOWN",
+        role: typeof t.role === "string" && t.role ? t.role : "UNKNOWN",
+        principal: typeof t.principal === "string" && t.principal ? t.principal : null,
+        worker: typeof t.worker === "string" && t.worker ? t.worker : null,
+        state: typeof t.state === "string" && t.state ? t.state : "UNKNOWN",
+        priority: null,
+        dependencies: Array.isArray(t.dependencies) ? t.dependencies.slice() : [],
+        start: typeof t.start === "string" && t.start ? t.start : null,
+        heartbeat: (t.heartbeat === undefined || t.heartbeat === null) ? null : t.heartbeat,
+        evidence: (t.evidence !== undefined && t.evidence !== null) ? t.evidence
+          : ((t.completionEvidence !== undefined && t.completionEvidence !== null) ? t.completionEvidence : null),
+        warnings: Array.isArray(t.warnings) ? t.warnings.slice() : [],
+        createdAt: typeof t.createdAt === "string" && t.createdAt ? t.createdAt : null
+      };
+    }).filter(function (row) { return row !== null; });
+  }
+
   // ---- Render helpers --------------------------------------------------------
 
   function tribeCard(entry) {
     var assigned = entry.assignmentState !== "UNASSIGNED";
-    var card = U.el("button", { class: "tribe-card" + (assigned ? "" : " tribe-card-unassigned"), type: "button" }, [
-      U.el("div", { class: "tribe-card-avatar", "aria-hidden": "true" }, entry.displayName.slice(0, 2)),
+    // Visual Build Stage 2: .principal-card on the existing tribe
+    // card (structure, Bring behaviour, and detail view unchanged).
+    // Tribe mark: the principal's Revelation 7 order number + initial
+    // (existing avatar hook — no new artwork). Meta line: stable ID,
+    // current role, REAL worker count, status — all real values.
+    var card = U.el("button", { class: "tribe-card principal-card" + (assigned ? "" : " tribe-card-unassigned"), type: "button" }, [
+      U.el("div", { class: "tribe-card-avatar principal-card__avatar", "aria-hidden": "true" },
+        String(entry.order) + " " + entry.displayName.charAt(0)),
       U.el("div", { class: "tribe-card-label" }, entry.displayName),
       U.el("div", { class: "tribe-card-status" }, entry.assignmentState),
+      U.el("div", { class: "principal-card__meta" },
+        "ID: " + entry.id + " · Role: " + (entry.currentRole || "UNASSIGNED") +
+        " · Workers active: " + entry.workersActive.count + " (" + entry.workersActive.state + ")" +
+        " · Status: " + entry.assignmentState),
       U.el("div", { class: "tribe-card-note" }, assigned
         ? ("Role: " + (entry.currentRole || "—") + " · Task: " + (entry.currentTask || "—"))
         : "Not assigned — a principal is named only by owner approval."),
@@ -796,10 +969,7 @@
     }
     var box = U.el("div", { class: "api-meta" }, []);
     history.forEach(function (h) {
-      var text = h && typeof h === "object"
-        ? ((h.at || "") + " — " + (h.change || h.note || (h.from + " -> " + h.to) || "") + (h.by ? " (" + h.by + ")" : ""))
-        : String(h);
-      box.appendChild(U.el("div", {}, text));
+      box.appendChild(U.el("div", {}, formatHistoryEntry(h)));
     });
     return box;
   }
@@ -825,15 +995,26 @@
       rows.appendChild(detailRow("Live status", w.liveStatus));
       rows.appendChild(detailRow("Health", w.health));
       rows.appendChild(detailRow("Heartbeat", w.heartbeat === null ? "UNKNOWN — no heartbeat recorded" : String(w.heartbeat)));
-      rows.appendChild(detailRow("Inputs / outputs", fmtValue(w.inputs) + " / " + fmtValue(w.outputs)));
+      rows.appendChild(detailRow("Inputs", fmtValue(w.inputs)));
+      rows.appendChild(detailRow("Outputs", fmtValue(w.outputs)));
       rows.appendChild(detailRow("Evidence", fmtValue(w.evidence)));
       rows.appendChild(detailRow("Dependencies", fmtValue(w.dependencies)));
       rows.appendChild(detailRow("Warnings", w.warnings.length ? w.warnings.join("; ") : "None reported"));
       rows.appendChild(detailRow("Errors", w.errors.length ? w.errors.join("; ") : "None reported"));
+      // RISK (§67): no risk assessment is recorded for any worker —
+      // reported warnings/errors are the only risk signal, and with
+      // none the section reads UNKNOWN, never an invented score.
+      rows.appendChild(detailRow("Risk",
+        (w.warnings.length || w.errors.length)
+          ? ("Reported signals: " + w.warnings.concat(w.errors).join("; "))
+          : "UNKNOWN — no risk assessment recorded"));
       rows.appendChild(detailRow("Costs", fmtMoneyField(w.cost)));
       rows.appendChild(detailRow("Verified gains / losses / net",
         fmtMoneyField(w.gain) + " / " + fmtMoneyField(w.loss) + " / " + fmtMoneyField(w.net)));
       rows.appendChild(detailRow("Autonomy level", w.autonomyLevel));
+      // CONTROLS (§67): a worker record exposes no controls in this
+      // shell — no Bring, no start/stop, nothing implied.
+      rows.appendChild(detailRow("Controls", "None — worker records expose no controls in this shell"));
       rows.appendChild(detailRow("History / logs", ""));
       rows.appendChild(historyLines(w.history));
       return;
@@ -848,6 +1029,10 @@
       "Bot operational anatomy: identity, work, dependencies, telemetry, risks, results. Every value below is real state — unknown means unknown, never guessed."));
     var d = detailBox;
     d.appendChild(detailRow("Bot identity", detail.canonicalName));
+    // ORIGIN (§67): the canonical roster position is real data
+    // (buildPrincipalDetail.order); nothing else about origin is known.
+    d.appendChild(detailRow("Origin", "Canonical roster — Revelation 7 order " +
+      (detail.order === null || detail.order === undefined ? "UNKNOWN" : String(detail.order)) + " of 12"));
     d.appendChild(detailRow("Parent Tribe", detail.parentTribe));
     d.appendChild(detailRow("Organizational parent", detail.organizationalParent || "UNKNOWN"));
     d.appendChild(detailRow("Assignment state", detail.assignmentState));
@@ -857,11 +1042,19 @@
     d.appendChild(detailRow("Live status", detail.liveStatus));
     d.appendChild(detailRow("Model", fmtValue(detail.model)));
     d.appendChild(detailRow("Tools", fmtValue(detail.tools)));
-    d.appendChild(detailRow("Inputs / outputs", fmtValue(detail.inputs) + " / " + fmtValue(detail.outputs)));
+    d.appendChild(detailRow("Inputs", fmtValue(detail.inputs)));
+    d.appendChild(detailRow("Outputs", fmtValue(detail.outputs)));
     d.appendChild(detailRow("Evidence", fmtValue(detail.evidence)));
     d.appendChild(detailRow("Dependencies", fmtValue(detail.dependencies)));
     d.appendChild(detailRow("Warnings", detail.warnings.length ? detail.warnings.join("; ") : "None reported — no live data"));
+    // RISK (§67): no risk assessment is recorded for any principal —
+    // reported warnings are the only risk signal, and with none the
+    // section reads UNKNOWN, never an invented dimension or score.
+    d.appendChild(detailRow("Risk", detail.warnings.length
+      ? ("Reported warnings: " + detail.warnings.join("; "))
+      : "UNKNOWN — no risk assessment recorded"));
     d.appendChild(detailRow("Permission", detail.permission || "UNKNOWN"));
+    d.appendChild(detailRow("Permissions", fmtValue(detail.permissions)));
     d.appendChild(detailRow("Autonomy level", detail.autonomyLevel));
     d.appendChild(detailRow("Health", detail.health));
     d.appendChild(detailRow("Heartbeat", detail.heartbeat === null ? "UNKNOWN — no heartbeat recorded" : String(detail.heartbeat)));
@@ -888,16 +1081,234 @@
     detailBox.appendChild(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [bringBtn]));
   }
 
+  // ---- HUD helpers (Visual Build Stage 2, §59-68) -----------------------
+  // The overview grid reuses the Stage 1 shared primitives
+  // (.mti6-card / .mti6-metric / .mti6-empty / .mti6-badge). Colour
+  // is never the only signal: every badge carries its state as text.
+  // Purple appears only on the Command Theater badge (the selected
+  // processing context); red only on a real CRITICAL security alert;
+  // green only on the verified NO_ALERTS state.
+
+  // textValue: sentence values (e.g. the STAR status line) take the
+  // .mti6-metric__value--text variant instead of the 28px big number.
+  function hudMetric(label, value, freshness, textValue) {
+    var parts = [
+      U.el("div", { class: "mti6-metric__label" }, label),
+      U.el("div", { class: "mti6-metric__value" + (textValue ? " mti6-metric__value--text" : "") }, value)
+    ];
+    if (freshness) parts.push(U.el("div", { class: "mti6-metric__freshness" }, freshness));
+    return U.el("div", { class: "mti6-metric" }, parts);
+  }
+
+  function hudCard(title, children, extraClass) {
+    return U.el("div", { class: "mti6-card" + (extraClass ? " " + extraClass : "") },
+      [U.el("h3", {}, title)].concat(children));
+  }
+
+  // Angel badge variant from the REAL alert records: UNKNOWN when the
+  // module is absent, verified (green) only when the loaded module
+  // reports zero alerts, red only when a CRITICAL alert really
+  // exists, orange for HIGH, yellow otherwise.
+  function angelBadgeVariant(angel) {
+    if (!angel.available) return "unknown";
+    if (angel.state === "NO_ALERTS") return "verified";
+    var hasCritical = false;
+    var hasHigh = false;
+    angel.alerts.forEach(function (a) {
+      if (a.severity === "CRITICAL") hasCritical = true;
+      if (a.severity === "HIGH") hasHigh = true;
+    });
+    if (hasCritical) return "failed";
+    if (hasHigh) return "confirmed";
+    return "detected";
+  }
+
+  function angelHasCritical(angel) {
+    if (!angel.available) return false;
+    for (var i = 0; i < angel.alerts.length; i++) {
+      if (angel.alerts[i].severity === "CRITICAL") return true;
+    }
+    return false;
+  }
+
+  // The overview grid for one buildHud() aggregate. Every card reads
+  // the same real data the sections below read; empty states stay
+  // truthful .mti6-empty blocks, never invented figures.
+  function renderHud(hud) {
+    var grid = U.el("div", { class: "botops-hud" });
+
+    grid.appendChild(hudCard("STAR", [
+      hudMetric("STAR status", hud.star.status, hud.star.connected
+        ? "STAR backend connected — the status label is live."
+        : "STAR answers in demo mode from the dashboard panel and its overlay.", true)
+    ]));
+
+    grid.appendChild(hudCard("Tribe principals", [
+      hudMetric("Principals", String(hud.principals.total),
+        hud.principals.assigned + " assigned · " + hud.principals.unassigned + " unassigned")
+    ]));
+
+    var queueParts = [];
+    var queueOrder = global.BotOpsModel ? (global.BotOpsModel.TASK_STATES || []) : [];
+    queueOrder.forEach(function (st) {
+      var n = hud.tasks.byState ? (hud.tasks.byState[st] || 0) : 0;
+      if (n > 0) queueParts.push(st + " " + n);
+    });
+    grid.appendChild(hudCard("Worker queue", [
+      hudMetric("Tasks queued", String(hud.tasks.total),
+        hud.tasks.total === 0
+          ? "No worker tasks have been created."
+          : queueParts.join(", ") + " — no worker runtime is connected, so no task is live.")
+    ]));
+
+    grid.appendChild(hudCard("Workers active", [
+      hudMetric("Active workers", String(hud.workersActive.count), hud.workersActive.note),
+      U.el("span", { class: "mti6-badge mti6-badge--not-connected" }, String(hud.workersActive.state))
+    ], "mti6-card--not-connected"));
+
+    grid.appendChild(hudCard("Angel Security", [
+      hudMetric("Alerts", hud.angel.available ? String(hud.angel.count) : "UNKNOWN",
+        hud.angel.available
+          ? (hud.angel.state + " — " + hud.angel.confirmedCount + " confirmed, " +
+             hud.angel.unconfirmedCount + " unconfirmed")
+          : hud.angel.note),
+      U.el("span", { class: "mti6-badge mti6-badge--" + angelBadgeVariant(hud.angel) },
+        hud.angel.available ? hud.angel.state : "UNKNOWN")
+    ], angelHasCritical(hud.angel) ? "mti6-card--critical" : ""));
+
+    grid.appendChild(hudCard("Model / tool status", [
+      hudMetric("Models assigned", String(hud.models.assigned), null),
+      hudMetric("Tools assigned", String(hud.models.toolsAssigned),
+        (hud.models.assigned === 0 && hud.models.toolsAssigned === 0)
+          ? "No model or tool assignments exist."
+          : "Assignments come from the real principal and worker detail records.")
+    ]));
+
+    grid.appendChild(hudCard("Tasks", [
+      hudMetric("Worker tasks", String(hud.tasks.total),
+        hud.tasks.total === 0
+          ? "No worker tasks have been created."
+          : (hud.tasks.walletTemplateTasks + " from wallet templates · " +
+             hud.tasks.cryptoTemplateTasks + " from crypto templates"))
+    ]));
+
+    var warningsChildren = [hudMetric("Warnings", String(hud.warnings.length), null)];
+    if (hud.warnings.length === 0) {
+      warningsChildren.push(U.el("div", { class: "mti6-empty" }, [
+        U.el("div", { class: "mti6-empty__title" }, "No warnings"),
+        U.el("div", { class: "mti6-empty__body" }, "None reported — no live data.")
+      ]));
+    } else {
+      hud.warnings.slice(0, 3).forEach(function (w) {
+        warningsChildren.push(U.el("div", { class: "api-meta" }, w));
+      });
+      if (hud.warnings.length > 3) {
+        warningsChildren.push(U.el("div", { class: "api-meta" }, "And " + (hud.warnings.length - 3) + " more."));
+      }
+    }
+    grid.appendChild(hudCard("Warnings", warningsChildren));
+
+    var healthChildren = [hudMetric("Worker runtime", hud.workersActive.state,
+      "No worker orchestration is connected.")];
+    [
+      ["BotOpsModel", hud.modules.botOpsModel],
+      ["TribePrincipals", hud.modules.tribePrincipals],
+      ["WorkerEngine", hud.modules.workerEngine],
+      ["AngelSecurity", hud.modules.angelSecurity],
+      ["StarBackend", hud.modules.starBackend]
+    ].forEach(function (pair) {
+      healthChildren.push(U.el("div", { class: "api-meta" },
+        pair[0] + ": " + (pair[1] ? "LOADED" : "NOT LOADED")));
+    });
+    grid.appendChild(hudCard("System health", healthChildren));
+
+    var outcomesChildren = [];
+    if (hud.recentOutcomes.length === 0) {
+      outcomesChildren.push(U.el("div", { class: "mti6-empty" }, [
+        U.el("div", { class: "mti6-empty__title" }, "No outcomes recorded"),
+        U.el("div", { class: "mti6-empty__body" }, "Nothing has run — no assignments, no tasks, no alerts yet.")
+      ]));
+    } else {
+      hud.recentOutcomes.forEach(function (o) {
+        outcomesChildren.push(U.el("div", { class: "api-meta" }, o));
+      });
+    }
+    grid.appendChild(hudCard("Recent outcomes", outcomesChildren));
+
+    return grid;
+  }
+
+  // Task-state badge variant: only states with a real Stage 1 badge
+  // variant get one; the rest read UNKNOWN (muted), never a colour
+  // that means something else.
+  var TASK_STATE_BADGE = {
+    UNASSIGNED: "unknown",
+    QUEUED: "queued",
+    WAITING: "unknown",
+    ACTIVE: "active",
+    BLOCKED: "blocked",
+    PAUSED: "paused",
+    COMPLETE: "completed",
+    FAILED: "failed",
+    CANCELED: "unknown"
+  };
+
+  function taskStateBadgeVariant(state) {
+    return TASK_STATE_BADGE[state] || "unknown";
+  }
+
+  // One .task-queue__row per real task: only fields that really exist
+  // on the task record; anything absent reads UNKNOWN. Priority has
+  // no field on the record — it is always UNKNOWN, never guessed.
+  // CSS handles the mobile stacked presentation; this is one
+  // structure for every viewport.
+  function taskQueueRow(row) {
+    return U.el("div", { class: "task-queue__row" }, [
+      U.el("span", {}, "ID: " + row.id + " · " + row.title + " — " + row.role),
+      U.el("span", { class: "mti6-badge mti6-badge--" + taskStateBadgeVariant(row.state) }, row.state),
+      U.el("span", {}, "Principal: " + (row.principal || "UNKNOWN")),
+      U.el("span", {}, "Worker: " + (row.worker || "UNKNOWN")),
+      U.el("span", {}, "Priority: UNKNOWN"),
+      U.el("span", {}, "Depends on: " + (row.dependencies.length ? row.dependencies.join(", ") : "None")),
+      U.el("span", {}, "Start: " + (row.start || "UNKNOWN")),
+      U.el("span", {}, "Heartbeat: " + (row.heartbeat === null || row.heartbeat === undefined
+        ? "UNKNOWN — no heartbeat recorded" : String(row.heartbeat))),
+      U.el("span", {}, "Evidence: " + (row.evidence === null || row.evidence === undefined
+        ? "None recorded" : fmtValue(row.evidence))),
+      U.el("span", {}, "Warnings: " + (row.warnings.length ? row.warnings.join("; ") : "None reported")),
+      U.el("span", {}, "Created: " + (row.createdAt || "UNKNOWN"))
+    ]);
+  }
+
   async function render(root) {
     currentRoot = root;
     root.innerHTML = "";
     root.appendChild(global.ScreensNav ? global.ScreensNav.renderDots("bot-ops") : U.el("div", {}, ""));
-    root.appendChild(U.el("h2", { class: "section-title" }, "Bot Operations"));
-    root.appendChild(U.el("p", { class: "api-subtitle" },
-      "STAR, Tribes, Workers, and Live Work. This is the operations shell — no worker orchestration is connected yet, so everything below states that plainly instead of pretending."));
+    var mode = getMode();
+    var hud = buildHud();
+
+    // ---- Screen header (Stage 1 .mti6-screen-header, §25) ----
+    // Status: the real WORKERS ACTIVE badge + the presentation mode.
+    // modeBadge is refreshed by applyMode when the mode changes.
+    var modeBadge = U.el("span", {
+      class: "mti6-badge " + (mode === "theater" ? "mti6-badge--simulation" : "mti6-badge--live")
+    }, mode === "theater" ? "Command Theater" : "Live Data");
+    root.appendChild(U.el("div", { class: "mti6-screen-header" }, [
+      U.el("span", { class: "mti6-screen-header__icon", "aria-hidden": "true" }, "🤖"),
+      U.el("h2", { class: "mti6-screen-header__title" }, "Bot Operations"),
+      U.el("p", { class: "mti6-screen-header__desc" },
+        "STAR, Tribes, Workers, and Live Work. This is the operations shell — no worker orchestration is connected yet, so everything below states that plainly instead of pretending."),
+      U.el("div", { class: "mti6-screen-header__status" }, [
+        U.el("span", { class: "mti6-badge mti6-badge--" + String(hud.workersActive.state || "UNKNOWN").toLowerCase().replace(/_/g, "-") },
+          "WORKERS ACTIVE: " + hud.workersActive.count + " — " + hud.workersActive.state),
+        modeBadge
+      ])
+    ]));
+
+    // ---- HUD: the overview grid (same real data as the sections) ----
+    root.appendChild(renderHud(hud));
 
     // ---- Presentation mode: Live Data vs Command Theater (same data) ----
-    var mode = getMode();
     var liveBtn = U.el("button", { class: "btn " + (mode === "live" ? "btn-primary" : "btn-secondary"), type: "button" }, "Live Data");
     var theaterBtn = U.el("button", { class: "btn " + (mode === "theater" ? "btn-primary" : "btn-secondary"), type: "button" }, "Command Theater");
     var modeNote = U.el("div", { class: "api-meta" }, mode === "theater"
@@ -909,6 +1320,8 @@
       if (work) work.classList.toggle("botops-theater", next === "theater");
       liveBtn.className = "btn " + (next === "live" ? "btn-primary" : "btn-secondary");
       theaterBtn.className = "btn " + (next === "theater" ? "btn-primary" : "btn-secondary");
+      modeBadge.textContent = next === "theater" ? "Command Theater" : "Live Data";
+      modeBadge.className = "mti6-badge " + (next === "theater" ? "mti6-badge--simulation" : "mti6-badge--live");
       modeNote.textContent = next === "theater"
         ? "Command Theater is a cinematic view of the SAME real data as Live Data — not a separate source, and never fake activity."
         : "Live Data shows worker cards from real reported state only.";
@@ -935,7 +1348,9 @@
     root.appendChild(starPanel);
 
     // ---- TRIBES (12 canonical principals) ----
-    var principals = buildDrawerPrincipals();
+    // Same drawer entries the HUD counted above — one source, no
+    // second derivation.
+    var principals = hud.principals.entries;
     var tribeGrid = U.el("div", { class: "botops-grid" });
     principals.forEach(function (entry) { tribeGrid.appendChild(tribeCard(entry)); });
     root.appendChild(U.el("div", { class: "api-panel" }, [
@@ -1016,16 +1431,16 @@
     var templatesPanel = U.el("div", { class: "api-panel" }, [
       U.el("h3", {}, "Wallet task templates"),
       U.el("div", { class: "api-meta" }, "Task templates from the governing Wallet spec. A template creates nothing on its own: a task appears in the worker task list only when created through BotOpsModel.createWorkerTask (the Create button below)."),
-      U.el("div", { class: "api-meta" }, lastTemplateMessage)
+      U.el("div", { class: "api-meta" }, lastWalletTemplateMessage)
     ]);
     buildWalletTaskTemplates().forEach(function (t) {
       var createBtn = U.el("button", { class: "btn btn-secondary", type: "button" }, "Create task");
       createBtn.addEventListener("click", function () {
         var result = createWalletTaskFromTemplate(t.key);
         if (result.ok) {
-          lastTemplateMessage = "Created worker task \"" + t.title + "\" (id " + result.task.id + ", state UNASSIGNED). It now appears in the worker task list below.";
+          lastWalletTemplateMessage = "Created worker task \"" + t.title + "\" (id " + result.task.id + ", state UNASSIGNED). It now appears in the worker task list below.";
         } else {
-          lastTemplateMessage = "Could not create task \"" + t.title + "\": " + result.reason;
+          lastWalletTemplateMessage = "Could not create task \"" + t.title + "\": " + result.reason;
         }
         if (currentRoot) render(currentRoot);
       });
@@ -1035,25 +1450,59 @@
       ]));
       templatesPanel.appendChild(U.el("div", { class: "api-meta" }, t.description));
     });
-    // Real worker tasks only (created through BotOpsModel).
-    var realTasks = [];
-    if (global.BotOpsModel && typeof global.BotOpsModel.listTasks === "function") {
-      try { realTasks = global.BotOpsModel.listTasks() || []; } catch (e) { realTasks = []; }
-    }
-    if (realTasks.length === 0) {
-      templatesPanel.appendChild(U.el("div", { class: "api-meta" },
-        "Worker tasks: 0 — no worker tasks have been created."));
-    } else {
-      templatesPanel.appendChild(U.el("div", { class: "api-meta" },
-        "Worker tasks: " + realTasks.length + " — created through BotOpsModel.createWorkerTask only; no task is live."));
-      realTasks.forEach(function (task) {
-        templatesPanel.appendChild(U.el("div", { class: "status-row" }, [
-          U.el("span", {}, task.title || task.id),
-          U.el("span", { class: "status-value" }, (task.role || "UNKNOWN") + " · " + (task.state || "UNKNOWN"))
-        ]));
-      });
-    }
+    // The real task list lives in the Task queue panel below (one
+    // list for both template panels — a created task appears there).
     root.appendChild(templatesPanel);
+
+    // ---- CRYPTO TASK TEMPLATES (templates only — no fake tasks) ----
+    // Same pattern as the wallet panel: one "Create task" button per
+    // template, crypto role shown, same honesty note, same
+    // confirmation message pattern on creation.
+    var cryptoPanel = U.el("div", { class: "api-panel" }, [
+      U.el("h3", {}, "Crypto task templates"),
+      U.el("div", { class: "api-meta" }, "Task templates, one per crypto analysis role (Crypto spec C7). A template creates nothing on its own: a task appears in the worker task list only when created through BotOpsModel.createWorkerTask (the Create button below)."),
+      U.el("div", { class: "api-meta" }, lastCryptoTemplateMessage)
+    ]);
+    buildCryptoTaskTemplates().forEach(function (t) {
+      var createBtn = U.el("button", { class: "btn btn-secondary", type: "button" }, "Create task");
+      createBtn.addEventListener("click", function () {
+        var result = createCryptoTaskFromTemplate(t.key);
+        if (result.ok) {
+          lastCryptoTemplateMessage = "Created worker task \"" + t.title + "\" (id " + result.task.id + ", state UNASSIGNED). It now appears in the worker task list below.";
+        } else {
+          lastCryptoTemplateMessage = "Could not create task \"" + t.title + "\": " + result.reason;
+        }
+        if (currentRoot) render(currentRoot);
+      });
+      cryptoPanel.appendChild(U.el("div", { class: "status-row" }, [
+        U.el("span", {}, t.title + " — " + t.role + " · crypto role: " + t.cryptoRole),
+        createBtn
+      ]));
+      cryptoPanel.appendChild(U.el("div", { class: "api-meta" }, t.description));
+    });
+    root.appendChild(cryptoPanel);
+
+    // ---- TASK QUEUE (real tasks only — a queued task is not a bot) ----
+    var queueRows = buildTaskQueue();
+    var queuePanel = U.el("div", { class: "api-panel" }, [
+      U.el("h3", {}, "Task queue"),
+      U.el("div", { class: "api-meta" }, "Real worker tasks created through BotOpsModel.createWorkerTask only. A queued task is not an active bot — no worker runtime is connected, so no task is live."),
+      U.el("div", { class: "api-meta" }, "Worker tasks: " + queueRows.length +
+        (queueRows.length === 0
+          ? " — no worker tasks have been created."
+          : " — created through BotOpsModel.createWorkerTask only; no task is live."))
+    ]);
+    if (queueRows.length === 0) {
+      queuePanel.appendChild(U.el("div", { class: "mti6-empty" }, [
+        U.el("div", { class: "mti6-empty__title" }, "No tasks queued"),
+        U.el("div", { class: "mti6-empty__body" }, "No worker tasks have been created. Create one from a Wallet or Crypto task template above.")
+      ]));
+    } else {
+      var taskQueue = U.el("div", { class: "task-queue" });
+      queueRows.forEach(function (row) { taskQueue.appendChild(taskQueueRow(row)); });
+      queuePanel.appendChild(taskQueue);
+    }
+    root.appendChild(queuePanel);
 
     // ---- ANGEL SECURITY SUMMARY ----
     var angel = buildAngelSummary();
@@ -1098,6 +1547,8 @@
     createWalletTaskFromTemplate: createWalletTaskFromTemplate,
     buildCryptoTaskTemplates: buildCryptoTaskTemplates,
     createCryptoTaskFromTemplate: createCryptoTaskFromTemplate,
+    buildHud: buildHud,
+    buildTaskQueue: buildTaskQueue,
     bringPrincipal: bringPrincipal,
     participantsAvailable: participantsAvailable,
     WALLET_TASK_TEMPLATES: WALLET_TASK_TEMPLATES,
