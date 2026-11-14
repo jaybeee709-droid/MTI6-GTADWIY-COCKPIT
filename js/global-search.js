@@ -42,6 +42,7 @@
     var q = String(query || "").trim();
     var lower = q.toLowerCase();
     if (selected && selected !== "auto") return { mode: selected, reason: "You picked " + selected + " in the toggle." };
+    if (/\b(encyclopedia|crypto world)\b/.test(lower)) return { mode: "encyclopedia", reason: "Bot picked Encyclopedia — your query asks about the Crypto World encyclopedia." };
     if (isUrl(q)) return { mode: "page", reason: "Bot picked Page — you pasted a URL." };
     if (/^(btc|eth|sol|doge|xrp|ltc|ada)(\s+price)?$/i.test(q)) return { mode: "crypto", reason: "Bot picked Crypto — that looks like a crypto ticker." };
     if (/\b(news|headlines|top stories)\b/.test(lower)) return { mode: "news", reason: "Bot picked News — your query asks for headlines." };
@@ -140,6 +141,33 @@
       show("<div class=\"api-meta\">Searching for “" + esc(query) + "”… Bot picked: " + esc(picked.mode) + " — " + esc(picked.reason) + "</div>");
       var head = "<div class=\"api-meta\">Bot picked: " + esc(picked.mode) + " — " + esc(picked.reason) + "</div>";
 
+      // Encyclopedia results, best-effort. Resolves to an array of
+      // {id, title, level, verificationStatus}, or null when the data did
+      // not load at all. Prefers the EncyclopediaBridge; falls back to a
+      // direct CryptoWorld store search when the bridge is not loaded.
+      function encyclopediaItems(q) {
+        if (global.EncyclopediaBridge && typeof global.EncyclopediaBridge.searchEncyclopedia === "function") {
+          try {
+            var r = global.EncyclopediaBridge.searchEncyclopedia(q);
+            if (r && typeof r.then === "function") return r.then(function (items) { return items || []; }).catch(function () { return null; });
+            return Promise.resolve(r || []);
+          } catch (e) { return Promise.resolve(null); }
+        }
+        if (global.CryptoWorld && typeof global.CryptoWorld.getAllRecords === "function" && typeof global.CryptoWorld.searchEntries === "function") {
+          return global.CryptoWorld.getAllRecords().then(function (records) {
+            return global.CryptoWorld.searchEntries(records || [], q).slice(0, 10).map(function (rec) {
+              return { id: rec.id, title: rec.title, level: rec.level, registry: rec.registry, verificationStatus: rec.verificationStatus };
+            });
+          }).catch(function () { return null; });
+        }
+        return Promise.resolve(null);
+      }
+      function encyclopediaSection(items) {
+        return section("Encyclopedia", items, function (it) {
+          return '<li><a href="#/encyclopedia" class="global-result-link" data-hide="1">' + esc(it.title) + '</a> · ' + esc(it.level || "") + ' · ' + esc(it.verificationStatus || "UNVERIFIED") + '</li>';
+        });
+      }
+
       if (picked.mode === "app") {
         searchAppData(query, lower).then(function (items) {
           finish(head + section("In this app", items, function (it) {
@@ -186,6 +214,14 @@
         }) || head + "<div class=\"api-meta\">No saved bot knowledge matched. Scrape and save a page on this topic in the Scouts panel first.</div>");
         return;
       }
+      if (picked.mode === "encyclopedia") {
+        encyclopediaItems(query).then(function (items) {
+          if (items === null) { finish(head + "<div class=\"api-meta\">Encyclopedia data did not load.</div>"); return; }
+          var body = encyclopediaSection(items);
+          finish(head + (body || "<div class=\"api-meta\">No entry in the encyclopedia matches “" + esc(query) + "” — nothing is recorded, not a guess.</div>"));
+        });
+        return;
+      }
       if (picked.mode === "page") {
         if (isYouTube(query)) { finish(head + "<div class=\"api-meta\">YouTube link — no embedded player; open it in your default browser.</div><ul class=\"price-offer-list\"><li><a href=\"" + esc(query) + "\" target=\"_blank\" rel=\"noopener\">Open video in default browser</a></li></ul>"); return; }
         if (!isUrl(query)) { finish(head + "<div class=\"api-meta\">Page mode needs a full URL starting with https://.</div>"); return; }
@@ -218,8 +254,9 @@
       if (global.PriceScout && /^(btc|eth|sol|doge|xrp|ltc|ada)(\s+price)?$/i.test(query)) {
         priceP = global.PriceScout.getCrypto(query.replace(/\s+price$/i, ""), {}).catch(function () { return null; });
       }
-      Promise.all([appP, webP, priceP]).then(function (parts) {
-        var appItems = parts[0], web = parts[1], price = parts[2];
+      var encP = encyclopediaItems(query);
+      Promise.all([appP, webP, priceP, encP]).then(function (parts) {
+        var appItems = parts[0], web = parts[1], price = parts[2], encItems = parts[3];
         var html = head;
         html += section("In this app", appItems, function (it) {
           return '<li><a href="#/' + it.route + '" class="global-result-link" data-hide="1">' + esc(it.title) + '</a> · ' + esc(it.kind) + '</li>';
@@ -236,6 +273,7 @@
         html += section("Hacker News", web.hn, function (h) {
           return "<li><a href=\"" + esc(h.url) + "\" target=\"_blank\" rel=\"noopener\">" + esc(h.title) + "</a></li>";
         });
+        if (encItems && encItems.length) html += encyclopediaSection(encItems);
         if (isUrl(query)) {
           html += "<h3>Link</h3><ul class=\"price-offer-list\"><li>" + (isYouTube(query) ? "YouTube link — no embedded player; open it in your default browser." : "Public page link — open the Web window and paste it there to read its text, or open it in your default browser below.") + " <a href=\"" + esc(query) + "\" target=\"_blank\" rel=\"noopener\">Open in default browser</a></li></ul>";
         }
