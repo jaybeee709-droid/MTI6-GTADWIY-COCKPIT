@@ -68,6 +68,15 @@ textarea {
 
 #app-shell {
   display: flex;
+  /* Wide-screen fix (Nov 14, 2026): the shell is a row flex container,
+     so without wrapping the full-width global search bar became a tall
+     in-flow column on the left (its 44px controls hidden behind the
+     fixed top bar, its Search button stretched full-height by
+     align-items:stretch = the "wide black area + tall cyan strip" at
+     ~1919px, sidebar pushed right, content squeezed). Wrapping lets
+     the search bar take its own full-width row; sidebar + main content
+     form the row below it. */
+  flex-wrap: wrap;
   min-height: 100vh;
 }
 
@@ -177,7 +186,14 @@ body.nav-open #nav-scrim {
 /* ---- Main content ---- */
 #main-content {
   flex: 1;
-  padding-block-start: 56px;
+  /* Was 56px to clear the fixed top bar. The top-bar clearance now
+     comes from the search bar's own row (margin-block-start: 56px on
+     #global-search-wrap, see below), so the extra 56px here would
+     double the gap. (At >=768px the Analytics-block rule setting
+     #main-content padding to 20px still applies on top of this —
+     untouched, and harmless now that main content starts below the
+     search row instead of at y=0 under the fixed top bar.) */
+  padding-block-start: 0;
   min-height: 100vh;
 }
 
@@ -1403,9 +1419,9 @@ body.nav-open #nav-scrim {
 .web-text { white-space: pre-wrap; font-size: 14px; line-height: 1.6; }
 
 /* Global search bar (V1): app-shell bar, visible on every screen. */
-#global-search-wrap { display: flex; gap: 8px; padding: 10px 12px; }
+#global-search-wrap { display: flex; gap: 8px; padding: 10px 12px; /* Full-width row of its own (see #app-shell flex-wrap): without this the bar sat as a tall left column in the shell's row layout. margin-block-start clears the 56px fixed top bar, so the 44px controls are no longer hidden behind it and the Search button can no longer stretch to full viewport height. */ flex: 1 1 100%; margin-block-start: 56px; }
 #global-search-input { flex: 1; min-width: 0; height: 44px; border-radius: 10px; border: 1px solid var(--border, #ddd); padding: 0 12px; font-size: 16px; background: var(--surface, #fff); color: inherit; }
-#global-search-results { margin: 0 12px 12px; border: 1px solid var(--border, #ddd); border-radius: 12px; padding: 12px; background: var(--surface, #fff); max-height: 70vh; overflow: auto; }
+#global-search-results { margin: 0 12px 12px; border: 1px solid var(--border, #ddd); border-radius: 12px; padding: 12px; background: var(--surface, #fff); max-height: 70vh; overflow: auto; /* Same full-width row as the bar when shown (hidden by default). */ flex: 1 1 100%; }
 #global-search-results.hidden { display: none; }
 
 /* Search source toggle (V2): same 44px touch target as the bar. */
@@ -1712,6 +1728,33 @@ html, body { overflow-x: hidden; }
   text-transform: uppercase;
   letter-spacing: 0.14em;
   color: #e9e4ff;
+}
+
+/* ---- Bot Operations card contrast (Nov 14, 2026) ----
+ * Root cause: every Bot Ops card is a plain .api-panel, whose
+ * background is var(--surface, #fff) — and --surface is never defined
+ * anywhere, so the fallback makes every card WHITE in both themes,
+ * while its h3/body text inherits near-white --text-0 (#eaf2fb) in the
+ * dark theme: 1.13:1, effectively invisible.
+ * Fix, Bot Ops only: scope to a #view-root that contains .botops-grid
+ * (created only by js/modules/bot-ops.js, nowhere else, and wiped on
+ * every navigation by root.innerHTML = ""), so no other screen's
+ * headings or panels are touched — Analytics in particular keeps its
+ * locked black panels and #e0f7fa headings. The panel takes the theme
+ * panel colour and the heading takes the theme text colour, so both
+ * themes stay correct: dark 16.99:1, light 18.01:1 (WCAG AA is 4.5:1).
+ * The :not(.botops-theater) carve-out preserves Command Theater's
+ * intentional pure-black panel; its h3 is still covered by the colour
+ * rule below (#eaf2fb on #000 = 18.59:1).
+ * Browser note: :has() needs Chrome/Edge 105+, Safari 15.4+,
+ * Firefox 121+; older browsers simply keep the old rendering —
+ * nothing breaks, the fix just does not apply there. */
+#view-root:has(.botops-grid) .api-panel:not(.botops-theater) {
+  background: var(--bg-1);
+  border-color: var(--line);
+}
+#view-root:has(.botops-grid) .api-panel > h3 {
+  color: var(--text-0);
 }
 
 /* ---- Floating window manager ---- */
