@@ -1495,8 +1495,13 @@ body.nav-open #nav-scrim {
 /* Global search bar (V1): app-shell bar, visible on every screen. */
 #global-search-wrap { display: flex; gap: 8px; padding: 10px 12px; /* Full-width row of its own (see #app-shell flex-wrap): without this the bar sat as a tall left column in the shell's row layout. margin-block-start clears the 56px fixed top bar, so the 44px controls are no longer hidden behind it and the Search button can no longer stretch to full viewport height. */ flex: 1 1 100%; margin-block-start: 56px; }
 #global-search-input { flex: 1; min-width: 0; height: 44px; border-radius: 10px; border: 1px solid var(--border, #ddd); padding: 0 12px; font-size: 16px; background: var(--surface, #fff); color: inherit; }
-#global-search-results { margin: 0 12px 12px; border: 1px solid var(--border, #ddd); border-radius: 12px; padding: 12px; background: var(--surface, #fff); max-height: 70vh; overflow: auto; /* Same full-width row as the bar when shown (hidden by default). */ flex: 1 1 100%; }
+#global-search-results { /* Stage 2 fix-up (Nov 14, 2026, Defect 1): the results panel is a true fixed overlay, NOT an in-flow flex row. As `flex: 1 1 100%` it was a full-width row starting at x=0 — the same column the sticky sidebar (260px wide, z-index 60) occupies at >=768px — with no position or z-index of its own, so live it rendered left-clipped under/behind the sidebar and its result links + Close were unclickable (click refused, element covered). Fixed + z-index 80 (above sidebar 60 / top bar 50, below update-banner 90 / modal 200 / toast 300 / wm-host 1000) puts it above the sidebar in paint order and hit-testing at every scroll position; top 120px = 56px fixed top bar + 64px search row, so it sits directly under the search bar; it no longer pushes page content down when shown. */ position: fixed; top: 120px; left: 12px; right: 12px; z-index: 80; border: 1px solid var(--border, #ddd); border-radius: 12px; padding: 12px; background: var(--surface, #fff); max-height: 70vh; overflow: auto; }
 #global-search-results.hidden { display: none; }
+/* At >=768px the sidebar occupies the left 260px, so the overlay starts
+   clear of it (260 + 12 gutter), aligned with the main-content column. */
+@media (min-width: 768px) {
+  #global-search-results { left: 272px; }
+}
 
 /* Search source toggle (V2): same 44px touch target as the bar. */
 #global-search-source { height: 44px; border-radius: 10px; border: 1px solid var(--border, #ddd); padding: 0 8px; font-size: 15px; background: var(--surface, #fff); color: inherit; }
