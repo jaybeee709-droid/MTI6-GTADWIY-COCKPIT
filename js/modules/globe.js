@@ -92,6 +92,82 @@
     ]);
     root.appendChild(view);
 
+    // ---- Intelligence layers (§44 item 14): real registries only ----
+    // The selector calls GlobeIntelligence and renders the selected
+    // layer's state (items list + honest empty state). If the module
+    // or a source registry is absent, the layer shows NOT_LOADED /
+    // NOT_CONNECTED — never a crash, never invented points. Normal
+    // items render in electric blue; only a VERIFIED-and-active alert
+    // item renders in alarm red (GlobeIntelligence.colorFor decides).
+    var LAYER_BUTTONS = [
+      { id: "WORLD", label: "World" },
+      { id: "CRYPTO", label: "Crypto" },
+      { id: "OPPORTUNITIES", label: "Opportunities" },
+      { id: "BOT_ACTIVITY", label: "Bot Activity" },
+      { id: "SECURITY_ALERTS", label: "Security Alerts" }
+    ];
+    var selectedLayer = "WORLD";
+    var layerOut = U.el("div", { class: "api-meta" }, "");
+    var layerRow = U.el("div", { class: "globe-modes", role: "group", "aria-label": "World Globe intelligence layer" });
+    function renderLayer(id) {
+      layerOut.innerHTML = "";
+      var GI = global.GlobeIntelligence;
+      if (!GI || typeof GI.getLayer !== "function") {
+        layerOut.textContent = "Intelligence layers did not load (NOT_LOADED). No layer data is available — nothing is shown in place of real data.";
+        return;
+      }
+      var layer = null;
+      try { layer = GI.getLayer(id); } catch (e) { layer = null; }
+      if (!layer) {
+        layerOut.textContent = "Layer " + id + " is not available (NOT_CONNECTED).";
+        return;
+      }
+      if (layer.enabled === false) {
+        layerOut.textContent = layer.label + " layer is disabled. Enable it to view its state.";
+        return;
+      }
+      layerOut.appendChild(U.el("div", { class: "api-meta" },
+        layer.label + " — " + layer.state + (layer.note ? " · " + layer.note : "")));
+      if (!layer.items || layer.items.length === 0) {
+        layerOut.appendChild(U.el("div", { class: "api-meta" },
+          "No items in this layer (" + layer.state + "). Nothing is invented to fill it."));
+        return;
+      }
+      var list = U.el("ul", { class: "price-offer-list" });
+      layer.items.forEach(function (it) {
+        var alarm = it.alarm === true;
+        var color = "#00BFFF";
+        try {
+          if (GI.colorFor) color = GI.colorFor(it);
+        } catch (e) {}
+        list.appendChild(U.el("li", { style: "color:" + color + (alarm ? ";font-weight:700" : "") },
+          it.label + " — " + it.state + (it.source ? " · " + it.source : "")));
+      });
+      layerOut.appendChild(list);
+    }
+    LAYER_BUTTONS.forEach(function (l) {
+      var b = U.el("button", {
+        class: "btn globe-mode-btn" + (l.id === selectedLayer ? " globe-mode-active" : ""),
+        type: "button",
+        "aria-pressed": l.id === selectedLayer ? "true" : "false"
+      }, l.label);
+      b.addEventListener("click", function () {
+        selectedLayer = l.id;
+        layerRow.querySelectorAll(".globe-mode-btn").forEach(function (x) {
+          x.classList.remove("globe-mode-active");
+          x.setAttribute("aria-pressed", "false");
+        });
+        b.classList.add("globe-mode-active");
+        b.setAttribute("aria-pressed", "true");
+        renderLayer(l.id);
+      });
+      layerRow.appendChild(b);
+    });
+    root.appendChild(U.el("div", { class: "api-panel" }, [
+      U.el("h3", {}, "Intelligence layers"), layerRow, layerOut
+    ]));
+    renderLayer(selectedLayer);
+
     var lat = U.el("input", { class: "price-input", type: "text", value: "40.71", "aria-label": "Latitude" });
     var lon = U.el("input", { class: "price-input", type: "text", value: "-74.00", "aria-label": "Longitude" });
     var btn = U.el("button", { class: "btn btn-primary", type: "button" }, "Load weather");
