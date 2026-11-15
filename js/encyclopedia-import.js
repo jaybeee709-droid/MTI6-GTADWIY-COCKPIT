@@ -342,14 +342,22 @@
     return dispositions;
   }
 
-  // Batch B taxonomy meta (U3: approved in principle; the record is
-  // created ONLY by the batch-b branch below, which never executes until
-  // a Batch B batch is wired — no batch-b batch exists in this step, so
-  // this helper never runs and no taxonomy-meta-batch-b record is created
-  // in the live store now).
+  // Batch B taxonomy meta. The record is created by the batch-b branch
+  // (and healed by runImportAll below): the status is recomputed from
+  // the records actually present in the store, never from what a single
+  // run happened to import. Before Nov 14, 2026 (World Engine Depth
+  // Package Item 2) this helper ran only on runs that imported at least
+  // one record, so a store whose records were already all present kept
+  // a stale BATCH_B_IMPORT_PENDING label forever; runImportAll now calls
+  // it on every run — with no array argument it re-reads the store
+  // itself, exactly like syncTaxonomyMeta — and writes only when the
+  // stored record differs from the recomputed one.
   async function syncBatchBMeta(existing) {
     var d = db();
     if (!d || typeof d.put !== "function") return;
+    if (!Array.isArray(existing)) {
+      try { existing = await readStore(); } catch (e) { return; }
+    }
     var count = 0;
     var current = null;
     (existing || []).forEach(function (r) {
@@ -405,9 +413,10 @@
         out.rejected.push({ id: d.rec.id, reasons: ["Store write failed: " + (e && e.message ? e.message : String(e))] });
       }
     }
-    // Sync the Batch B meta record only when this run actually imported
-    // something: an idempotent re-run (all alreadyPresent) must not
-    // create or touch any record.
+    // Sync the Batch B meta record when this run imported something.
+    // Idempotent re-runs (all alreadyPresent) are healed separately:
+    // runImportAll calls syncBatchBMeta() on every run, and it writes
+    // only when the stored record differs from the recomputed status.
     if (out.imported > 0) {
       try { await syncBatchBMeta(existing); } catch (e) {}
     }
@@ -565,6 +574,7 @@
         if (one.failed) summary.failed = true;
       }
       try { await syncTaxonomyMeta(); } catch (e) {}
+      try { await syncBatchBMeta(); } catch (e) {}
     } catch (e) {
       summary.failed = true;
       summary.error = "Import failed: " + (e && e.message ? e.message : String(e));

@@ -101,7 +101,12 @@
   // ---- Batch B pre-import gate (Nov 10, 2026) — shared constants ----
   // Taxonomy levels. FAMILY / MAJOR_ACTIVITY are roots (no parentRef);
   // TYPE parents to a canonical Major Activity; STRATEGY parents to a Type.
-  var LEVELS = ["FAMILY", "MAJOR_ACTIVITY", "TYPE", "STRATEGY"];
+  // ACTION (added Nov 14, 2026, World Engine Depth Package Item 2,
+  // owner-authorized) parents to a Strategy. SUB_ACTION is deliberately
+  // NOT an accepted level yet: it stays rejected until the owner
+  // separately authorizes that depth, exactly as ACTION was rejected
+  // until this change.
+  var LEVELS = ["FAMILY", "MAJOR_ACTIVITY", "TYPE", "STRATEGY", "ACTION"];
   var ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
   var MAJOR_ID_PATTERN = /^major-[a-z0-9-]+$/;
 
@@ -301,8 +306,8 @@
     var errors = [];
     if (rec.level !== undefined) {
       if (LEVELS.indexOf(rec.level) === -1) {
-        errors.push("level must be one of FAMILY, MAJOR_ACTIVITY, TYPE, STRATEGY.");
-      } else if (rec.level === "TYPE" || rec.level === "STRATEGY") {
+        errors.push("level must be one of FAMILY, MAJOR_ACTIVITY, TYPE, STRATEGY, ACTION.");
+      } else if (rec.level === "TYPE" || rec.level === "STRATEGY" || rec.level === "ACTION") {
         if (typeof rec.parentRef !== "string" || !rec.parentRef.trim()) {
           errors.push(rec.level + " records must name a parentRef.");
         } else if (!ID_PATTERN.test(rec.parentRef)) {
@@ -311,6 +316,8 @@
           errors.push("TYPE parentRef must name a Major Activity (major-*).");
         } else if (rec.level === "STRATEGY" && rec.parentRef.indexOf("type-") !== 0) {
           errors.push("STRATEGY parentRef must name a Type (type-*).");
+        } else if (rec.level === "ACTION" && rec.parentRef.indexOf("strategy-") !== 0) {
+          errors.push("ACTION parentRef must name a Strategy (strategy-*).");
         }
       } else if (rec.parentRef !== undefined) {
         // FAMILY / MAJOR_ACTIVITY are roots: they carry no structural parent.
@@ -490,7 +497,7 @@
         reasons = reasons.concat(levelFormatErrors(rec));
         reasons = reasons.concat(threatWallErrors(rec));
       }
-      if ((rec.level === "TYPE" || rec.level === "STRATEGY") && typeof rec.parentRef === "string" && rec.parentRef) {
+      if ((rec.level === "TYPE" || rec.level === "STRATEGY" || rec.level === "ACTION") && typeof rec.parentRef === "string" && rec.parentRef) {
         var parent = index[rec.parentRef];
         if (!parent) {
           reasons.push(rec.level + " parent \"" + rec.parentRef + "\" does not exist in the restore candidate or the existing store.");
@@ -498,6 +505,8 @@
           reasons.push("TYPE parent \"" + rec.parentRef + "\" is a " + (parent.level || "(no level)") + ", not a Major Activity.");
         } else if (rec.level === "STRATEGY" && parent.level !== "TYPE") {
           reasons.push("STRATEGY parent \"" + rec.parentRef + "\" is a " + (parent.level || "(no level)") + ", not a Type.");
+        } else if (rec.level === "ACTION" && parent.level !== "STRATEGY") {
+          reasons.push("ACTION parent \"" + rec.parentRef + "\" is a " + (parent.level || "(no level)") + ", not a Strategy.");
         }
       }
       (rec.relatedActivities || []).forEach(function (target) {
