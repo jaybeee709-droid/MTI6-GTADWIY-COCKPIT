@@ -74,6 +74,16 @@
     var status = (identity && identity.status) || (p && p.status) || "UNKNOWN";
     var parent = (identity && identity.organizationalParent) || "STAR 3.0";
     var messages = conversations[principalId] ? conversations[principalId].slice() : [];
+    // Item 7: the principal's REAL assignment records — the
+    // TribePrincipals assignment state + history (persisted, Item 5)
+    // and any CryptoBotAssignments records naming this principal.
+    // Records only: an assignment record is not live work.
+    var assignmentState = (p && p.assignmentState) || "UNASSIGNED";
+    var history = (p && Array.isArray(p.history)) ? p.history.slice() : [];
+    var botAssignments = [];
+    if (global.CryptoBotAssignments && typeof global.CryptoBotAssignments.listAssignments === "function") {
+      try { botAssignments = global.CryptoBotAssignments.listAssignments({ principalId: principalId }) || []; } catch (e) { botAssignments = []; }
+    }
     return {
       id: principalId,
       displayName: displayName,
@@ -82,6 +92,9 @@
       status: status,
       role: role || "UNKNOWN",
       currentTask: task || "UNKNOWN",
+      assignmentState: assignmentState,
+      history: history,
+      botAssignments: botAssignments,
       liveStatus: "NOT_CONNECTED",
       messages: messages
     };
@@ -149,6 +162,29 @@
           " · Current task: " + view.currentTask));
         body.appendChild(U.el("p", { class: "api-meta" },
           "Connection: NOT_CONNECTED — no real runtime exists. Nothing here is live activity."));
+        // Item 7: real assignment records for this principal.
+        body.appendChild(U.el("div", { class: "api-meta" },
+          "Assignment state: " + view.assignmentState +
+          " · Assignment history: " + view.history.length + " entr" + (view.history.length === 1 ? "y" : "ies") +
+          " · Bot assignment records: " + view.botAssignments.length + "."));
+        if (view.botAssignments.length) {
+          view.botAssignments.slice(0, 5).forEach(function (a) {
+            body.appendChild(U.el("div", { class: "api-meta" },
+              "• " + String(a.id || "assignment") + " — " + String(a.status || "UNKNOWN") +
+              (a.roleId ? " · role " + String(a.roleId) : "") +
+              (a.subjectId ? " · subject " + String(a.subjectId) : "")));
+          });
+        } else if (view.assignmentState === "UNASSIGNED" && !view.history.length) {
+          body.appendChild(U.el("div", { class: "api-meta" },
+            "No assignment records — this principal is unassigned. Assignments are owner decisions recorded in Bot Operations; a record here would still not be live work."));
+        }
+        if (view.history.length) {
+          view.history.slice(-3).forEach(function (h) {
+            body.appendChild(U.el("div", { class: "api-meta" },
+              "• " + String(h.change || "change") + " by " + String(h.by || "UNKNOWN") +
+              (h.note ? " — " + String(h.note) : "")));
+          });
+        }
         var list = U.el("div", { class: "participant-messages" });
         list.appendChild(U.el("p", { class: "api-meta" },
           "No messages yet — no conversation has taken place with " + view.displayName + "."));

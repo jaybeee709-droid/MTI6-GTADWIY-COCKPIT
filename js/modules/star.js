@@ -87,7 +87,7 @@
         area.appendChild(U.el("div", { class: "star-msg star-msg-star" }, [
           U.el("div", { class: "star-msg-label" }, "🌟 Star 3.0 — Demo"),
           U.el("div", { class: "star-msg-text" },
-            "Hi, I'm Star 3.0. Ask me about your cockpit — notes, tasks, spending, or projects — and I'll answer in demo mode for now. Try “BTC price” for a live crypto price. Voice, video, specialist bots, and GitHub actions are coming later, and anything that changes something outside this device will need your approval first.")
+            "Hi, I'm Star 3.0. Ask me about your cockpit — notes, tasks, spending, or projects — and I'll answer in demo mode for now. Try “BTC price” for a live crypto price, or “cockpit status” and “how many strategies” for answers from the cockpit's real records via the World Engine. Voice, video, specialist bots, and GitHub actions are coming later, and anything that changes something outside this device will need your approval first.")
         ]));
         return;
       }
@@ -169,6 +169,7 @@
         }
         return;
       }
+      function continueSend() {
       // Price questions are read-only, so they go to PriceScout first
       // instead of the generic demo backend — a live crypto price, a
       // stock not-connected status, or a price help answer, always
@@ -221,6 +222,25 @@
         renderMessages();
         setStatus("ready");
       });
+      }
+      // Item 7: cockpit-state questions are answered deterministically
+      // from the cockpit's real records via the World Engine
+      // (StarWorld) — still demo mode, no backend. StarWorld returns
+      // null for anything that is not a cockpit-state question, and
+      // the normal flow (scouts, then the demo backend) continues.
+      if (global.StarWorld && typeof global.StarWorld.answer === "function") {
+        global.StarWorld.answer(text).then(function (reply) {
+          if (reply) {
+            global.StarState.addMessage("star", reply);
+            renderMessages();
+            setStatus("ready");
+          } else {
+            continueSend();
+          }
+        }).catch(function () { continueSend(); });
+        return;
+      }
+      continueSend();
     }
 
     sendBtn.addEventListener("click", send);
