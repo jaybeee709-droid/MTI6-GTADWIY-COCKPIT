@@ -32,6 +32,13 @@
  * through defensive global checks using the spec's field names; while
  * they are absent their sections read NOT LOADED.
  *
+ * Item 4 (World Engine Depth Package, Nov 14, 2026): a native
+ * Bot capability ladder panel (the owner's six-rung progression,
+ * states bound to real WalletIntelligence / WalletHealth /
+ * OpportunityIntelligence / TransactionPreparation state, EXECUTE
+ * rendered DISABLED while canExecuteTransaction() is false) and
+ * wallet relationships resolved through the World Engine graph.
+ *
  * The screen keeps the existing "wallets" route and the shell
  * (ScreensNav dots, section-title, api-panel / api-meta styling).
  * Analytics styles are untouched.
@@ -474,6 +481,118 @@
       warnings.push("WalletEcosystems is not loaded — ecosystem coverage is unavailable.");
     }
     root.appendChild(panel("Wallet / provider inventory", inventoryKids));
+
+    // ---- 2b. Bot capability ladder + wallet relationships (Item 4) ----
+    // The owner's six-rung capability progression — MONITOR ->
+    // ANALYZE -> RECOMMEND -> PREPARE -> OWNER APPROVAL -> EXECUTE —
+    // rendered natively in this screen's design system (retained by
+    // owner decision Nov 14, 2026; NOT cherry-picked from the
+    // wallet-infrastructure branch). Every rung's state is bound to
+    // real module state read at render time; nothing here is a
+    // control. EXECUTE is a state display only: it renders DISABLED
+    // for as long as canExecuteTransaction() is false, which this
+    // build guarantees. Below the ladder, wallet relationships are
+    // read from the World Engine graph — the same canonical graph
+    // the Globe consumes — never from a screen-local list.
+    var ladderKids = [];
+    ladderKids.push(meta("The capability ladder is a permission progression, not a feature menu: a rung is ACTIVE only when the module behind it is loaded and its real state supports it. Higher rungs never unlock lower-level safeguards, and no rung here can be clicked, granted, or escalated from this screen."));
+    var WI4 = global.WalletIntelligence;
+    var WH4 = global.WalletHealth;
+    var TP4 = global.TransactionPreparation;
+    var OI4 = global.OpportunityIntelligence;
+    function rung(name, state, basis) {
+      return U.el("div", { class: "api-meta" }, [name + ": ", stateBadge(state), " — " + basis]);
+    }
+    // 1. MONITOR
+    if (!WI4 || typeof WI4.listWallets !== "function") {
+      ladderKids.push(rung("1 · MONITOR", "NOT_LOADED",
+        "WalletIntelligence is not loaded, so no monitoring state can be verified."));
+    } else {
+      ladderKids.push(rung("1 · MONITOR", "ACTIVE",
+        "WalletIntelligence loaded — read-only monitoring posture. Wallets discovered: " +
+        (wallets ? wallets.length : 0) + ". Connection state: " + connectionState + "."));
+    }
+    // 2. ANALYZE
+    if (!WH4 || typeof WH4.assessWallet !== "function") {
+      ladderKids.push(rung("2 · ANALYZE", "NOT_LOADED",
+        "WalletHealth is not loaded, so no health analysis is available."));
+    } else if (wallets && wallets.length) {
+      ladderKids.push(rung("2 · ANALYZE", "ACTIVE",
+        "WalletHealth loaded — per-wallet health assessment is available for the " + wallets.length + " discovered wallet(s)."));
+    } else {
+      ladderKids.push(rung("2 · ANALYZE", "ACTIVE",
+        "WalletHealth loaded — no wallets discovered, so there is nothing to assess yet."));
+    }
+    // 3. RECOMMEND
+    if (!OI4 || typeof OI4.listOpportunities !== "function") {
+      ladderKids.push(rung("3 · RECOMMEND", "NOT_LOADED",
+        "OpportunityIntelligence is not loaded, so no recommendation state exists."));
+    } else {
+      var opps4 = safeCall(function () { return OI4.listOpportunities(); }) || [];
+      var ranked4 = opps4.filter(function (o) {
+        return o && (o.pipelineState === "RANKED" || o.pipelineState === "RECOMMENDED");
+      }).length;
+      ladderKids.push(rung("3 · RECOMMEND", "ACTIVE",
+        "OpportunityIntelligence loaded — " + opps4.length + " opportunity record(s), " + ranked4 +
+        " at RANKED / RECOMMENDED. A recommendation is a record with provenance, never an instruction to act."));
+    }
+    // 4. PREPARE + 5. OWNER APPROVAL (both read TransactionPreparation)
+    var tpSummary = null;
+    if (!TP4 || typeof TP4.summary !== "function") {
+      ladderKids.push(rung("4 · PREPARE", "NOT_LOADED",
+        "TransactionPreparation is not loaded, so nothing can be prepared."));
+      ladderKids.push(rung("5 · OWNER APPROVAL", "NOT_LOADED",
+        "TransactionPreparation is not loaded, so no approval queue exists."));
+    } else {
+      tpSummary = safeCall(function () { return TP4.summary(); });
+      if (!tpSummary) {
+        ladderKids.push(rung("4 · PREPARE", "UNKNOWN",
+          "TransactionPreparation is loaded but its summary could not be read."));
+        ladderKids.push(rung("5 · OWNER APPROVAL", "UNKNOWN",
+          "TransactionPreparation is loaded but its summary could not be read."));
+      } else {
+        var byState4 = tpSummary.byState || {};
+        ladderKids.push(rung("4 · PREPARE", "ACTIVE",
+          "TransactionPreparation loaded — " + (tpSummary.total || 0) + " proposal record(s) (PREPARED " +
+          (byState4.PREPARED || 0) + ", AWAITING_SIGNATURE " + (byState4.AWAITING_SIGNATURE || 0) +
+          ", SIGNED " + (byState4.SIGNED || 0) + "). Proposals are records only; preparing moves no funds."));
+        var awaiting4 = byState4.PREPARED || 0;
+        ladderKids.push(rung("5 · OWNER APPROVAL", awaiting4 > 0 ? "APPROVAL_REQUIRED" : "ACTIVE",
+          awaiting4 > 0
+            ? awaiting4 + " prepared proposal(s) await an owner decision. Approval is the owner's, in person — nothing in this build approves on the owner's behalf, and a recorded approval never executes anything."
+            : "The owner gate is in place — no prepared proposal is awaiting a decision. Approval is the owner's, in person, and a recorded approval never executes anything."));
+      }
+    }
+    // 6. EXECUTE — always DISABLED in this build.
+    var canExec4 = false;
+    if (WI4 && typeof WI4.canExecuteTransaction === "function") {
+      canExec4 = safeCall(function () { return WI4.canExecuteTransaction(); }) === true;
+    }
+    ladderKids.push(rung("6 · EXECUTE", canExec4 ? "ACTIVE" : "DISABLED",
+      "canExecuteTransaction(): " + (canExec4 ? "true" : "false") +
+      ". Execution does not exist in this build — this rung is a state display, never a control, and real execution would require separate design, security review, and owner approval."));
+    // Wallet relationships via the World Engine.
+    ladderKids.push(meta("Wallet relationships (World Engine):"));
+    if (!global.WorldEngine || typeof global.WorldEngine.collectGraph !== "function") {
+      ladderKids.push(meta("World Engine: NOT LOADED — wallet relationships cannot be resolved here."));
+    } else if (!wallets || !wallets.length) {
+      ladderKids.push(meta("No wallets discovered, so no wallet relationships exist yet. When a wallet is discovered, its network, asset, and opportunity relationships resolve here from the same canonical graph the World Globe consumes."));
+    } else {
+      try {
+        var graph4 = (await global.WorldEngine.collectGraph()).graph;
+        wallets.forEach(function (w) {
+          var rels = global.WorldEngine.related(graph4, "wallet:" + w.id);
+          var byKind = {};
+          rels.forEach(function (r) { byKind[r.kind] = (byKind[r.kind] || 0) + 1; });
+          var parts = Object.keys(byKind).map(function (k) { return k + " " + byKind[k]; });
+          ladderKids.push(meta(String(w.label || w.id) + ": " + rels.length + " relationship(s)" +
+            (parts.length ? " — " + parts.join(", ") : "") + "."));
+        });
+      } catch (e) {
+        ladderKids.push(meta("World Engine graph could not be built in this session — wallet relationships are UNAVAILABLE here, not absent."));
+      }
+    }
+    root.appendChild(panel("Bot capability ladder", ladderKids));
 
     // ---- 3. Account / address inventory ----
     // Full addresses live on the wallet card above (truncate + Show /
