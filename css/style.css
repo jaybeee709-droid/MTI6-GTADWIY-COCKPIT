@@ -55,6 +55,76 @@
   --mti6-border: var(--line);
   --mti6-border-active: var(--cyan);
   --mti6-focus: var(--cyan);
+  /* ================================================================
+     RESPONSIVE SYSTEM — Phase B tokens (Master Responsive Directive,
+     owner-authorized 2026-11-15). Canonical bands (media queries use
+     the literal edges; these vars document the system):
+       A Compact Phone        320–479px    (--bp-b: 480px)
+       B Large Phone/Foldable 480–767px    (--bp-c: 768px)
+       C Tablet               768–1023px   (--bp-d: 1024px)
+       D Laptop/Desktop       1024–1439px  (--bp-e: 1440px)
+       E Large Cockpit        1440px+
+     Tokens are the single source later phases consume. Values below
+     MATCH current shell behavior unless a comment says otherwise —
+     Phase B establishes the foundation; it is not a visual rewrite. */
+  --bp-b: 480px;
+  --bp-c: 768px;
+  --bp-d: 1024px;
+  --bp-e: 1440px;
+  /* Command bar + shell geometry */
+  --cmdbar-h: 56px;              /* current #top-bar height — unchanged */
+  --drawer-w: 260px;             /* current #side-nav width — unchanged */
+  --shell-max: 1600px;           /* large-display anchor (Phase D/E use) */
+  --world-pad: 16px;             /* responsive World/screen gutter */
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  /* Controls */
+  --touch-min: 44px;             /* WCAG/directive minimum touch target */
+  --control-h: 44px;
+  --control-h-sm: 36px;
+  /* Typography scale (consumed from Phase C onward) */
+  --fs-caption: 12px;
+  --fs-body: 14px;
+  --fs-title: 16px;
+  --fs-display: 22px;
+  /* Panels / sheets / windows */
+  --panel-w: 420px;              /* default floating panel width */
+  --panel-w-max: 560px;
+  --sheet-radius: 18px;
+  --window-min-w: 300px;
+  --window-min-h: 220px;
+  /* Safe areas (notches, gesture bars) — 0 on devices without insets */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  /* State colors — semantics, not decoration (directive §6/§44):
+     electric blue = operational; purple = STAR at rest; red = a
+     genuine, confirmed alarm in ONE category only. */
+  --state-operational: var(--mti6-blue-electric);
+  --state-star-idle: var(--mti6-purple-ai);
+  --state-star-active: var(--mti6-blue-electric);
+  --state-alarm: var(--mti6-red-alarm);
+  /* Z-index scale — values MATCH the current stacking exactly:
+     topbar 50, scrim 55, drawer 60, search results 80, search menu 85,
+     banner 90, modal 200, toast 300, window host 1000. New shell
+     layers slot in without reordering what already works. */
+  --z-topbar: 50;
+  --z-scrim: 55;
+  --z-drawer: 60;
+  --z-search: 80;
+  --z-search-menu: 85;
+  --z-banner: 90;
+  --z-accounts: 120;             /* new in Phase C, below modal */
+  --z-star-launcher: 130;        /* new in Phase C, below modal */
+  --z-modal: 200;
+  --z-toast: 300;
+  --z-windows: 1000;
 }
 
 :root[data-theme="light"] {
@@ -2581,3 +2651,60 @@ html, body { overflow-x: hidden; }
   #global-search-wrap { overflow-x: hidden; }
   .search-tab { max-width: 160px; }
 }
+
+/* ================================================================
+   RESPONSIVE SYSTEM — Phase B shell wiring (Master Responsive
+   Directive, owner-authorized 2026-11-15). Shell-level selectors
+   ONLY; module/screen rules are untouched in this phase. Values
+   consume the Phase B tokens and MATCH current behavior except
+   where a comment marks a deliberate directive change. Canonical
+   bands: A <480 | B 480–767 | C 768–1023 | D 1024–1439 | E 1440+.
+   ================================================================ */
+#top-bar {
+  height: var(--cmdbar-h);
+  z-index: var(--z-topbar);
+  /* Safe-area: on notched devices in landscape the bar's controls
+     clear the inset; on all other devices max() yields the current
+     12px, so nothing visibly changes. */
+  padding-inline: max(12px, var(--safe-left)) max(12px, var(--safe-right));
+}
+#side-nav {
+  width: var(--drawer-w);
+  z-index: var(--z-drawer);
+}
+#nav-scrim { z-index: var(--z-scrim); }
+#menu-toggle {
+  /* Directive change: 40px -> the 44px minimum touch target. */
+  width: var(--touch-min);
+  height: var(--touch-min);
+}
+/* Bands A+B (phones): search text stays >=16px so mobile browsers
+   do not auto-zoom on focus; shell type uses the token scale; main
+   content gains safe-area inline padding. Scoped to <768px on
+   purpose: at >=768px the historical 20px main padding governs and
+   Phase B must not override it from a later base rule. */
+@media (max-width: 767px) {
+  #global-search-input { font-size: 16px; }
+  #app-title { font-size: var(--fs-title); }
+  #main-content {
+    padding-inline: max(14px, var(--safe-left)) max(14px, var(--safe-right));
+  }
+}
+/* Band A — Compact Phone (320–479px): tighten shell gutters to the
+   token spacing; the World keeps the remaining space. */
+@media (max-width: 479px) {
+  #global-search-wrap {
+    padding-inline: max(var(--space-3), var(--safe-left)) max(var(--space-3), var(--safe-right));
+  }
+}
+/* Band C — Tablet (768–1023px): token anchor for the hybrid command
+   deck. No shell geometry changes in Phase B; Phase C/E consume. */
+@media (min-width: 768px) and (max-width: 1023px) {
+  #main-content { padding-inline: max(20px, var(--safe-left)) max(20px, var(--safe-right)); }
+}
+/* Band D — Laptop/Desktop (1024–1439px): token anchor. Existing
+   >=1024 shell rules already govern; nothing overridden here. */
+/* Band E — Large Cockpit (1440px+): token anchor only in Phase B.
+   The historical #app-shell max-width cascade is deliberately NOT
+   touched in this phase (documented quirk, style.css ~line 1857);
+   ultrawide anchoring is Phase D/E work. */
