@@ -179,7 +179,13 @@
     }
     var networks = [];
     try {
-      if (Array.isArray(NI.EXAMPLE_NETWORKS)) networks = NI.EXAMPLE_NETWORKS.slice();
+      // Authoritative registry first: listNetworks() is the same
+      // source the World Engine graph derives from (structural
+      // examples + every registered network), so this fallback path
+      // can never go stale as new networks register. EXAMPLE_NETWORKS
+      // remains only as a last-resort fallback.
+      if (typeof NI.listNetworks === "function") networks = NI.listNetworks() || [];
+      if (!networks.length && Array.isArray(NI.EXAMPLE_NETWORKS)) networks = NI.EXAMPLE_NETWORKS.slice();
     } catch (e) {
       return layerShell(def, "NOT_CONNECTED", [],
         "NetworkIntelligence could not be read.");
@@ -216,14 +222,20 @@
   }
 
   // ---- CRYPTO -------------------------------------------------------------
-  // AssetIntelligence asset classes (fallback: CryptoWorld
-  // ASSET_CLASSES). Classes and counts only — never prices, never
-  // balances, never returns.
+  // AssetIntelligence asset classes PLUS registered entity assets —
+  // the same two authoritative sources the World Engine graph derives
+  // its ASSET_CLASS / ASSET nodes from, so this fallback path stays
+  // truthful as the entity registry grows. (Fallback when
+  // AssetIntelligence is absent: CryptoWorld ASSET_CLASSES, classes
+  // only.) Classes and counts only — never prices, never balances,
+  // never returns.
 
   function buildCrypto(def) {
     var AI = global.AssetIntelligence;
     var CW = global.CryptoWorld;
     var items = [];
+    var classCount = 0;
+    var assetCount = 0;
     var sourceNote = "";
     if (AI && typeof AI.listClasses === "function") {
       var classes = [];
@@ -236,13 +248,34 @@
           "ASSET_CLASS", "UNVERIFIED",
           "AssetIntelligence registry", null);
       });
-      sourceNote = "Asset classes from the AssetIntelligence registry.";
+      classCount = items.length;
+      if (typeof AI.listAssets === "function") {
+        var assets = [];
+        try { assets = AI.listAssets() || []; } catch (e) { assets = []; }
+        assets.filter(function (a) {
+          return a && isNonEmptyString(a.assetId);
+        }).forEach(function (a) {
+          var item = makeItem(a.assetId,
+            isNonEmptyString(a.name) ? a.name : (isNonEmptyString(a.title) ? a.title : a.assetId),
+            "ASSET",
+            isNonEmptyString(a.verificationStatus) ? a.verificationStatus : "UNKNOWN",
+            isNonEmptyString(a.source) ? a.source : "AssetIntelligence registry", null);
+          item.node = "asset:" + a.assetId;
+          if (isNonEmptyString(a.networkId)) item.networkId = a.networkId;
+          items.push(item);
+        });
+        assetCount = items.length - classCount;
+      }
+      sourceNote = assetCount
+        ? "Asset classes and registered entity assets from the AssetIntelligence registry."
+        : "Asset classes from the AssetIntelligence registry.";
     } else if (CW && Array.isArray(CW.ASSET_CLASSES)) {
       items = CW.ASSET_CLASSES.filter(isNonEmptyString).map(function (name, i) {
         return makeItem("asset-class-" + i, name,
           "ASSET_CLASS", "UNVERIFIED",
           "CryptoWorld registry", null);
       });
+      classCount = items.length;
       sourceNote = "Asset classes from the CryptoWorld registry (AssetIntelligence not loaded).";
     } else {
       return layerShell(def, "NOT_LOADED", [],
@@ -250,11 +283,11 @@
     }
     if (!items.length) {
       return layerShell(def, "NO_DATA", [],
-        "No asset classes are recorded.");
+        "No asset classes or assets are recorded.");
     }
     return layerShell(def, "ACTIVE", items,
       sourceNote + " Classes and counts only — no prices, balances, or returns are shown.",
-      { assetClasses: items.length });
+      { assetClasses: classCount, assets: assetCount });
   }
 
   // ---- OPPORTUNITIES ------------------------------------------------------
