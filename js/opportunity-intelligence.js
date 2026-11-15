@@ -165,6 +165,54 @@ var OpportunityIntelligence = (function (global) {
   // The opportunity list starts EMPTY. Nothing is seeded.
   var opportunities = [];
 
+  // ---- Persistence (localStorage, Item 6) -------------------------------
+  // Owner-entered opportunities persist under mti6_opportunities_v1,
+  // following the worker-task store pattern (js/bot-ops-model.js).
+  // Hydration (invoked just before the API is exported, once every
+  // validator exists) re-validates every saved record through
+  // validateOpportunity: a record that no longer validates is dropped,
+  // never repaired into existence. Persistence never invents a record
+  // and never advances one: pipeline state is stored exactly as the
+  // pipeline left it, and the pipeline still ends at PREPARED.
+  var OPPORTUNITY_STORE_KEY = "mti6_opportunities_v1";
+  var MAX_PERSISTED_OPPORTUNITIES = 200;
+
+  function opportunityStorage() {
+    try {
+      if (typeof localStorage !== "undefined" && localStorage) return localStorage;
+    } catch (e) {}
+    return null;
+  }
+
+  function persistOpportunities() {
+    var store = opportunityStorage();
+    if (!store) return;
+    try {
+      store.setItem(OPPORTUNITY_STORE_KEY,
+        JSON.stringify(opportunities.slice(-MAX_PERSISTED_OPPORTUNITIES)));
+    } catch (e) {}
+  }
+
+  function hydrateOpportunities() {
+    var store = opportunityStorage();
+    if (!store) return;
+    var parsed;
+    try {
+      var raw = store.getItem(OPPORTUNITY_STORE_KEY);
+      if (!raw) return;
+      parsed = JSON.parse(raw);
+    } catch (e) { return; }
+    if (!Array.isArray(parsed)) return;
+    parsed.forEach(function (rec) {
+      if (!rec || typeof rec !== "object") return;
+      if (validateOpportunity(rec).length) return;
+      var normalized = normalizeOpportunity(rec);
+      var duplicate = false;
+      opportunities.forEach(function (o) { if (o.id === normalized.id) duplicate = true; });
+      if (!duplicate) opportunities.push(normalized);
+    });
+  }
+
   function truth() { return global.Truth || null; }
 
   function knownVerificationStates() {
@@ -686,6 +734,30 @@ var OpportunityIntelligence = (function (global) {
       errors = errors.concat(validateWorkerAssignment(op.workerAssignment, "workerAssignment"));
     }
 
+    // Return source (Item 6): WHY an opportunity pays, in words, with
+    // provenance — descriptive only. Exactly two string fields are
+    // allowed (description + source); any numeric return field is
+    // already rejected by forbiddenKeyErrors above, and any other
+    // extra key is rejected here, so a returnSource can never smuggle
+    // in an amount, a rate, or a projection.
+    if (op.returnSource !== undefined && op.returnSource !== null) {
+      if (typeof op.returnSource !== "object" || Array.isArray(op.returnSource)) {
+        errors.push("returnSource must be an object { description, source }.");
+      } else {
+        Object.keys(op.returnSource).forEach(function (k) {
+          if (k !== "description" && k !== "source") {
+            errors.push("returnSource may only carry description and source; unexpected key \"" + k + "\".");
+          }
+        });
+        if (!isNonEmptyString(op.returnSource.description)) {
+          errors.push("returnSource needs a non-empty description (why it pays, in words).");
+        }
+        if (!isNonEmptyString(op.returnSource.source)) {
+          errors.push("returnSource needs a non-empty source (where the description comes from).");
+        }
+      }
+    }
+
     return errors;
   }
 
@@ -792,6 +864,7 @@ var OpportunityIntelligence = (function (global) {
       return { ok: false, errors: ["An opportunity with id \"" + normalized.id + "\" already exists."] };
     }
     opportunities.push(normalized);
+    persistOpportunities();
     return { ok: true, opportunity: clone(normalized) };
   }
 
@@ -1074,6 +1147,7 @@ var OpportunityIntelligence = (function (global) {
       verificationStatus: "UNKNOWN",
       freshness: "unknown",
       workerAssignment: null,
+      returnSource: null,
       pipelineState: "DISCOVERED",
       pipelineHistory: [],
       expectedGross: { state: "UNKNOWN" },
@@ -1169,6 +1243,7 @@ var OpportunityIntelligence = (function (global) {
     }
     stored.pipelineState = to;
     appendPipelineHistory(stored, from, to, opts.by, opts.note, reason);
+    persistOpportunities();
     return { ok: true, opportunity: clone(stored) };
   }
 
@@ -1196,6 +1271,7 @@ var OpportunityIntelligence = (function (global) {
     }
     if (errors.length) return { ok: false, reason: "INVALID_GROSS", errors: errors };
     stored.expectedGross = normalizeSourcedAmount(gross);
+    persistOpportunities();
     return { ok: true, opportunity: clone(stored) };
   }
 
@@ -1787,6 +1863,7 @@ var OpportunityIntelligence = (function (global) {
         "Simulation record created.", "simulation created");
     }
 
+    persistOpportunities();
     return { ok: true, simulation: clone(simulation) };
   }
 
@@ -1876,6 +1953,8 @@ var OpportunityIntelligence = (function (global) {
       costs: { byKind: byKind }, unknownCosts: unknownCosts,
       net: net, state: state, note: note };
   }
+
+  hydrateOpportunities();
 
   var api = {
     RISK_DIMENSIONS: FALLBACK_RISK_DIMENSIONS,
