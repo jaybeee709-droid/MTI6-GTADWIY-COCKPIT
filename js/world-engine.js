@@ -413,8 +413,14 @@
       AI && typeof AI.listAssets === "function" ? function () { return AI.listAssets(); } : null, states);
 
     var NI = global.NetworkIntelligence;
+    // Entity wiring (Nov 14, 2026): prefer NI.listNetworks() — the
+    // structural examples plus gate-registered entity networks — and
+    // fall back to EXAMPLE_NETWORKS alone when the registry function
+    // is unavailable (older module, partial load). Same ids either
+    // way; registration only ever ADDS networks.
     snapshot.networks = collectSyncPart("networks",
-      NI && Array.isArray(NI.EXAMPLE_NETWORKS) ? function () { return NI.EXAMPLE_NETWORKS; } : null, states);
+      NI && typeof NI.listNetworks === "function" ? function () { return NI.listNetworks(); }
+        : (NI && Array.isArray(NI.EXAMPLE_NETWORKS) ? function () { return NI.EXAMPLE_NETWORKS; } : null), states);
 
     var WI = global.WalletIntelligence;
     snapshot.wallets = collectSyncPart("wallets",

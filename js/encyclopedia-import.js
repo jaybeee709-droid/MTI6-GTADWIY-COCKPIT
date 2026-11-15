@@ -126,8 +126,18 @@
     if (global.EncyclopediaBatchA) list.push(global.EncyclopediaBatchA);
     if (global.EncyclopediaCanonical60) list.push(global.EncyclopediaCanonical60);
     if (global.EncyclopediaBatchB) list.push(global.EncyclopediaBatchB);
+    if (global.EncyclopediaEntityBatch1) list.push(global.EncyclopediaEntityBatch1);
     return list;
   }
+
+  // Entity import enable flag (owner sequence, Nov 14, 2026). The
+  // entity gate below is WIRED — validated, reported, and visible —
+  // but the import leg stays disabled until the owner's separate
+  // IMPORT authorization flips this constant. While disabled, an
+  // entity batch performs zero writes and zero registrations and
+  // reports itself as disabled (not failed, not blocked): wiring and
+  // import are separate owner steps by design.
+  var ENTITY_IMPORT_ENABLED = false;
 
   // ---- Single-flight guard (Fix-up #3, defect B) ----
   // importAll is called from TWO places: fire-and-forget at boot
@@ -423,6 +433,253 @@
     return out;
   }
 
+
+  // ---- Entity batches (reusable registration gate, Nov 14, 2026) --------
+  // The pipeline every entity batch flows through — Batch 1 today,
+  // future owner-approved batches and gate-passed bot candidates
+  // tomorrow. Two phases, mirroring the Batch B gate: Phase 1
+  // validates EVERYTHING (canonical store records, runtime-module
+  // records, and the cross-checks between them) and writes NOTHING
+  // on any failure. Phase 2 writes the canonical store records, then
+  // ENSURES each entity is registered in its runtime module
+  // (AssetIntelligence / ProtocolIntelligence / NetworkIntelligence)
+  // under the SAME id. Registration is derived state hydrated from
+  // the canonical records: it runs on every import run (including
+  // runs where every record is alreadyPresent, i.e. every fresh page
+  // load), it is idempotent, and a failed or NOT_LOADED module leg
+  // never blocks, alters, or hides the canonical record — it is
+  // reported on the run summary instead.
+
+  function checkEntityStoreRecord(batch, rec) {
+    var errors = [];
+    var CW = global.CryptoWorld;
+    if (CW && typeof CW.validateEntry === "function") {
+      errors = errors.concat(CW.validateEntry(rec));
+    } else {
+      errors.push("CryptoWorld.validateEntry is not available.");
+    }
+    if (!rec || typeof rec !== "object") return errors;
+    if (["assets", "chains", "protocols"].indexOf(rec.registry) === -1) {
+      errors.push("Entity records must use registry \"assets\", \"chains\", or \"protocols\".");
+    }
+    if (rec.importBatch !== batch.batch) errors.push("importBatch must be \"" + batch.batch + "\".");
+    if (rec.verificationStatus !== "UNVERIFIED") {
+      errors.push("Entity records must start UNVERIFIED.");
+    }
+    if (rec.source !== "owner-seed") {
+      errors.push("Entity records must carry source \"owner-seed\".");
+    }
+    return errors;
+  }
+
+  // Pure Phase 1 for an entity batch. Returns dispositions for the
+  // store records plus moduleErrors for the module records; the
+  // batch may proceed only when every list is empty.
+  function validateEntityBatch(batch, existing) {
+    var nets = batch.networks || [];
+    var assets = batch.assets || [];
+    var protos = batch.protocols || [];
+    var records = batch.records || [];
+    var netIds = {}, assetIds = {}, protoIds = {}, storeIds = {}, majorIds = {};
+    nets.forEach(function (n) { if (n && n.id) netIds[n.id] = true; });
+    assets.forEach(function (a) { if (a && a.assetId) assetIds[a.assetId] = true; });
+    protos.forEach(function (pr) { if (pr && pr.protocolId) protoIds[pr.protocolId] = true; });
+    records.forEach(function (r) { if (r && r.id) storeIds[r.id] = true; });
+    (existing || []).forEach(function (r) {
+      if (r && r.level === "MAJOR_ACTIVITY" && r.id) majorIds[r.id] = true;
+    });
+    records.forEach(function (r) {
+      if (r && r.level === "MAJOR_ACTIVITY" && r.id) majorIds[r.id] = true;
+    });
+
+    var moduleErrors = [];
+    var NI = global.NetworkIntelligence, AI = global.AssetIntelligence, PI = global.ProtocolIntelligence;
+    nets.forEach(function (n) {
+      var errs = NI && typeof NI.validateNetwork === "function" ? NI.validateNetwork(n) : ["NetworkIntelligence is not available."];
+      if (!storeIds[n.id]) errs.push("Network \"" + n.id + "\" has no canonical store record in this batch.");
+      if (errs.length) moduleErrors.push({ id: n.id || "(no id)", kind: "network", reasons: errs });
+    });
+    assets.forEach(function (a) {
+      var errs = AI && typeof AI.validateAssetRecord === "function" ? AI.validateAssetRecord(a) : ["AssetIntelligence is not available."];
+      if (!storeIds[a.assetId]) errs.push("Asset \"" + a.assetId + "\" has no canonical store record in this batch.");
+      if (a.networkId && !netIds[a.networkId]) errs.push("Asset network \"" + a.networkId + "\" is not one of this batch's networks.");
+      if (a.protocol && !protoIds[a.protocol]) errs.push("Asset protocol \"" + a.protocol + "\" is not one of this batch's protocols.");
+      if (errs.length) moduleErrors.push({ id: a.assetId || "(no id)", kind: "asset", reasons: errs });
+    });
+    protos.forEach(function (pr) {
+      var errs = PI && typeof PI.validateProtocol === "function" ? PI.validateProtocol(pr) : ["ProtocolIntelligence is not available."];
+      if (!storeIds[pr.protocolId]) errs.push("Protocol \"" + pr.protocolId + "\" has no canonical store record in this batch.");
+      (pr.networks || []).forEach(function (n) {
+        if (!netIds[n]) errs.push("Protocol network \"" + n + "\" is not one of this batch's networks.");
+      });
+      (pr.activities || []).forEach(function (m) {
+        if (!majorIds[m]) errs.push("Protocol activity \"" + m + "\" is not a known canonical Major Activity.");
+      });
+      if (errs.length) moduleErrors.push({ id: pr.protocolId || "(no id)", kind: "protocol", reasons: errs });
+    });
+
+    var CW = global.CryptoWorld;
+    var seenIds = {}, firstIndexById = {}, aliasOwner = {};
+    var dispositions = [];
+    for (var i = 0; i < records.length; i++) {
+      var rec = records[i];
+      var errors = checkEntityStoreRecord(batch, rec);
+      if (rec && typeof rec.id === "string") {
+        if (seenIds[rec.id]) {
+          var first = dispositions[firstIndexById[rec.id]];
+          if (first) first.errors.push("Duplicate id within batch.");
+          errors.push("Duplicate id within batch.");
+        } else {
+          seenIds[rec.id] = true;
+          firstIndexById[rec.id] = i;
+        }
+        var aligned = rec.registry === "chains" ? !!netIds[rec.id]
+          : rec.registry === "assets" ? !!assetIds[rec.id]
+          : rec.registry === "protocols" ? !!protoIds[rec.id] : false;
+        if (!aligned) errors.push("Store record \"" + rec.id + "\" has no aligned module record in this batch.");
+        (rec.aliases || []).forEach(function (a) {
+          var key = String(a).toLowerCase();
+          if (aliasOwner[key] && aliasOwner[key] !== rec.id) {
+            errors.push("Alias \"" + a + "\" is also claimed by " + aliasOwner[key] + ".");
+          }
+          aliasOwner[key] = rec.id;
+        });
+        if (rec.nativeAssetRef && !assetIds[rec.nativeAssetRef]) {
+          errors.push("nativeAssetRef \"" + rec.nativeAssetRef + "\" is not one of this batch's assets.");
+        }
+        if (rec.networkRef && !netIds[rec.networkRef]) {
+          errors.push("networkRef \"" + rec.networkRef + "\" is not one of this batch's networks.");
+        }
+        (rec.networkRefs || []).forEach(function (n) {
+          if (!netIds[n]) errors.push("networkRefs entry \"" + n + "\" is not one of this batch's networks.");
+        });
+        (rec.activityRefs || []).forEach(function (m) {
+          if (!majorIds[m]) errors.push("activityRefs entry \"" + m + "\" is not a known canonical Major Activity.");
+        });
+      }
+      var alreadyPresent = false;
+      var stored = (rec && typeof rec.id === "string" && CW && typeof CW.getEntry === "function")
+        ? CW.getEntry(existing, rec.id) : null;
+      if (stored) {
+        if (recordsEqual(stored, rec)) {
+          alreadyPresent = true;
+        } else {
+          errors.push("Record \"" + rec.id + "\" already exists in the store with different content.");
+        }
+      }
+      dispositions.push({ rec: rec, errors: errors, alreadyPresent: alreadyPresent });
+    }
+    return { dispositions: dispositions, moduleErrors: moduleErrors };
+  }
+
+  // Ensure every batch entity is registered in its runtime module.
+  // Returns per-kind outcomes; a missing module is NOT_LOADED, never
+  // a silent skip, and never affects the canonical records.
+  function ensureEntityRegistrations(batch) {
+    var out = {
+      assets: { registered: 0, alreadyRegistered: 0, failed: [] },
+      protocols: { registered: 0, alreadyRegistered: 0, failed: [] },
+      networks: { registered: 0, alreadyRegistered: 0, failed: [] }
+    };
+    var AI = global.AssetIntelligence, PI = global.ProtocolIntelligence, NI = global.NetworkIntelligence;
+    (batch.assets || []).forEach(function (a) {
+      if (!AI || typeof AI.registerAsset !== "function") { out.assets.failed.push({ id: a.assetId, reasons: ["AssetIntelligence NOT_LOADED"] }); return; }
+      if (typeof AI.getAsset === "function" && AI.getAsset(a.assetId)) { out.assets.alreadyRegistered++; return; }
+      var r = AI.registerAsset(a);
+      if (r.ok) out.assets.registered++; else out.assets.failed.push({ id: a.assetId, reasons: r.errors || ["registration failed"] });
+    });
+    (batch.protocols || []).forEach(function (pr) {
+      if (!PI || typeof PI.registerProtocol !== "function") { out.protocols.failed.push({ id: pr.protocolId, reasons: ["ProtocolIntelligence NOT_LOADED"] }); return; }
+      if (typeof PI.getProtocol === "function" && PI.getProtocol(pr.protocolId)) { out.protocols.alreadyRegistered++; return; }
+      var r = PI.registerProtocol(pr);
+      if (r.ok) out.protocols.registered++; else out.protocols.failed.push({ id: pr.protocolId, reasons: r.errors || ["registration failed"] });
+    });
+    (batch.networks || []).forEach(function (n) {
+      if (!NI || typeof NI.registerNetwork !== "function" || typeof NI.listNetworks !== "function") {
+        out.networks.failed.push({ id: n.id, reasons: ["NetworkIntelligence registry NOT_LOADED"] }); return;
+      }
+      var known = false;
+      NI.listNetworks().forEach(function (x) { if (x.id === n.id) known = true; });
+      if (known) { out.networks.alreadyRegistered++; return; }
+      var r = NI.registerNetwork(n);
+      if (r.ok) out.networks.registered++; else out.networks.failed.push({ id: n.id, reasons: r.errors || ["registration failed"] });
+    });
+    return out;
+  }
+
+  // Entity meta record: recomputed from the store contents on every
+  // run (the healed pattern), written only when changed.
+  async function syncEntityMeta(batch, existing) {
+    if (!batch || batch.kind !== "entity") return;
+    var d = db();
+    if (!d || typeof d.put !== "function") return;
+    if (!Array.isArray(existing)) {
+      try { existing = await readStore(); } catch (e) { return; }
+    }
+    var count = 0;
+    var current = null;
+    var metaId = "entity-meta-" + batch.batch.replace(/^entity-/, "");
+    (existing || []).forEach(function (r) {
+      if (!r) return;
+      if (r.id === metaId) current = r;
+      if (r.importBatch === batch.batch) count++;
+    });
+    var prefix = batch.batch.toUpperCase().replace(/-/g, "_");
+    var next = {
+      id: metaId, registry: "taxonomy",
+      expectedCount: (batch.records || []).length, importedCount: count,
+      status: count === (batch.records || []).length ? prefix + "_IMPORTED" : prefix + "_IMPORT_PENDING"
+    };
+    if (current && current.expectedCount === next.expectedCount && current.importedCount === count && current.status === next.status) return;
+    try { await d.put("cryptoWorld", next); } catch (e) {}
+  }
+
+  // Two-phase entity import. While ENTITY_IMPORT_ENABLED is false
+  // the batch reports disabled and performs ZERO writes and ZERO
+  // registrations (wiring without import, per the owner sequence).
+  async function importEntityBatch(batch, existing, out) {
+    var CW = global.CryptoWorld;
+    if (!ENTITY_IMPORT_ENABLED) {
+      out.disabled = true;
+      (batch.records || []).forEach(function (rec) {
+        var stored = (rec && typeof rec.id === "string" && CW && typeof CW.getEntry === "function")
+          ? CW.getEntry(existing, rec.id) : null;
+        if (stored && recordsEqual(stored, rec)) out.alreadyPresent++;
+      });
+      return out;
+    }
+    var check = validateEntityBatch(batch, existing);
+    var bad = check.dispositions.filter(function (d) { return d.errors.length > 0; });
+    if (bad.length || check.moduleErrors.length) {
+      out.blocked = true;
+      out.blockReason = "Entity import blocked: " + (bad.length + check.moduleErrors.length) + " record(s) failed the entity gate.";
+      bad.forEach(function (d) {
+        out.rejected.push({ id: d.rec && d.rec.id ? d.rec.id : "(no id)", reasons: d.errors });
+      });
+      check.moduleErrors.forEach(function (m) {
+        out.rejected.push({ id: m.id, reasons: m.reasons });
+      });
+      return out;
+    }
+    for (var j = 0; j < check.dispositions.length; j++) {
+      var d2 = check.dispositions[j];
+      if (d2.alreadyPresent) { out.alreadyPresent++; continue; }
+      try {
+        await writeRecord(d2.rec);
+        existing.push(d2.rec);
+        out.imported++;
+      } catch (e) {
+        out.writeFailed++;
+        out.failed = true;
+        if (!out.writeError) out.writeError = "Store write failed: " + (e && e.message ? e.message : String(e));
+        out.rejected.push({ id: d2.rec.id, reasons: ["Store write failed: " + (e && e.message ? e.message : String(e))] });
+      }
+    }
+    out.registrations = ensureEntityRegistrations(batch);
+    try { await syncEntityMeta(batch, existing); } catch (e) {}
+    return out;
+  }
+
   function db() {
     return global.CockpitDB || null;
   }
@@ -503,6 +760,9 @@
     if (batch.kind === "batch-b") {
       return importBatchB(batch, existing, out);
     }
+    if (batch.kind === "entity") {
+      return importEntityBatch(batch, existing, out);
+    }
     // Owner-approved corrections land on already-imported records here.
     // (Skipped for the batch-b branch so a blocked Batch B candidate
     // performs zero writes of any kind.)
@@ -575,6 +835,7 @@
       }
       try { await syncTaxonomyMeta(); } catch (e) {}
       try { await syncBatchBMeta(); } catch (e) {}
+      try { await syncEntityMeta(global.EncyclopediaEntityBatch1); } catch (e) {}
     } catch (e) {
       summary.failed = true;
       summary.error = "Import failed: " + (e && e.message ? e.message : String(e));
@@ -653,6 +914,27 @@
         }
         return rep;
       }
+      if (batch.kind === "entity") {
+        var echeck = validateEntityBatch(batch, existing);
+        echeck.dispositions.forEach(function (d) {
+          if (d.errors.length) {
+            rep.rejected.push({ id: d.rec && d.rec.id ? d.rec.id : "(no id)", reasons: d.errors });
+          } else if (d.alreadyPresent) {
+            rep.imported++;
+          } else {
+            rep.pending++;
+          }
+        });
+        echeck.moduleErrors.forEach(function (m) {
+          rep.rejected.push({ id: m.id, reasons: m.reasons });
+        });
+        if (rep.rejected.length) {
+          rep.blocked = true;
+          rep.blockReason = "Entity import blocked: " + rep.rejected.length + " record(s) failed the entity gate.";
+        }
+        if (!ENTITY_IMPORT_ENABLED) rep.disabled = true;
+        return rep;
+      }
       batch.records.forEach(function (rec) {
         var errors = checkBatchRecord(batch, rec, existing);
         if (errors.length) {
@@ -681,6 +963,10 @@
     importAll: importAll,
     report: report,
     syncTaxonomyMeta: syncTaxonomyMeta,
-    syncBatchBMeta: syncBatchBMeta
+    syncBatchBMeta: syncBatchBMeta,
+    validateEntityBatch: validateEntityBatch,
+    ensureEntityRegistrations: ensureEntityRegistrations,
+    syncEntityMeta: syncEntityMeta,
+    entityImportEnabled: function () { return ENTITY_IMPORT_ENABLED; }
   };
 })(window);

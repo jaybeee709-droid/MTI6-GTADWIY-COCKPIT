@@ -136,6 +136,15 @@
       description: "Cosmos/Tendermint account-based networks in the Cosmos family.",
       verificationStatus: "UNVERIFIED",
       source: "structural-example"
+    },
+    {
+      id: "bnb-family",
+      name: "BNB-family",
+      vm: "EVM",
+      accountModel: "ACCOUNT",
+      description: "BNB Chain family networks (BNB Smart Chain and relatives).",
+      verificationStatus: "UNVERIFIED",
+      source: "owner-seed"
     }
   ];
 
@@ -967,6 +976,49 @@
     return { ok: true, records: list };
   }
 
+  // ---- Registered networks (Entity wiring, Nov 14, 2026) -----------------
+  // NetworkIntelligence historically had no internal registry:
+  // EXAMPLE_NETWORKS were the only built-in records and addNetwork
+  // operated on caller-supplied lists. The entity gate needs a
+  // module-side registry so canonical entity networks (Base,
+  // Arbitrum, BNB Chain, Polygon, and every future network) can be
+  // represented next to the examples under the SAME ids. This is the
+  // smallest reusable extension: one internal list, one register
+  // function, one combined list function. Registered records are
+  // DERIVED state hydrated from canonical entity records by the
+  // encyclopedia import gate — the canonical store record stays
+  // authoritative for identity. An id already present (in
+  // EXAMPLE_NETWORKS or the registered list) counts as
+  // already-registered and is never duplicated or overwritten.
+  var registeredNetworks = [];
+
+  function networkIdKnown(id) {
+    var known = false;
+    EXAMPLE_NETWORKS.forEach(function (n) { if (n.id === id) known = true; });
+    registeredNetworks.forEach(function (n) { if (n.id === id) known = true; });
+    return known;
+  }
+
+  function registerNetwork(record) {
+    var errors = validateNetwork(record);
+    if (errors.length) return { ok: false, errors: errors };
+    if (networkIdKnown(record.id)) return { ok: true, alreadyRegistered: true };
+    registeredNetworks.push(clone(record));
+    return { ok: true, alreadyRegistered: false };
+  }
+
+  function getRegisteredNetwork(id) {
+    var found = null;
+    registeredNetworks.forEach(function (n) { if (n.id === id) found = n; });
+    return found ? clone(found) : null;
+  }
+
+  // Every network this module can represent: the structural examples
+  // first (unchanged), then gate-registered entity networks.
+  function listNetworks() {
+    return EXAMPLE_NETWORKS.concat(registeredNetworks).map(function (n) { return clone(n); });
+  }
+
   // A blank network record: identity + VM only, everything else
   // UNKNOWN / empty. The honest starting point for a researched import.
   function blankNetwork(id, name, vm) {
@@ -1025,6 +1077,9 @@
     getExampleNetwork: getExampleNetwork,
     networksByFamily: networksByFamily,
     addNetwork: addNetwork,
+    registerNetwork: registerNetwork,
+    getRegisteredNetwork: getRegisteredNetwork,
+    listNetworks: listNetworks,
     blankNetwork: blankNetwork
   };
 })(typeof globalThis !== "undefined" ? globalThis :
