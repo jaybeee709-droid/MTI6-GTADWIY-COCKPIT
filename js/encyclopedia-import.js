@@ -137,7 +137,7 @@
   // entity batch performs zero writes and zero registrations and
   // reports itself as disabled (not failed, not blocked): wiring and
   // import are separate owner steps by design.
-  var ENTITY_IMPORT_ENABLED = false;
+  var ENTITY_IMPORT_ENABLED = true;
 
   // ---- Single-flight guard (Fix-up #3, defect B) ----
   // importAll is called from TWO places: fire-and-forget at boot
