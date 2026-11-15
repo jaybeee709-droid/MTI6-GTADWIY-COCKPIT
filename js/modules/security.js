@@ -63,6 +63,17 @@
     } catch (e) { return null; }
   }
 
+  // Item 8 (World Engine Depth Package, Nov 14, 2026): the dashboard
+  // gains owner-driven write controls — alert intake + lifecycle
+  // transitions — so the current root is kept for a full, honest
+  // re-render after any owner action.
+  var angelRoot = null;
+  function refreshSecurity() {
+    if (angelRoot) {
+      try { render(angelRoot); } catch (e) {}
+    }
+  }
+
   function angelIdentities() {
     try {
       var m = global.AngelIdentities;
@@ -183,6 +194,39 @@
           (h && h.note ? (" — " + String(h.note)) : "")));
       });
     }
+    // Item 8: owner lifecycle controls. Only the transitions the
+    // module itself allows from the current state are offered
+    // (canTransitionAlert is the authority); every move is recorded
+    // in the alert's history with the owner as the actor. There are
+    // no detectors behind this screen — the owner is the actor.
+    var secForCard = angelSecurity();
+    var transKids = [];
+    if (secForCard && typeof secForCard.transitionAlert === "function" &&
+        typeof secForCard.canTransitionAlert === "function" &&
+        Array.isArray(secForCard.ALERT_STATES)) {
+      var nextStates = secForCard.ALERT_STATES.filter(function (st) {
+        try { return secForCard.canTransitionAlert(alert.state, st); } catch (e) { return false; }
+      });
+      if (nextStates.length) {
+        var transStatus = U.el("div", { class: "api-meta" }, "");
+        var btnRow = U.el("div", { class: "price-input-row" }, []);
+        nextStates.forEach(function (st) {
+          var b = U.el("button", { class: "btn btn-ghost btn-sm", type: "button" }, "Move to " + st);
+          b.addEventListener("click", function () {
+            try {
+              secForCard.transitionAlert(alert.id, st, "owner", "Owner transition from the Security screen.");
+              refreshSecurity();
+            } catch (e) {
+              transStatus.textContent = "Transition failed: " + (e && e.message ? e.message : String(e));
+            }
+          });
+          btnRow.appendChild(b);
+        });
+        transKids.push(U.el("div", { class: "api-meta" }, "Owner lifecycle controls — your decision, recorded in this alert's history:"));
+        transKids.push(btnRow);
+        transKids.push(transStatus);
+      }
+    }
     var cardKids = [
       U.el("div", { class: "mti6-badge" }, "Severity: " + severity),
       U.el("h4", {}, angelText(alert.title, "Untitled alert")),
@@ -194,7 +238,7 @@
       resolution ? U.el("div", { class: "api-meta" }, "Resolution: " + resolution) : null,
       U.el("div", { class: "api-meta" }, "STAR notification: " + starNote),
       U.el("details", {}, [U.el("summary", {}, "Evidence (" + evidence.length + " entries) — expand to view")].concat(detailsKids))
-    ];
+    ].concat(transKids);
     return U.el("div", { class: cardClass }, cardKids);
   }
 
@@ -206,6 +250,91 @@
       alerts.forEach(function (a) { kids.push(angelAlertCard(a)); });
     }
     return U.el("div", { class: "mti6-card" }, kids);
+  }
+
+  // Item 8: owner alert intake. The owner is the detector: this
+  // records something the OWNER observed, with their provenance and
+  // at least one evidence entry (the module requires both and
+  // refuses anything less). createAlert forces the state to
+  // DETECTED — an intake can never create a CONFIRMED or active
+  // alert — and the record persists in AngelSecurity's own store
+  // (mti6_angel_security_v1), surfacing identically on Crypto World
+  // and the World Globe Security layer, where alarm red is reserved
+  // for verified-and-active alerts only.
+  function angelIntakeCard(sec) {
+    function field(labelText, input) {
+      return U.el("div", { class: "api-meta", style: "margin-top:8px" }, [
+        U.el("div", {}, labelText),
+        input
+      ]);
+    }
+    function textIn(placeholder) {
+      return U.el("input", { class: "price-input", type: "text", placeholder: placeholder });
+    }
+    function selectIn(values, labels) {
+      var sel = U.el("select", { class: "price-input" }, []);
+      values.forEach(function (v, i) {
+        sel.appendChild(U.el("option", { value: v }, labels ? labels[i] : v));
+      });
+      return sel;
+    }
+    var titleIn = textIn("What happened — short title");
+    var descIn = textIn("What you observed, in plain words");
+    var domainSel = selectIn(
+      (sec.DOMAINS || []).map(function (d) { return d.id; }),
+      (sec.DOMAINS || []).map(function (d) { return d.label || d.id; }));
+    var sevSel = selectIn(sec.SEVERITIES || ["UNKNOWN"]);
+    var classValues = [""].concat(sec.ALERT_CLASS_IDS || []).concat(["UNKNOWN_CLASS"]);
+    var classLabels = ["(no class — leave unclassified)"].concat(sec.ALERT_CLASS_IDS || []).concat(["UNKNOWN_CLASS"]);
+    var classSel = selectIn(classValues, classLabels);
+    var sysIn = textIn("Affected system, e.g. wallet, crypto-world, star");
+    var evKindIn = textIn("Evidence kind");
+    evKindIn.value = "OWNER_OBSERVATION";
+    var evRefIn = textIn("Evidence reference — what you saw and where (required)");
+    var sourceIn = textIn("Provenance / source");
+    sourceIn.value = "owner-entered";
+    var status = U.el("div", { class: "api-meta", style: "margin-top:10px" }, "");
+    var submit = U.el("button", { class: "btn btn-secondary", type: "button" }, "Record alert at DETECTED");
+    submit.addEventListener("click", function () {
+      var now = new Date().toISOString();
+      var input = {
+        title: titleIn.value.trim(),
+        description: descIn.value.trim(),
+        domain: domainSel.value,
+        severity: sevSel.value,
+        affectedSystem: sysIn.value.trim(),
+        source: sourceIn.value.trim() || "owner-entered",
+        detectedAt: now,
+        evidence: [{
+          kind: evKindIn.value.trim() || "OWNER_OBSERVATION",
+          reference: evRefIn.value.trim(),
+          recordedAt: now
+        }]
+      };
+      if (classSel.value) input.alertClass = classSel.value;
+      try {
+        var created = sec.createAlert(input);
+        status.textContent = "Recorded at DETECTED (id " + created.id + "). Refreshing…";
+        refreshSecurity();
+      } catch (e) {
+        status.textContent = "Not recorded: " + (e && e.message ? e.message : String(e));
+      }
+    });
+    return U.el("div", { class: "mti6-card" }, [
+      U.el("h3", {}, "Owner alert intake"),
+      U.el("div", { class: "api-meta" }, "You are the detector. Record something YOU observed — this screen has no live detectors and creates no alerts on its own. An alert always starts at DETECTED with your provenance and evidence; creating one claims nothing about any system being monitored. The same record surfaces on Crypto World and the World Globe Security layer, where alarm red is reserved for alerts walked to verified-and-active — never for a fresh intake."),
+      field("Title", titleIn),
+      field("Description", descIn),
+      field("Security domain", domainSel),
+      field("Severity", sevSel),
+      field("Alert class", classSel),
+      field("Affected system", sysIn),
+      field("Evidence kind", evKindIn),
+      field("Evidence reference", evRefIn),
+      field("Source / provenance", sourceIn),
+      U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [submit]),
+      status
+    ]);
   }
 
   // Module-independent: a disabled control with an honest label.
@@ -220,6 +349,7 @@
   }
 
   function renderAngelDashboard(root) {
+    angelRoot = root;
     var dash = U.el("div", { class: "angel-dash" }, []);
     var statusEl = U.el("div", { class: "mti6-screen-header__status" }, "");
     dash.appendChild(U.el("div", { class: "mti6-screen-header" }, [
@@ -353,6 +483,11 @@
         : "STAR notification: UNKNOWN — no alerts recorded, so no notification state exists."),
       U.el("div", { class: "api-meta" }, identLine)
     ]));
+
+    // ---- Owner alert intake (Item 8) -----------------------------------
+    if (typeof sec.createAlert === "function") {
+      dash.appendChild(angelIntakeCard(sec));
+    }
 
     // ---- Emergency controls (disabled by design — no live path) -------
     dash.appendChild(angelEmergencyCard());
