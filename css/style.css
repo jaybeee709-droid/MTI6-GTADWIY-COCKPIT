@@ -2708,3 +2708,205 @@ html, body { overflow-x: hidden; }
    The historical #app-shell max-width cascade is deliberately NOT
    touched in this phase (documented quirk, style.css ~line 1857);
    ultrawide anchoring is Phase D/E work. */
+
+/* ================================================================
+   MASTER SHELL — Phase C (Master Responsive Directive,
+   owner-authorized 2026-11-15). The command bar is now ONE bar:
+   menu | Universal Search (+ honest mic) | Accounts card | bubble
+   rail. STAR's launcher lives bottom-right (shell-chrome.js). The
+   search element itself is the SAME #global-search-wrap with the
+   SAME ids — global-search.js is untouched and fully in charge.
+   ================================================================ */
+#app-shell {
+  /* The search row no longer sits in flow under the fixed bar, so
+     the shell itself now provides the bar's clearance. */
+  padding-top: var(--cmdbar-h);
+}
+#top-bar { align-items: center; }
+#global-search-wrap {
+  position: static;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  align-items: center;
+  height: 100%;
+}
+#global-search-input { flex: 1 1 auto; min-width: 48px; }
+#search-mic-btn {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  opacity: 0.55; /* disabled + not connected: visibly inert, never pretending to listen */
+  cursor: not-allowed;
+}
+/* Results + source menu now hang from the single 56px bar (they
+   were offset for the old two-row shell). */
+#global-search-results { top: calc(var(--cmdbar-h) + 8px); }
+#global-search-source-menu { top: calc(var(--cmdbar-h) + 58px); }
+/* Quick navigation lives in the drawer now (same element, same
+   app.js wiring). */
+#side-nav #quick-nav { display: block; width: 100%; margin-bottom: 10px; }
+
+/* ---- Accounts launcher: the black credit card ---- */
+#accounts-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 10px;
+  border-radius: 9px;
+  border: 1px solid #333a45;
+  background: linear-gradient(160deg, #171a20, #05060a);
+  color: var(--mti6-silver);
+  cursor: pointer;
+  font-weight: 600;
+}
+.card-glyph {
+  position: relative;
+  display: block;
+  width: 30px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid #454e5e;
+  background: linear-gradient(150deg, #232833, #0a0c11);
+  flex: none;
+}
+.card-stripe {
+  position: absolute;
+  top: 4px; left: 0; right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #8a9bb0, #e6edf5, #8a9bb0);
+}
+.card-chip {
+  position: absolute;
+  bottom: 3px; left: 4px;
+  width: 7px; height: 5px;
+  border-radius: 1px;
+  background: var(--mti6-gold);
+}
+/* ---- Accounts panel: sheet on phone, floating panel above ---- */
+#accounts-panel {
+  position: fixed;
+  top: calc(var(--cmdbar-h) + 8px);
+  right: max(12px, var(--safe-right));
+  width: min(var(--panel-w), calc(100vw - 24px));
+  z-index: var(--z-accounts);
+  background: var(--mti6-bg-panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+.accounts-panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.accounts-panel-head h3 { margin: 0; }
+.accounts-panel-nav { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+@media (max-width: 767px) {
+  #accounts-panel {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: auto;
+    border-radius: var(--sheet-radius) var(--sheet-radius) 0 0;
+    padding-bottom: max(16px, var(--safe-bottom));
+  }
+}
+
+/* ---- Bubble status rail ---- */
+#bubble-rail {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+#bubble-rail::-webkit-scrollbar { display: none; }
+.bubble {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--state-operational);
+  background: rgba(0, 212, 255, 0.08);
+  color: var(--text-0);
+  cursor: pointer;
+  flex: none;
+}
+.bubble-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--state-operational);
+  flex: none;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.bubble-count { font-size: 11px; font-weight: 700; }
+.bubble--alarm { border-color: var(--state-alarm); background: rgba(255, 60, 60, 0.14); }
+.bubble--alarm .bubble-dot { background: var(--state-alarm); width: auto; min-width: 14px; height: 14px; border-radius: 7px; }
+
+/* ---- STAR launcher: bottom-right, purple at rest ---- */
+#star-launcher {
+  position: fixed;
+  right: max(16px, var(--safe-right));
+  bottom: max(16px, var(--safe-bottom));
+  z-index: var(--z-star-launcher);
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 2px solid var(--state-star-idle);
+  background: radial-gradient(circle at 35% 30%, #3b2070, #1c0f38);
+  font-size: 24px;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(139, 92, 246, 0.35);
+  transition: box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease;
+}
+#star-launcher.star-talking {
+  border-color: var(--state-star-active);
+  background: radial-gradient(circle at 35% 30%, #0d4a6e, #07273d);
+  box-shadow: 0 0 20px 4px rgba(0, 212, 255, 0.55);
+}
+@media (prefers-reduced-motion: reduce) {
+  #star-launcher { transition: none; }
+}
+
+/* ---- Command bar compaction ---- */
+@media (max-width: 1023px) {
+  #global-search-web-provider, #global-search-source-state { display: none; }
+}
+@media (max-width: 767px) {
+  #app-title { display: none; }
+  #global-search-source, #global-search-new-tab { display: none; }
+  .accounts-btn-label { display: none; }
+  #accounts-btn { padding: 0 7px; }
+  /* STAR (and any window) becomes a bottom sheet on phones — never
+     a tiny desktop window. Maximized/minimized keep their own
+     geometry (existing !important rules govern maximized). */
+  .wm-window:not(.wm-maximized):not(.wm-minimized) {
+    left: 0 !important;
+    right: 0;
+    top: auto !important;
+    bottom: 0;
+    transform: none;
+    width: 100%;
+    max-height: 88vh;
+    border-radius: var(--sheet-radius) var(--sheet-radius) 0 0;
+    resize: none;
+  }
+}
