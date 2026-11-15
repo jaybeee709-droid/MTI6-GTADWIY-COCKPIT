@@ -42,7 +42,7 @@
 
   var VERSION = 1;
 
-  var NODE_KINDS = ["CRYPTO_RECORD", "ASSET", "NETWORK", "WALLET",
+  var NODE_KINDS = ["CRYPTO_RECORD", "ASSET", "ASSET_CLASS", "NETWORK", "WALLET",
     "OPPORTUNITY", "POSITION", "PRINCIPAL", "ASSIGNMENT",
     "RISK_PROFILE", "COST", "ANGEL", "ALERT"];
 
@@ -134,6 +134,11 @@
       var id = r && (str(r.assetId) || str(r.id));
       if (!id) return;
       addNode(makeNode("ASSET", id, str(r.name) || str(r.title), r));
+    });
+    arr(snapshot.assetClasses).forEach(function (r) {
+      var id = r && (str(r.id) || str(r.assetClassId));
+      if (!id) return;
+      addNode(makeNode("ASSET_CLASS", id, str(r.label) || str(r.name) || id, r));
     });
     arr(snapshot.networks).forEach(function (r) {
       var id = r && (str(r.networkId) || str(r.id));
@@ -411,6 +416,12 @@
     var AI = global.AssetIntelligence;
     snapshot.assets = collectSyncPart("assets",
       AI && typeof AI.listAssets === "function" ? function () { return AI.listAssets(); } : null, states);
+    // Item 9 (Globe capstone): the asset-class vocabulary joins the
+    // graph as ASSET_CLASS nodes so the Globe CRYPTO layer can be
+    // derived from the graph like every other layer. Classes are
+    // vocabulary, not records: they carry no edges.
+    snapshot.assetClasses = collectSyncPart("assetClasses",
+      AI && typeof AI.listClasses === "function" ? function () { return AI.listClasses(); } : null, states);
 
     var NI = global.NetworkIntelligence;
     // Entity wiring (Nov 14, 2026): prefer NI.listNetworks() — the

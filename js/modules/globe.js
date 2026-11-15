@@ -133,13 +133,28 @@
       headerStatus
     ]));
 
+    // Item 9 (capstone): layers derived from the World Engine graph
+    // are preferred. The graph collection is async (the Crypto World
+    // store lives in IndexedDB), so the screen paints immediately
+    // from the synchronous per-registry layers and swaps in the
+    // graph-derived layers when collection completes — same states,
+    // same counts, one canonical source. If the graph path fails,
+    // the synchronous layers simply stay.
+    var liveLayers = null;
+
     function getLayerSafe(id) {
+      if (liveLayers) {
+        for (var i = 0; i < liveLayers.length; i++) {
+          if (liveLayers[i] && liveLayers[i].id === id) return liveLayers[i];
+        }
+      }
       var GI = global.GlobeIntelligence;
       if (!GI || typeof GI.getLayer !== "function") return null;
       try { return GI.getLayer(id); } catch (e) { return null; }
     }
 
     function listLayersSafe() {
+      if (liveLayers && liveLayers.length) return liveLayers;
       var GI = global.GlobeIntelligence;
       if (GI && typeof GI.listLayers === "function") {
         try {
@@ -454,6 +469,19 @@
     applyZoom();
     refreshModeUI();
     refreshLayerUI();
+
+    // Swap in the World Engine graph-derived layers when ready.
+    try {
+      var GI9 = global.GlobeIntelligence;
+      if (GI9 && typeof GI9.listLayersLive === "function") {
+        GI9.listLayersLive().then(function (layers) {
+          if (Array.isArray(layers) && layers.length) {
+            liveLayers = layers;
+            refreshLayerUI();
+          }
+        }).catch(function () {});
+      }
+    } catch (e) {}
 
     // ---- Weather (real live public data, unchanged in substance) ------
     var lat = U.el("input", { class: "price-input", type: "text", value: "40.71", "aria-label": "Latitude" });

@@ -462,6 +462,243 @@
       { alerts: items.length, verifiedActive: verifiedCount });
   }
 
+  // ---- Graph-derived layers (Item 9 capstone, Nov 14, 2026) ---------------
+  // The same five layers, derived from the World Engine graph
+  // (Item 1) instead of from per-registry reads: one canonical
+  // source for the Globe, per the owner's rule that the Globe
+  // consumes World Engine relationships rather than maintaining its
+  // own lists. Every truth rule above applies unchanged — the graph
+  // builders run the SAME qualification and alarm rules over the
+  // source records the graph nodes carry. The per-registry builders
+  // remain as the fallback whenever the World Engine is unavailable
+  // (listLayers / getLayer are untouched).
+
+  function nodesOfKind(graph, kind) {
+    var out = [];
+    if (!graph || !graph.nodes) return out;
+    Object.keys(graph.nodes).forEach(function (k) {
+      var n = graph.nodes[k];
+      if (n && n.kind === kind) out.push(n);
+    });
+    return out;
+  }
+
+  function sourceState(states, name) {
+    return (states && states[name] && states[name].state) || "NOT_LOADED";
+  }
+
+  function buildWorldFromGraph(def, graph, states) {
+    var st = sourceState(states, "networks");
+    if (st === "NOT_LOADED") {
+      return layerShell(def, "NOT_LOADED", [],
+        "NetworkIntelligence did not load — no network registry is available.");
+    }
+    if (st === "ERROR") {
+      return layerShell(def, "NOT_CONNECTED", [],
+        "NetworkIntelligence could not be read.");
+    }
+    var nodes = nodesOfKind(graph, "NETWORK");
+    if (!nodes.length) {
+      return layerShell(def, "NO_DATA", [],
+        "No networks are recorded in NetworkIntelligence.");
+    }
+    var items = nodes.map(function (n) {
+      var r = n.record || {};
+      var item = makeItem(n.rawId,
+        n.label + (isNonEmptyString(r.vm) ? " (" + r.vm + ")" : ""),
+        "NETWORK",
+        n.verificationStatus || "UNKNOWN",
+        isNonEmptyString(r.source) ? r.source : "NetworkIntelligence registry",
+        (r.freshness && r.freshness.lastChecked) || r.lastChecked || null);
+      item.node = n.nodeId;
+      if (isNonEmptyString(r.familyId)) item.familyId = r.familyId;
+      return item;
+    });
+    return layerShell(def, "ACTIVE", items,
+      "Logical network nodes from the World Engine graph (NetworkIntelligence). " +
+      "Example networks are structural examples (UNVERIFIED), not verified live networks. " +
+      "No geographic locations are shown: networks are nodes, not places.",
+      { networks: items.length });
+  }
+
+  function buildCryptoFromGraph(def, graph, states) {
+    var classState = sourceState(states, "assetClasses");
+    var assetState = sourceState(states, "assets");
+    if (classState === "NOT_LOADED" && assetState === "NOT_LOADED") {
+      return layerShell(def, "NOT_LOADED", [],
+        "AssetIntelligence did not load — no asset registry is available to the World Engine.");
+    }
+    var classNodes = nodesOfKind(graph, "ASSET_CLASS");
+    var assetNodes = nodesOfKind(graph, "ASSET");
+    var items = classNodes.map(function (n) {
+      return makeItem(n.rawId, n.label, "ASSET_CLASS", "UNVERIFIED",
+        "AssetIntelligence registry", null);
+    });
+    assetNodes.forEach(function (n) {
+      var r = n.record || {};
+      var item = makeItem(n.rawId, n.label, "ASSET",
+        n.verificationStatus || "UNKNOWN",
+        isNonEmptyString(r.source) ? r.source : "AssetIntelligence registry",
+        null);
+      item.node = n.nodeId;
+      if (isNonEmptyString(r.networkId)) item.networkId = r.networkId;
+      items.push(item);
+    });
+    if (!items.length) {
+      return layerShell(def, "NO_DATA", [],
+        "No asset classes or assets are recorded.");
+    }
+    return layerShell(def, "ACTIVE", items,
+      "Asset classes and registered entity assets from the World Engine graph (AssetIntelligence). " +
+      "Classes and counts only — no prices, balances, or returns are shown.",
+      { assetClasses: classNodes.length, assets: assetNodes.length });
+  }
+
+  function buildOpportunitiesFromGraph(def, graph, states) {
+    if (sourceState(states, "opportunities") === "NOT_LOADED") {
+      return layerShell(def, "NOT_LOADED", [],
+        "OpportunityIntelligence did not load — no opportunity registry is available.");
+    }
+    var nodes = nodesOfKind(graph, "OPPORTUNITY");
+    var records = nodes.map(function (n) { return n.record; }).filter(Boolean);
+    var qualified = records.filter(isQualifiedOpportunity);
+    if (!qualified.length) {
+      return layerShell(def, "NO_DATA", [],
+        records.length === 0
+          ? "No opportunities are recorded in OpportunityIntelligence."
+          : records.length + " opportunity record(s) exist, but none is qualified " +
+            "(VERIFIED with source + checkedAt, and not stale) — so none is shown.",
+        { recorded: records.length, qualified: 0 });
+    }
+    var OI = global.OpportunityIntelligence;
+    var items = qualified.map(function (op) {
+      var view = op;
+      try {
+        if (OI && typeof OI.normalizeOpportunity === "function") view = OI.normalizeOpportunity(op);
+      } catch (e) {}
+      var label = isNonEmptyString(view.strategyId) ? view.strategyId : view.id;
+      if (isNonEmptyString(view.majorActivityId) && label !== view.majorActivityId) {
+        label = view.majorActivityId + " / " + label;
+      }
+      var item = makeItem(view.id, label, "OPPORTUNITY",
+        view.verificationStatus || "UNVERIFIED",
+        isNonEmptyString(view.source) ? view.source : "OpportunityIntelligence registry",
+        view.checkedAt || view.lastChecked || view.fetchedAt || null);
+      if (view.networkRef && isNonEmptyString(view.networkRef.networkId)) {
+        item.networkId = view.networkRef.networkId;
+      }
+      if (view.assetRef && isNonEmptyString(view.assetRef.assetClassId)) {
+        item.assetClassId = view.assetRef.assetClassId;
+      }
+      return item;
+    });
+    return layerShell(def, "ACTIVE", items,
+      "Qualified opportunities only (VERIFIED with source + checkedAt, not stale). " +
+      "Showing an opportunity is informational only — it never implies authorisation to act on it.",
+      { recorded: records.length, qualified: items.length });
+  }
+
+  function buildBotActivityFromGraph(def, graph, states) {
+    var pState = sourceState(states, "principals");
+    var aState = sourceState(states, "assignments");
+    if (pState === "NOT_LOADED" && aState === "NOT_LOADED") {
+      return layerShell(def, "NOT_LOADED", [],
+        "Neither TribePrincipals nor CryptoBotAssignments loaded — no bot registry is available to the World Engine.");
+    }
+    var principals = nodesOfKind(graph, "PRINCIPAL").length;
+    var assignments = nodesOfKind(graph, "ASSIGNMENT").length;
+    return layerShell(def, "NOT_CONNECTED", [],
+      "No worker runtime is connected — no bot is live. Workers active: 0. " +
+      "The World Engine graph carries " + principals + " principal record(s) and " +
+      assignments + " assignment record(s) — records only, not live activity.",
+      {
+        workersActive: 0,
+        workersState: "NOT_CONNECTED",
+        principalsRecorded: principals,
+        assignmentsRecorded: assignments
+      });
+  }
+
+  function buildSecurityAlertsFromGraph(def, graph, states) {
+    if (sourceState(states, "alerts") === "NOT_LOADED") {
+      return layerShell(def, "NOT_LOADED", [],
+        "AngelSecurity did not load — no alert registry is available.");
+    }
+    var nodes = nodesOfKind(graph, "ALERT");
+    if (!nodes.length) {
+      return layerShell(def, "NO_ALERTS", [],
+        "No alerts recorded — no live alert feed is connected, so no alert is claimed.");
+    }
+    var items = nodes.map(function (n) {
+      var a = n.record || {};
+      var item = makeItem(n.rawId,
+        (isNonEmptyString(a.title) ? a.title : n.rawId) +
+          (isNonEmptyString(a.severity) ? " [" + a.severity + "]" : ""),
+        "SECURITY_ALERT",
+        isNonEmptyString(a.state) ? a.state : "UNKNOWN",
+        isNonEmptyString(a.source) ? a.source : "AngelSecurity registry",
+        a.detectedAt || a.lastUpdated || a.createdAt || null);
+      item.alarm = isVerifiedActiveAlert(a);
+      if (isNonEmptyString(a.domain)) item.domain = a.domain;
+      if (isNonEmptyString(a.severity)) item.severity = a.severity;
+      if (isNonEmptyString(a.alertClass)) item.alertClass = a.alertClass;
+      if (isNonEmptyString(a.affectedSystem)) item.affectedSystem = a.affectedSystem;
+      return item;
+    });
+    var anyAlarm = items.some(function (it) { return it.alarm === true; });
+    var verifiedCount = items.filter(function (it) {
+      return VERIFIED_ALERT_STATES.indexOf(it.state) !== -1;
+    }).length;
+    return layerShell(def, anyAlarm ? "ACTIVE" : "UNVERIFIED", items,
+      anyAlarm
+        ? verifiedCount + " verified active alert(s) — shown in alarm red. " +
+          "Unverified alerts are shown in their true state and never turn red."
+        : items.length + " alert(s) recorded, none verified-and-active — " +
+          "no representation is alarm red.",
+      { alerts: items.length, verifiedActive: verifiedCount });
+  }
+
+  var GRAPH_BUILDERS = {
+    WORLD: buildWorldFromGraph,
+    CRYPTO: buildCryptoFromGraph,
+    OPPORTUNITIES: buildOpportunitiesFromGraph,
+    BOT_ACTIVITY: buildBotActivityFromGraph,
+    SECURITY_ALERTS: buildSecurityAlertsFromGraph
+  };
+
+  // Build all five layers from a World Engine graph + its source
+  // states (WorldEngine.collectGraph() output). Falls back to the
+  // per-registry builders when no usable graph is supplied.
+  function buildLayersFromGraph(graph, sourceStates) {
+    if (!graph || !graph.nodes) return listLayers();
+    return LAYER_DEFS.map(function (def) {
+      try {
+        var layer = GRAPH_BUILDERS[def.id](def, graph, sourceStates || {});
+        layer.enabled = !!enabled[def.id];
+        return layer;
+      } catch (e) {
+        return layerShell(def, "NOT_CONNECTED", [],
+          "The " + def.label + " layer could not be read from the World Engine graph (" +
+          (e && e.message ? e.message : "unknown error") + ").");
+      }
+    });
+  }
+
+  // Live layers: collect the World Engine graph, then derive the
+  // layers from it. Any failure — engine missing, collection error —
+  // falls back to the per-registry listLayers(), so the Globe never
+  // loses its layers because the graph path failed.
+  async function listLayersLive() {
+    var WE = global.WorldEngine;
+    if (!WE || typeof WE.collectGraph !== "function") return listLayers();
+    try {
+      var collected = await WE.collectGraph();
+      return buildLayersFromGraph(collected.graph, collected.sourceStates);
+    } catch (e) {
+      return listLayers();
+    }
+  }
+
   // ---- Public API -----------------------------------------------------------
 
   var BUILDERS = {
@@ -518,6 +755,8 @@
     COLORS: { ELECTRIC_BLUE: COLORS.ELECTRIC_BLUE, ALARM_RED: COLORS.ALARM_RED },
     listLayers: listLayers,
     getLayer: getLayer,
+    buildLayersFromGraph: buildLayersFromGraph,
+    listLayersLive: listLayersLive,
     setLayerEnabled: setLayerEnabled,
     isVerifiedActiveAlert: isVerifiedActiveAlert,
     colorFor: colorFor,
