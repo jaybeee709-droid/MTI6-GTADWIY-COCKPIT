@@ -483,6 +483,41 @@
       }
     } catch (e) {}
 
+    // Cold-load consistency (owner fix, 2026-11-15): the graph swap
+    // above can collect BEFORE the boot import finishes registering
+    // entities — app.js starts EncyclopediaImport.importAll() in the
+    // background by design, and registration happens inside that run —
+    // leaving this first paint holding a pre-registration snapshot
+    // (World 4 / Crypto 38) for the whole session. importAll() hands
+    // every concurrent caller the ONE shared in-flight boot run, so
+    // awaiting it here uses the existing completion signal: no
+    // polling, no timers, no duplicate import. When it settles,
+    // re-collect ONCE and swap only if the layers actually changed,
+    // so a warm paint is never repainted needlessly. Counts are
+    // always derived from the fresh collection — nothing hard-coded.
+    try {
+      var EI = global.EncyclopediaImport;
+      if (EI && typeof EI.importAll === "function" &&
+          GI9 && typeof GI9.listLayersLive === "function") {
+        EI.importAll().then(function () {
+          return GI9.listLayersLive();
+        }).then(function (layers) {
+          if (!Array.isArray(layers) || !layers.length) return;
+          if (typeof root.isConnected === "boolean" && !root.isConnected) return;
+          var changed = !liveLayers || liveLayers.length !== layers.length;
+          for (var i = 0; !changed && i < layers.length; i++) {
+            var a = layers[i], b = liveLayers[i];
+            if (!a || !b || a.id !== b.id || a.state !== b.state || a.count !== b.count ||
+                (a.items || []).length !== (b.items || []).length) changed = true;
+          }
+          if (changed) {
+            liveLayers = layers;
+            refreshLayerUI();
+          }
+        }).catch(function () {});
+      }
+    } catch (e) {}
+
     // ---- Weather (real live public data, unchanged in substance) ------
     var lat = U.el("input", { class: "price-input", type: "text", value: "40.71", "aria-label": "Latitude" });
     var lon = U.el("input", { class: "price-input", type: "text", value: "-74.00", "aria-label": "Longitude" });
