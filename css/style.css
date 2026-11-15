@@ -2805,6 +2805,7 @@ html, body { overflow-x: hidden; }
   box-shadow: var(--shadow);
   padding: 16px;
 }
+#accounts-panel.hidden { display: none; } /* this codebase has no global .hidden utility — each overlay defines its own, cf. #global-search-results.hidden */
 .accounts-panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .accounts-panel-head h3 { margin: 0; }
 .accounts-panel-nav { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
