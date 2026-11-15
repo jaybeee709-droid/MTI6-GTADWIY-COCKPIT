@@ -39,9 +39,15 @@
  * - Role labels (Research, Risk, Yield, Routing, Security, Builder,
  *   Analysis, Monitoring) are assignment roles, never bot names.
  *
- * No DOM, no network, no secrets, no storage. In-memory only: the
- * roster is canonical constants, so assignments live for the session;
- * identity needs no persistence. Load order for the page:
+ * No DOM, no network, no secrets. The roster is canonical constants:
+ * identity is never persisted and always comes from the roster.
+ * ASSIGNMENTS (currentRole / currentTask / history) persist in
+ * localStorage under mti6_principal_assignments_v1 (World Engine
+ * Depth Package Item 5, Nov 14, 2026), following the worker-task
+ * store pattern in js/bot-ops-model.js, and are hydrated on load.
+ * Persistence never invents an assignment: a principal with nothing
+ * saved starts UNASSIGNED with empty history, exactly as before.
+ * Load order for the page:
  *   js/truth.js -> js/bot-ops-model.js -> js/tribe-principals.js
  * This module degrades gracefully when Truth / BotOpsModel are absent
  * (closed fallback role-label list, same values); it never requires
@@ -179,10 +185,12 @@
     };
   }
 
-  // ---- In-memory roster state (fresh on every load) ---------------------
+  // ---- Roster state ------------------------------------------------------
   // Every principal starts UNASSIGNED with null role/task and empty
-  // history. Nothing is invented: no assignment exists until one is
-  // recorded through assignRole / assignTask with a history entry.
+  // history; saved assignments (see the persistence section below) are
+  // then hydrated over that fresh state. Nothing is invented: no
+  // assignment exists until one is recorded through assignRole /
+  // assignTask with a history entry.
   var principals = ROSTER.map(function (entry, index) {
     return {
       id: entry.id,
@@ -203,6 +211,73 @@
     }
     return null;
   }
+
+  // ---- Assignment persistence (localStorage, Item 5) -------------------
+  // Same defensive pattern as the worker-task store in
+  // js/bot-ops-model.js: storage may be absent or throw (private mode,
+  // tests); every failure degrades to session-only behavior and never
+  // breaks the registry. Only assignment state is saved — id,
+  // displayName, order and status always come from the roster above.
+  var ASSIGNMENT_STORE_KEY = "mti6_principal_assignments_v1";
+  var MAX_PERSISTED_HISTORY = 100;
+
+  function assignmentStorage() {
+    try {
+      if (typeof localStorage !== "undefined" && localStorage) return localStorage;
+    } catch (e) {}
+    return null;
+  }
+
+  function persistAssignments() {
+    var store = assignmentStorage();
+    if (!store) return;
+    var snapshot = [];
+    principals.forEach(function (p) {
+      if (p.currentRole === null && p.currentTask === null && p.history.length === 0) return;
+      snapshot.push({
+        id: p.id,
+        currentRole: p.currentRole,
+        currentTask: p.currentTask,
+        history: p.history.slice(-MAX_PERSISTED_HISTORY)
+      });
+    });
+    try { store.setItem(ASSIGNMENT_STORE_KEY, JSON.stringify(snapshot)); } catch (e) {}
+  }
+
+  function hydrateAssignments() {
+    var store = assignmentStorage();
+    if (!store) return;
+    var parsed;
+    try {
+      var raw = store.getItem(ASSIGNMENT_STORE_KEY);
+      if (!raw) return;
+      parsed = JSON.parse(raw);
+    } catch (e) { return; }
+    if (!Array.isArray(parsed)) return;
+    parsed.forEach(function (saved) {
+      if (!saved || typeof saved !== "object") return;
+      var p = findInternal(saved.id);
+      if (!p) return; // unknown / non-canonical id: identity is roster-only
+      p.currentRole = typeof saved.currentRole === "string" && saved.currentRole ? saved.currentRole : null;
+      p.currentTask = typeof saved.currentTask === "string" && saved.currentTask ? saved.currentTask : null;
+      if (Array.isArray(saved.history)) {
+        p.history = saved.history.filter(function (h) {
+          return h && typeof h === "object" &&
+            typeof h.at === "string" && typeof h.change === "string";
+        }).slice(-MAX_PERSISTED_HISTORY).map(function (h) {
+          return {
+            at: h.at,
+            by: typeof h.by === "string" && h.by ? h.by : "system",
+            change: h.change,
+            note: typeof h.note === "string" ? h.note : ""
+          };
+        });
+      }
+      refreshAssignmentState(p);
+    });
+  }
+
+  hydrateAssignments();
 
   function actor(by) {
     return isNonEmptyString(by) ? by.trim() : "system";
@@ -268,6 +343,7 @@
       "role assigned: " + p.currentRole +
         (previous === null ? "" : " (was: " + previous + ")"),
       by, note);
+    persistAssignments();
     return clonePrincipal(p);
   }
 
@@ -289,6 +365,7 @@
       "task assigned: " + p.currentTask +
         (previous === null ? "" : " (was: " + previous + ")"),
       by, note);
+    persistAssignments();
     return clonePrincipal(p);
   }
 
@@ -304,6 +381,7 @@
     p.currentTask = null;
     refreshAssignmentState(p);
     appendHistory(p, "unassigned", by, note);
+    persistAssignments();
     return clonePrincipal(p);
   }
 
@@ -318,6 +396,7 @@
       throw new Error("recordHistory requires a non-empty change string.");
     }
     appendHistory(p, change.trim(), by, note);
+    persistAssignments();
     return clonePrincipal(p);
   }
 

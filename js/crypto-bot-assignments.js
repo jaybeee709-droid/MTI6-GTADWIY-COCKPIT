@@ -24,9 +24,13 @@
  * - Roles are INFORMATIONAL analysis only. No role ever requires the
  *   TRANSACTIONAL permission: INFORMATIONAL never implies
  *   TRANSACTIONAL, and no financial execution exists in this build.
- * - In-memory only: assignments live for the session. Persistence is
- *   a coordinator decision (this module persists nothing to
- *   localStorage or IndexedDB).
+ * - Assignments persist in localStorage under
+ *   mti6_crypto_assignments_v1 (World Engine Depth Package Item 5,
+ *   Nov 14, 2026), following the worker-task store pattern in
+ *   js/bot-ops-model.js, and are hydrated on load. Persistence never
+ *   invents an assignment and never makes one live: isLiveActive
+ *   stays false and summary().active stays 0 — there is still no
+ *   worker runtime.
  *
  * Load order for the page (coordinator wiring):
  *   js/truth.js -> js/tribe-principals.js -> js/bot-ops-model.js ->
@@ -363,9 +367,54 @@
     return errors;
   }
 
-  // ---- Assignment store (in-memory only) ----------------------------------
+  // ---- Assignment store (localStorage-persisted, Item 5) -----------------
+  // Same defensive pattern as the worker-task store in
+  // js/bot-ops-model.js: storage may be absent or throw; every failure
+  // degrades to session-only behavior and never breaks the registry.
+  // Hydration is structural only — records were written exclusively by
+  // this module's own validated paths (assignRole / transitionAssignment).
+  var ASSIGNMENT_STORE_KEY = "mti6_crypto_assignments_v1";
+  var MAX_PERSISTED_ASSIGNMENTS = 200;
 
   var assignments = [];
+
+  function assignmentStorage() {
+    try {
+      if (typeof localStorage !== "undefined" && localStorage) return localStorage;
+    } catch (e) {}
+    return null;
+  }
+
+  function persistAssignments() {
+    var store = assignmentStorage();
+    if (!store) return;
+    try {
+      store.setItem(ASSIGNMENT_STORE_KEY,
+        JSON.stringify(assignments.slice(-MAX_PERSISTED_ASSIGNMENTS)));
+    } catch (e) {}
+  }
+
+  function hydrateAssignments() {
+    var store = assignmentStorage();
+    if (!store) return;
+    var parsed;
+    try {
+      var raw = store.getItem(ASSIGNMENT_STORE_KEY);
+      if (!raw) return;
+      parsed = JSON.parse(raw);
+    } catch (e) { return; }
+    if (!Array.isArray(parsed)) return;
+    assignments = parsed.filter(function (a) {
+      return a && typeof a === "object" &&
+        typeof a.assignmentId === "string" && a.assignmentId &&
+        typeof a.principalId === "string" && a.principalId &&
+        typeof a.roleId === "string" && a.roleId &&
+        ASSIGNMENT_STATUSES.indexOf(a.status) !== -1 &&
+        Array.isArray(a.history);
+    }).slice(-MAX_PERSISTED_ASSIGNMENTS);
+  }
+
+  hydrateAssignments();
 
   function findInternal(assignmentId) {
     if (typeof assignmentId !== "string") return null;
@@ -535,6 +584,7 @@
       throw new Error("Invalid crypto assignment: " + errors.join(" "));
     }
     assignments.push(assignment);
+    persistAssignments();
 
     // Keep the principal's own currentRole in sync when the registry
     // is loaded. TribePrincipals.assignRole changes currentRole ONLY:
@@ -650,6 +700,7 @@
       a.history.pop();
       throw new Error("Invalid crypto assignment: " + errors.join(" "));
     }
+    persistAssignments();
     return cloneAssignment(a);
   }
 
@@ -684,6 +735,7 @@
   // is canonical constants and is never cleared.
   function resetAssignments() {
     assignments = [];
+    persistAssignments();
     return true;
   }
 
