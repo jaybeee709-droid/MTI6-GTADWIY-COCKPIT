@@ -74,8 +74,13 @@
     }
     var byKind = (collected.graph.stats && collected.graph.stats.byKind) || {};
     var levels = levelCounts(collected.graph);
+    // The encyclopedia total is the sum of the taxonomy levels —
+    // the store also holds meta records (and, after a future entity
+    // import, entity records), which are not encyclopedia entries
+    // and are reported on their own lines below.
+    var encyTotal = Object.keys(levels).reduce(function (sum, k) { return sum + levels[k]; }, 0);
     var lines = ["What the cockpit actually holds right now:"];
-    lines.push("• Encyclopedia: " + (byKind.CRYPTO_RECORD || 0) + " records — " +
+    lines.push("• Encyclopedia: " + encyTotal + " records — " +
       (levels.FAMILY || 0) + " families, " + (levels.MAJOR_ACTIVITY || 0) + " major activities, " +
       (levels.TYPE || 0) + " types, " + (levels.STRATEGY || 0) + " strategies, " +
       (levels.ACTION || 0) + " actions. All UNVERIFIED — imported is not verified.");

@@ -149,7 +149,7 @@
         starCmd.intent === "STATUS");
       var commandAttempt = !!starCmd && starCmd.intent === "UNAVAILABLE" && starCmd.errorState === "unknown command" &&
         /^(go|open|show|search|find|buy|sell|trade|swap|deploy|delegate|assign|create|run|set|start|do|make)\b/i.test(text.trim());
-      if (starCmd && (blocksExecution || commandAttempt || (executableCmd && !priceQuestion && !scoutQuestion))) {
+      if (starCmd && (blocksExecution || commandAttempt)) {
         var cmdResult = null;
         try { cmdResult = global.StarCommand.execute(starCmd); } catch (e) { cmdResult = null; }
         var finishStarCommand = function (r) {
@@ -169,6 +169,56 @@
         }
         return;
       }
+      // Item 7 fix (preview verification, Nov 15, 2026): the safety
+      // interception above (approval-required / transactional /
+      // command-shaped) still runs FIRST and is unchanged. But
+      // StarCommand's STATUS intent matches any text containing
+      // "status" (its STATUS_RE), which used to swallow the
+      // cockpit-state questions StarWorld exists to answer
+      // ("cockpit status", "bot assignments status"). So StarWorld
+      // is consulted here — after the safety gate, before the
+      // executable-command branch in afterWorld(). StarWorld's
+      // patterns are narrow read-only state queries and it returns
+      // null for everything else, so a greeting like "how are you"
+      // (also a StarCommand STATUS match, by StarCommand's own
+      // design) continues to StarCommand exactly as before.
+      function afterWorld() {
+        if (starCmd && executableCmd && !priceQuestion && !scoutQuestion) {
+          var cmdResult2 = null;
+          try { cmdResult2 = global.StarCommand.execute(starCmd); } catch (e) { cmdResult2 = null; }
+          var finishStarCommand2 = function (r) {
+            var reply = (r && r.message) ? r.message : "Star command: that could not be run, and nothing was changed.";
+            if (r && r.resultState === "APPROVAL_REQUIRED") {
+              var notice = global.StarRouter.approvalNotice(routed);
+              if (notice) reply += notice;
+            }
+            if (reply) global.StarState.addMessage("star", reply);
+            renderMessages();
+            setStatus("ready");
+          };
+          if (cmdResult2 && typeof cmdResult2.then === "function") {
+            cmdResult2.then(function (r) { finishStarCommand2(r); }).catch(function () { finishStarCommand2(null); });
+          } else {
+            finishStarCommand2(cmdResult2);
+          }
+          return;
+        }
+        continueSend();
+      }
+      if (global.StarWorld && typeof global.StarWorld.answer === "function") {
+        global.StarWorld.answer(text).then(function (worldReply) {
+          if (worldReply) {
+            global.StarState.addMessage("star", worldReply);
+            renderMessages();
+            setStatus("ready");
+          } else {
+            afterWorld();
+          }
+        }).catch(function () { afterWorld(); });
+        return;
+      }
+      afterWorld();
+      return;
       function continueSend() {
       // Price questions are read-only, so they go to PriceScout first
       // instead of the generic demo backend — a live crypto price, a
@@ -222,23 +272,6 @@
         renderMessages();
         setStatus("ready");
       });
-      }
-      // Item 7: cockpit-state questions are answered deterministically
-      // from the cockpit's real records via the World Engine
-      // (StarWorld) — still demo mode, no backend. StarWorld returns
-      // null for anything that is not a cockpit-state question, and
-      // the normal flow (scouts, then the demo backend) continues.
-      if (global.StarWorld && typeof global.StarWorld.answer === "function") {
-        global.StarWorld.answer(text).then(function (reply) {
-          if (reply) {
-            global.StarState.addMessage("star", reply);
-            renderMessages();
-            setStatus("ready");
-          } else {
-            continueSend();
-          }
-        }).catch(function () { continueSend(); });
-        return;
       }
       continueSend();
     }
