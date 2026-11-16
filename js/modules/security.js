@@ -139,6 +139,59 @@
     ]);
   }
 
+  // Angel robot portraits (Angel Robots package, owner ruling
+  // 2026-11-16: "the angels would be straight up robots like those
+  // pics"): each APPROVED identity shows its generated robot
+  // portrait from js/data/angel-portraits.js (window.ANGEL_PORTRAITS,
+  // keyed by canonical identity id) beside its name. The data file
+  // is OPTIONAL: a missing file, a missing entry, or an image that
+  // fails to load leaves the name-only presentation exactly as
+  // before. The portrait lookup runs ONLY over listApproved() —
+  // REQUIRES_VERIFICATION identities (RAGUEL, SARIEL, REMIEL) are
+  // listed name-only below and never get a portrait or an image.
+  function angelPortraitNode(identity) {
+    var portraits = global.ANGEL_PORTRAITS;
+    var src = portraits && typeof portraits[identity.id] === "string" && portraits[identity.id]
+      ? portraits[identity.id] : null;
+    if (!src) return null;
+    var img = U.el("img", {
+      class: "angel-portrait-img",
+      src: src,
+      alt: "",
+      onerror: function () {
+        var frame = img.parentNode;
+        if (frame && frame.parentNode) frame.parentNode.removeChild(frame);
+      }
+    });
+    return U.el("div", { class: "angel-portrait-medallion", "aria-hidden": "true" }, [img]);
+  }
+
+  function angelIdentitiesCard(ident) {
+    if (!ident || typeof ident.listApproved !== "function" ||
+        typeof ident.listPendingVerification !== "function") return null;
+    var approved, pending;
+    try {
+      approved = ident.listApproved();
+      pending = ident.listPendingVerification();
+    } catch (e) { return null; }
+    var kids = [U.el("h3", {}, "Angel identities")];
+    approved.forEach(function (identity) {
+      var rowKids = [];
+      var medallion = angelPortraitNode(identity);
+      if (medallion) rowKids.push(medallion);
+      rowKids.push(U.el("div", {}, [
+        U.el("div", {}, angelText(identity.displayName, identity.id)),
+        U.el("div", { class: "api-meta" }, angelText(identity.sourceReference, "") + " · " + angelText(identity.sourceTier, "") + " · APPROVED")
+      ]));
+      kids.push(U.el("div", { class: "angel-identity-row" }, rowKids));
+    });
+    if (pending && pending.length) {
+      kids.push(U.el("div", { class: "api-meta" }, "Pending verification — no portrait, not assignable to live work until approved: " +
+        pending.map(function (i) { return i.displayName; }).join(", ")));
+    }
+    return U.el("div", { class: "mti6-card" }, kids);
+  }
+
   // Stage 1 metric markup (§24): label + value use the shared
   // .mti6-metric__label / __value classes (unclassed inner divs
   // would render at default size, outside the metric system).
@@ -483,6 +536,10 @@
         : "STAR notification: UNKNOWN — no alerts recorded, so no notification state exists."),
       U.el("div", { class: "api-meta" }, identLine)
     ]));
+
+    // ---- Angel identities (registry presentation + portraits) ---------
+    var identitiesCard = angelIdentitiesCard(ident);
+    if (identitiesCard) dash.appendChild(identitiesCard);
 
     // ---- Owner alert intake (Item 8) -----------------------------------
     if (typeof sec.createAlert === "function") {

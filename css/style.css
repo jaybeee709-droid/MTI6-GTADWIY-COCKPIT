@@ -2601,6 +2601,34 @@ html, body { overflow-x: hidden; }
 /* ---- Angel Security (§69-71): silver/white mechanical + dark internal,
    cyan/blue illumination — distinct from Tribe operations. ------------- */
 .angel-dash { display: flex; flex-direction: column; gap: 4px; }
+/* Angel robot portraits (owner ruling 2026-11-16): the framed
+   medallion beside each APPROVED identity's name in the Angel
+   identities card. Framed (rounded-rectangle) rather than round —
+   the portraits are full upper-body robots; Uriel's transparent
+   cutout sits on the medallion's dark ground, the other three
+   carry their own near-black background. */
+.angel-identity-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--mti6-border);
+}
+.angel-portrait-medallion {
+  width: 84px;
+  height: 84px;
+  flex: 0 0 auto;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--mti6-border);
+  background: #05070a;
+}
+.angel-portrait-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 .angel-domain-row {
   display: flex;
   flex-direction: column;
