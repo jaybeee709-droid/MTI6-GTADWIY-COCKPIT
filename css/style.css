@@ -3173,3 +3173,71 @@ html, body { overflow-x: hidden; }
 @media (min-width: 1440px) {
   .card-grid, .botops-grid { grid-template-columns: repeat(4, 1fr); }
 }
+
+/* ================================================================
+   RESPONSIVE SYSTEM — Phase H: Accessibility / performance QA
+   (Master Responsive Directive, owner-authorized 2026-11-15;
+   built 2026-11-16). Findings applied below; everything else
+   the QA verified as already sound is asserted in the test
+   harness instead (global :focus-visible ring on the token,
+   zoom never locked, no external CSS resources).
+   ================================================================ */
+
+/* Reduced motion — complete coverage. Every keyframe animation
+   in this file already had a scoped guard (skeleton shimmer,
+   STAR pulse, STAR idle glow, spinner); what was NOT covered
+   was transitions (.btn press, drawer slide) and anything
+   added later. This standard net closes the class entirely:
+   under reduced motion, animation and transition durations
+   collapse to effectively zero everywhere. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Touch targets — bands A–C (<=1023px, the touch-first widths):
+   the remaining sub-minimum controls reach the Phase B
+   --touch-min (44px). Desktop keeps its compact density.
+   - .bubble: 28px tall in the command bar -> 44px (the 56px
+     bar absorbs it; the rail already scrolls horizontally).
+   - .wm-btn: window header actions (min/max/full/close).
+   - .mti6-tab: mode/layer/screen tabs.
+   - .search-suggestion: suggestion rows. */
+@media (max-width: 1023px) {
+  .bubble { height: var(--touch-min); }
+  .wm-btn { min-width: var(--touch-min); min-height: var(--touch-min); }
+  .mti6-tab { min-height: var(--touch-min); }
+  .search-suggestion { min-height: var(--touch-min); }
+}
+
+/* Tribe principal slots (drawer): six-across in the 260px
+   drawer made each principal ~31px — below the directive's
+   44px minimum at EVERY width, since the drawer/sidebar is
+   always 260px. Three-across gives each principal a ~70px
+   target; the twelve lay out in four rows. (The Bot Ops
+   screen's own .tribe-card buttons were already full-width
+   and are untouched.) */
+.tribe-grid { grid-template-columns: repeat(3, 1fr); }
+
+/* Skip link: visually hidden until keyboard focus lands on it,
+   then it appears at the top of the shell. It is a <button>
+   (shell-chrome.js moves focus to #view-root) — an anchor href
+   would fight the hash router. */
+#skip-link {
+  position: fixed;
+  top: max(8px, var(--safe-top));
+  left: max(12px, var(--safe-left));
+  z-index: var(--z-toast);
+  transform: translateY(-300%);
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--mti6-border-active);
+  background: var(--mti6-bg-panel);
+  color: var(--mti6-text-primary);
+  font-weight: 600;
+  cursor: pointer;
+}
+#skip-link:focus-visible { transform: none; }

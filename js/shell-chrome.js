@@ -1,5 +1,5 @@
 /* MTI6-GTADWIY-COCKPIT — shell chrome: STAR launcher (Responsive
- * Phase C, owner-authorized 2026-11-15).
+ * Phase C, owner-authorized 2026-11-15) + skip link (Phase H).
  *
  * STAR's persistent launcher now lives at the bottom-right of the
  * shell (✨), out of the top command bar. It opens the EXISTING STAR
@@ -26,6 +26,18 @@
   function init() {
     if (initialized) return;
     initialized = true;
+    // Skip link (Phase H): a button, not an anchor — an href hash
+    // would be parsed by the router. Focus moves to the view root
+    // (tabindex="-1" in index.html); the browser scrolls it in.
+    var skip = document.getElementById("skip-link");
+    if (skip) {
+      skip.addEventListener("click", function () {
+        var root = document.getElementById("view-root");
+        if (root && typeof root.focus === "function") {
+          try { root.focus({ preventScroll: false }); } catch (e) { root.focus(); }
+        }
+      });
+    }
     var launcher = document.getElementById("star-launcher");
     if (!launcher) return;
     launcher.addEventListener("click", function () {

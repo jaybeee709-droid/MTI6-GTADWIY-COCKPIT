@@ -21,6 +21,7 @@
 </head>
 <body>
   <div id="app-shell">
+    <button id="skip-link" type="button">Skip to main content</button>
     <header id="top-bar">
       <button id="menu-toggle" aria-label="Open menu">☰</button>
       <span id="app-title">World Globe</span>
@@ -78,7 +79,7 @@
 
     <main id="main-content">
       <div id="offline-indicator" role="status" aria-live="polite"></div>
-      <div id="view-root" role="main" aria-live="polite"></div>
+      <div id="view-root" role="main" aria-live="polite" tabindex="-1"></div>
     </main>
     <button id="star-launcher" type="button" aria-label="Open STAR">✨</button>
   </div>
