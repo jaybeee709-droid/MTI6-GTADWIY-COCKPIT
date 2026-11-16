@@ -56,6 +56,22 @@
  * Globe screen keeps its pre-engine presentation unchanged. If the
  * map data file is absent, the engine still plots the layer
  * markers over the background — the screen never depends on it.
+ *
+ * Alert Mode (owner ruling, 2026-11-16: "when there alerts, the
+ * world map fades into that [red map]"): the screen may hand in an
+ * alert state via setAlertMode(on), driven ONLY by
+ * GlobeIntelligence.layerHasAlarm("SECURITY_ALERTS") — the single
+ * existing alarm derivation (an item counts only when
+ * GlobeIntelligence itself flagged it alarm, i.e. a verified
+ * CONFIRMED/ACTIVE-family alert). While it holds, draw() blends
+ * the active mode palette toward ALERT_PALETTE (red family) with a
+ * bounded ~600ms crossfade — a one-shot transition, not an
+ * animation loop; under prefers-reduced-motion the switch is
+ * instant. Marker colours are NOT re-decided here: they still come
+ * from GlobeIntelligence.colorFor, so an unverified alert's marker
+ * never turns red. Alert records carry no geography, so alert
+ * mode changes colours only — never positions, never a regional
+ * framing.
  */
 (function (global) {
   "use strict";
@@ -109,6 +125,55 @@
     }
   };
 
+  // Alert Mode palette (owner ruling 2026-11-16): the red family
+  // the map fades into while a verified active security alert
+  // holds. Presentation only, like the mode palettes — it restyles
+  // the SAME geography and the SAME markers; it adds no data, no
+  // regional framing and no hotspots (alert records have no
+  // geography). The stroke red matches GlobeIntelligence's
+  // ALARM_RED (#ff5c5c) so the map and its alarm markers agree.
+  var ALERT_PALETTE = {
+    bg: "#0a0304", glow: "#3d0d10",
+    countryFill: "rgba(52,12,16,0.9)", countryStroke: "rgba(255,92,92,0.65)", countryWidth: 0.8,
+    stateStroke: "rgba(255,92,92,0.2)",
+    labelCountry: "rgba(255,196,188,0.34)", labelState: "rgba(246,176,168,0.20)", labelCity: "rgba(238,166,158,0.14)",
+    cityDot: "rgba(255,92,92,0.4)"
+  };
+  var ALERT_FADE_MS = 600;
+
+  // Palette colour interpolation for the alert crossfade: palette
+  // entries are "#rrggbb" or "rgba(r,g,b,a)" strings; both parse to
+  // [r,g,b,a] and mix component-wise.
+  function parseColor(c) {
+    if (typeof c !== "string") return [0, 0, 0, 1];
+    if (c.charAt(0) === "#") {
+      return [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16),
+        parseInt(c.slice(5, 7), 16), 1];
+    }
+    var m = c.match(/[\d.]+/g);
+    if (!m || m.length < 3) return [0, 0, 0, 1];
+    return [+m[0], +m[1], +m[2], m.length > 3 ? +m[3] : 1];
+  }
+  function mixColor(a, b, t) {
+    var pa = parseColor(a), pb = parseColor(b);
+    var r = Math.round(pa[0] + (pb[0] - pa[0]) * t);
+    var g = Math.round(pa[1] + (pb[1] - pa[1]) * t);
+    var bl = Math.round(pa[2] + (pb[2] - pa[2]) * t);
+    var al = pa[3] + (pb[3] - pa[3]) * t;
+    return "rgba(" + r + "," + g + "," + bl + "," + al.toFixed(3) + ")";
+  }
+  var PALETTE_COLOR_KEYS = ["bg", "glow", "countryFill", "countryStroke",
+    "stateStroke", "labelCountry", "labelState", "labelCity", "cityDot"];
+  function blendPalette(base, alert, t) {
+    var out = {};
+    for (var i = 0; i < PALETTE_COLOR_KEYS.length; i++) {
+      var k = PALETTE_COLOR_KEYS[i];
+      out[k] = mixColor(base[k], alert[k], t);
+    }
+    out.countryWidth = base.countryWidth + (alert.countryWidth - base.countryWidth) * t;
+    return out;
+  }
+
   // NAME LABELS — OFF for now (owner ruling, 2026-11-16: "look at
   // the Globe take the names off for now"). While this is false the
   // renderer draws NO country/state/city name text at all. The
@@ -134,6 +199,16 @@
     var doc = canvas.ownerDocument || global.document || null;
     var alive = true;
     var mode = "WORLD";
+    // Alert Mode state: alertOn is the handed-in alarm state,
+    // alertBlend is the crossfade position (0 = mode palette,
+    // 1 = alert palette). The tween fields drive the bounded
+    // one-shot fade; nothing animates while the state is settled.
+    var alertOn = false;
+    var alertBlend = 0;
+    var alertTween = null;
+    var alertTweenFrom = 0;
+    var alertTweenTo = 0;
+    var alertTweenStart = 0;
     var layer = null;
     var items = [];
     var markers = [];
@@ -215,11 +290,20 @@
       return drawn;
     }
 
+    // The palette a frame actually uses: the mode palette, the
+    // alert palette, or the crossfade blend between them.
+    function effectivePalette() {
+      var base = PALETTES[mode] || PALETTES.WORLD;
+      if (alertBlend <= 0) return base;
+      if (alertBlend >= 1) return ALERT_PALETTE;
+      return blendPalette(base, ALERT_PALETTE, alertBlend);
+    }
+
     function draw() {
       if (!alive) return;
       fit();
       if (!viewW || !viewH) return;
-      var pal = PALETTES[mode] || PALETTES.WORLD;
+      var pal = effectivePalette();
       var proj = projector();
       var data = global.WorldMapData || null;
       stats.mapLoaded = !!(data && Array.isArray(data.countries));
@@ -357,9 +441,72 @@
       global.addEventListener("resize", onResize);
     }
 
+    function prefersReducedMotion() {
+      try {
+        return !!(global.matchMedia &&
+          global.matchMedia("(prefers-reduced-motion: reduce)").matches);
+      } catch (e) { return false; }
+    }
+
+    function cancelAlertTween() {
+      if (alertTween !== null && typeof global.cancelAnimationFrame === "function") {
+        try { global.cancelAnimationFrame(alertTween); } catch (e) {}
+      }
+      alertTween = null;
+    }
+
+    // One crossfade step: ease the blend from its start value to
+    // the target over ALERT_FADE_MS, redrawing per frame, then
+    // stop — the map is static again once the fade settles.
+    function alertTweenStep(ts) {
+      alertTween = null;
+      if (!alive) return;
+      if (!alertTweenStart) alertTweenStart = ts;
+      var p = (ts - alertTweenStart) / ALERT_FADE_MS;
+      if (p >= 1) {
+        alertBlend = alertTweenTo;
+        draw();
+        return;
+      }
+      var e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+      alertBlend = alertTweenFrom + (alertTweenTo - alertTweenFrom) * e;
+      draw();
+      if (typeof global.requestAnimationFrame === "function") {
+        alertTween = global.requestAnimationFrame(alertTweenStep);
+      } else {
+        alertBlend = alertTweenTo;
+        draw();
+      }
+    }
+
+    // The screen hands in the alarm state (GlobeIntelligence
+    // .layerHasAlarm("SECURITY_ALERTS") — see the header). Turning
+    // it on/off crossfades the palette; under prefers-reduced-
+    // motion (or without requestAnimationFrame) the switch is
+    // instant. Colours only: geography, markers and counts are
+    // exactly what setData() last handed in.
+    function setAlertMode(on) {
+      if (!alive) return;
+      alertOn = on === true;
+      var target = alertOn ? 1 : 0;
+      cancelAlertTween();
+      if (alertBlend === target) { draw(); return; }
+      if (prefersReducedMotion() ||
+          typeof global.requestAnimationFrame !== "function") {
+        alertBlend = target;
+        draw();
+        return;
+      }
+      alertTweenFrom = alertBlend;
+      alertTweenTo = target;
+      alertTweenStart = 0;
+      alertTween = global.requestAnimationFrame(alertTweenStep);
+    }
+
     function destroy() {
       if (!alive) return;
       alive = false;
+      cancelAlertTween();
       if (resizeObserver) { try { resizeObserver.disconnect(); } catch (e) {} resizeObserver = null; }
       if (typeof global.removeEventListener === "function") {
         global.removeEventListener("resize", onResize);
@@ -412,9 +559,12 @@
           mode: stats.mode,
           running: stats.running,
           reducedMotion: stats.reducedMotion,
-          angle: stats.angle
+          angle: stats.angle,
+          alertMode: alertOn,
+          alertBlend: alertBlend
         };
       },
+      setAlertMode: setAlertMode,
       stop: destroy
     };
   }

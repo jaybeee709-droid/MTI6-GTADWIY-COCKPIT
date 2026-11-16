@@ -49,6 +49,22 @@
  * (LABELS_ENABLED = false in js/globe-engine.js). Outlines, city
  * points and layer markers are unchanged, and the vendored label
  * points stay in the data file for when names return.
+ *
+ * Alert Mode (owner ruling, 2026-11-16: "when there alerts, the
+ * world map fades into that [red map]"): while the cockpit's
+ * genuine alarm condition holds, the map fades into a red alert
+ * presentation and a banner names the real count. The trigger is
+ * the ONE existing derivation — GlobeIntelligence.layerHasAlarm(
+ * "SECURITY_ALERTS"), the same hasAlarm the shell bubble rail
+ * reads: an alert counts only when GlobeIntelligence flagged it
+ * (a verified CONFIRMED/ACTIVE-family alert). A DETECTED or
+ * VERIFYING alert never triggers it, and this screen never
+ * re-derives which states count. Alert records carry no
+ * geography, so the mode is a global red presentation of the
+ * recorded alert state — no regional hotspots, no arcs, no
+ * locations — and the truth label says so while it is on.
+ * AngelSecurity has no live detectors; nothing here claims
+ * live detection.
  */
 (function (global) {
   "use strict";
@@ -129,6 +145,12 @@
     if (mode === "TERRAIN") return "2D visual shell — not a 3D terrain engine. No terrain data is connected. A local engine draws a flat world map from public-domain Natural Earth outlines and city points; country, state and city names are hidden for now by owner direction; marker positions are layout, not locations.";
     return "No live map feed is connected — a local engine draws this flat world map from public-domain Natural Earth outlines and city points. Country, state and city names are hidden for now by owner direction. The glowing markers are this cockpit's recorded layers; marker positions are layout, not locations.";
   }
+
+  // Alert Mode truth sentence, appended to the truth label only
+  // while the alarm holds: the red presentation reflects RECORDED
+  // alerts (AngelSecurity holds no live detectors and none is
+  // claimed), and alert records carry no geography.
+  var ALERT_TRUTH_SUFFIX = " Alert mode is on — this red presentation reflects security alerts recorded as confirmed/active; alert records carry no geography, so no marker shows where an alert is, and no live detection feed is connected.";
 
   function fmtTime(iso) {
     try { return new Date(iso).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit", month: "short", day: "numeric" }); }
@@ -226,6 +248,12 @@
     ]);
     stage.appendChild(visual);
 
+    // Alert Mode banner: carries no text and stays hidden unless
+    // the genuine alarm condition holds (refreshAlertMode below).
+    var alertBanner = U.el("div", { class: "globe-alert-banner", role: "alert" }, "");
+    visual.appendChild(alertBanner);
+    var alertState = { on: false, count: 0 };
+
     // Globe Engine: a canvas flat world map inside the visual area
     // (absolutely positioned by CSS; the truth label stays above
     // it). The engine is presentation only — if it or a
@@ -250,6 +278,54 @@
     function plotGlobe() {
       if (!globeEngine) return;
       try { globeEngine.setData(getLayerSafe(selectedLayer), mode); } catch (e) {}
+    }
+
+    // The alarm condition, read ONLY from GlobeIntelligence's own
+    // derivation: layerHasAlarm("SECURITY_ALERTS") is the single
+    // source the shell bubble rail's red state also comes from,
+    // and the count is the number of items that same layer
+    // derivation flagged alarm. This screen never inspects alert
+    // lifecycle states itself — which states count as an alarm is
+    // GlobeIntelligence's decision, made once, there.
+    function currentAlertMode() {
+      var GI = global.GlobeIntelligence;
+      if (!GI || typeof GI.layerHasAlarm !== "function") return { on: false, count: 0 };
+      try {
+        if (!GI.layerHasAlarm("SECURITY_ALERTS")) return { on: false, count: 0 };
+        var count = 0;
+        var layer = typeof GI.getLayer === "function" ? GI.getLayer("SECURITY_ALERTS") : null;
+        if (layer && Array.isArray(layer.items)) {
+          layer.items.forEach(function (it) { if (it && it.alarm === true) count++; });
+        }
+        return { on: true, count: count };
+      } catch (e) { return { on: false, count: 0 }; }
+    }
+
+    function applyTruthLabel() {
+      truthLabel.textContent = truthLabelForMode(mode) + (alertState.on ? ALERT_TRUTH_SUFFIX : "");
+    }
+
+    // Push the current alarm state to the banner, the truth
+    // label, the visual frame and the engine's palette. Called at
+    // the end of every existing refresh (mode, layer, graph
+    // swap), so the map's alarm presentation can never disagree
+    // with the layer badges the same refresh just painted.
+    function refreshAlertMode() {
+      alertState = currentAlertMode();
+      if (alertState.on) {
+        alertBanner.textContent = "⚠ ALERT MODE — " + alertState.count +
+          " confirmed/active security alert(s) recorded";
+        alertBanner.classList.add("globe-alert-banner--on");
+        visual.classList.add("globe-visual--alert");
+      } else {
+        alertBanner.textContent = "";
+        alertBanner.classList.remove("globe-alert-banner--on");
+        visual.classList.remove("globe-visual--alert");
+      }
+      applyTruthLabel();
+      if (globeEngine && typeof globeEngine.setAlertMode === "function") {
+        try { globeEngine.setAlertMode(alertState.on); } catch (e) {}
+      }
     }
 
     // Side panel: selected layer's detail, beside the visual on wide
@@ -324,7 +400,7 @@
       // rules keep matching the note in the controls row.
       stage.className = "globe-stage globe-mode-" + mode.toLowerCase();
       visual.className = "globe-visual globe-mode-" + mode.toLowerCase();
-      truthLabel.textContent = truthLabelForMode(mode);
+      applyTruthLabel();
       modeNoteEl.textContent = modeNote(mode);
       modeTabs.querySelectorAll(".mti6-tab").forEach(function (x) {
         var active = x.getAttribute("data-mode") === mode;
@@ -335,6 +411,7 @@
       });
       refreshHeader();
       plotGlobe();
+      refreshAlertMode();
     }
 
     // Layer detail for the side panel. Items come only from
@@ -429,6 +506,7 @@
       renderPanelContent();
       refreshHeader();
       plotGlobe();
+      refreshAlertMode();
     }
 
     function selectMode(id) {
