@@ -3557,6 +3557,16 @@ body.route-globe .globe-visual { border: none; border-radius: 0; }
 .globe-routes__line { margin-top: 6px; }
 @media (prefers-reduced-motion: reduce) { .globe-alert-glow { animation: none; } }
 
+/* Capability Router (v92): earthquake markers at real coordinates,
+   place-search results, geographic-events list, workspace live data. */
+.globe-quake-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 1; }
+.globe-quake-marker { position: absolute; width: 10px; height: 10px; border-radius: 50%; transform: translate(-50%, -50%); background: rgb(255, 176, 46); border: 1px solid rgba(0, 0, 0, 0.55); box-shadow: 0 0 8px 2px rgba(255, 176, 46, 0.55); }
+.globe-place-results { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.globe-place-result { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; text-align: left; }
+.globe-geo-events { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.globe-geo-event { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; }
+.cw2-live-results { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+
 /* Direction 3: phone landscape = big globe. */
 @media (max-width: 767px) and (orientation: landscape) {
   #top-bar { height: 44px; }

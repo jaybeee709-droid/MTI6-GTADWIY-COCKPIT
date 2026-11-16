@@ -336,7 +336,7 @@
       row("Verified among shown", data.sources.verifiedCount + " — all canonical records are UNVERIFIED until an owner verification process promotes them")
     ]));
     // Freshness (F-8)
-    out.push(panel("Freshness", [meta("Canonical identity is durable and carries no live freshness; observations would carry source + observed/retrieved time + freshness state per source class (§86). No live observation feed is connected to this workspace — nothing here is presented as current market state.")]));
+    out.push(panel("Freshness", [meta("Canonical identity is durable and carries no live freshness; observations carry source + observed/retrieved time + freshness state per source class (§86). Live observations for this workspace load on explicit request in the Live Data panel (Capability Router) — they are never merged into canonical identity and nothing here is presented as current market state unless a labelled observation says so.")]));
     // Alerts (§82)
     var alertKids = [];
     if (!data.alerts.loaded) alertKids.push(meta("AngelSecurity did not load — alert state is NOT LOADED."));
@@ -401,7 +401,7 @@
       panels.graph = panel("Graph (§70)", gKids);
     }
     if (ws.actions.indexOf("source") !== -1) {
-      var sKids = [meta("Provenance for what this workspace shows (F-16): SOURCE · ORIGINAL SOURCE · DISCOVERED THROUGH · OBSERVED AT · RETRIEVED AT · FRESHNESS · VERIFICATION STATE. Canonical records carry source + import batch; observed/retrieved times exist only on live observations, of which this workspace has none connected.")];
+      var sKids = [meta("Provenance for what this workspace shows (F-16): SOURCE · ORIGINAL SOURCE · DISCOVERED THROUGH · OBSERVED AT · RETRIEVED AT · FRESHNESS · VERIFICATION STATE. Canonical records carry source + import batch; observed/retrieved times exist on live observations, which load on explicit request in the Live Data panel through the Capability Router and render with their answering provider named.")];
       if (contextRec) {
         sKids.push(row("Selected record", contextRec.title || contextRec.id));
         sKids.push(row("Source", contextRec.source || "not recorded"));
@@ -467,6 +467,87 @@
   }
 
   // ---- render -------------------------------------------------------------------
+
+  // Live Data (v92, Capability Router): normalized observations
+  // for this workspace's recorded protocols/networks/assets,
+  // loaded ONLY on the owner's explicit tap. Observations render
+  // beside canonical identity and never rewrite it; every line
+  // names the provider that actually answered, with observed /
+  // retrieved times and freshness. Yields render the §22
+  // capability-gap card — no data faked, nothing subscribed.
+  function liveDataPanel(ws, data) {
+    var results = U.el("div", { class: "cw2-live-results" }, []);
+    var loadBtn = U.el("button", { class: "btn btn-primary btn-sm", type: "button" }, "Load live data");
+    var yieldsBtn = U.el("button", { class: "btn btn-secondary btn-sm", type: "button" }, "Yields live data");
+    function renderResult(res, subjectLabel) {
+      if (!res) { results.appendChild(meta(subjectLabel + ": the capability failed unexpectedly — no data shown.")); return; }
+      if (res.observations && res.observations.length) {
+        res.observations.slice(0, 4).forEach(function (o) {
+          results.appendChild(row(subjectLabel,
+            o.value + (o.unit ? " " + o.unit : "") + " · SOURCE: " + res.provider +
+            " · observed " + (o.observedAt || "not stated") + " · retrieved " + (res.retrievedAt || "not stated") +
+            " · " + res.freshnessState + (res.fallbackPosition > 0 ? " · fallback position " + res.fallbackPosition : "")));
+        });
+        if (res.observations.length > 4) results.appendChild(meta(subjectLabel + ": + " + (res.observations.length - 4) + " more observations from " + res.provider + "."));
+      } else {
+        results.appendChild(meta(subjectLabel + ": NO DATA — " + (res.note || "no provider answered") +
+          (res.failures && res.failures.length ? " Chain: " + res.failures.map(function (f) { return f.provider + " (" + f.failureState + ")"; }).join(" → ") + "." : "")));
+      }
+    }
+    loadBtn.addEventListener("click", function () {
+      var CD = global.CryptoData;
+      results.innerHTML = "";
+      if (!CD || typeof CD.protocol !== "function") {
+        results.appendChild(meta("Live data is NOT_CONNECTED — the Capability Router did not load (NOT_LOADED), so no provider was asked."));
+        return;
+      }
+      results.appendChild(meta("Asking the capability router for this workspace's recorded protocols, chains and DEX pairs…"));
+      var jobs = [];
+      data.entities.protocols.forEach(function (rec) {
+        jobs.push(CD.protocol(rec.id).then(function (res) { renderResult(res, "Protocol " + (rec.title || rec.id)); }).catch(function () { renderResult(null, "Protocol " + (rec.title || rec.id)); }));
+      });
+      data.entities.networks.forEach(function (rec) {
+        jobs.push(CD.chain(rec.id).then(function (res) { renderResult(res, "Chain " + (rec.title || rec.id)); }).catch(function () { renderResult(null, "Chain " + (rec.title || rec.id)); }));
+      });
+      var dexTried = 0;
+      data.entities.assets.forEach(function (rec) {
+        if (dexTried >= 6) return;
+        var ai = null;
+        try { ai = (global.AssetIntelligence && typeof global.AssetIntelligence.getAsset === "function") ? global.AssetIntelligence.getAsset(rec.id) : null; } catch (e) {}
+        if (ai && ai.contractAddress) {
+          dexTried++;
+          jobs.push(CD.dexPairsForToken(ai.contractAddress, ai.networkId).then(function (res) { renderResult(res, "DEX pairs " + (rec.title || rec.id)); }).catch(function () { renderResult(null, "DEX pairs " + (rec.title || rec.id)); }));
+        }
+      });
+      if (!dexTried) {
+        results.appendChild(meta("No recorded token contract addresses in this workspace's scope — DEX pair lookup not attempted (identity anchors are never guessed)."));
+      }
+      Promise.all(jobs).then(function () {
+        results.appendChild(meta("Done — observations above are the providers' current answers, labelled with source and freshness; canonical records are unchanged by them."));
+      });
+    });
+    yieldsBtn.addEventListener("click", function () {
+      var CD = global.CryptoData;
+      results.innerHTML = "";
+      if (!CD || typeof CD.yields !== "function") {
+        results.appendChild(meta("The yields capability did not load (NOT_LOADED)."));
+        return;
+      }
+      CD.yields(ws.workspaceId).then(function (gap) {
+        results.appendChild(meta(gap.gap));
+        (gap.currentFreeOptions || []).forEach(function (o) { results.appendChild(row("Free option", o)); });
+        results.appendChild(row("Limitation", gap.limitation));
+        results.appendChild(row("Paid option (not subscribed)", gap.paidOption));
+        results.appendChild(row("Expected benefit", gap.expectedBenefit));
+        results.appendChild(meta("OWNER DECISION REQUIRED (§22) — no yield data is faked and no subscription is created automatically."));
+      });
+    });
+    return panel("Live Data", [
+      meta("Live observations load only on tap, through the Capability Router (Free-First Fallback Directive): DefiLlama free endpoints for protocol/chain TVL, DexScreener for DEX pairs where a token contract address is recorded. TVL is the provider's aggregate under its own methodology — labelled, never presented as a balance or on-chain-verified."),
+      U.el("div", { class: "price-input-row" }, [loadBtn, yieldsBtn]),
+      results
+    ]);
+  }
 
   async function render(root) {
     root.innerHTML = "";
@@ -569,6 +650,12 @@
     } else {
       ctx.forEach(function (p) { root.appendChild(p); });
       intel.forEach(function (p) { root.appendChild(p); });
+    }
+
+    // LIVE DATA (v92): workspaces whose recorded scope includes
+    // protocols or networks get the router-backed panel.
+    if (ws.entityKinds.indexOf("protocols") !== -1 || ws.entityKinds.indexOf("networks") !== -1) {
+      root.appendChild(liveDataPanel(ws, data));
     }
 
     // ACTIONS (F-5): only the controls the registry row allows.

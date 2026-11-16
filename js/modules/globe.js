@@ -194,7 +194,16 @@
     { id: "CRYPTO", label: "Crypto" },
     { id: "OPPORTUNITIES", label: "Opportunities" },
     { id: "BOT_ACTIVITY", label: "Bot Activity" },
-    { id: "SECURITY_ALERTS", label: "Security Alerts" }
+    { id: "SECURITY_ALERTS", label: "Security Alerts" },
+    // Capability Router addition (v92): earthquakes are genuine
+    // geographic observations with real coordinates, so they get
+    // their own layer — but the layer is module-local (NOT part of
+    // GlobeIntelligence, whose five layers stay canonical) and it
+    // starts honestly NO_DATA: items exist only after the owner
+    // taps "Load earthquakes" in the Live World panel. Markers are
+    // DOM markers at the events' real projected coordinates, never
+    // the layout positions the record layers use.
+    { id: "EARTHQUAKES", label: "Earthquakes" }
   ];
 
   // Media Selector categories (Live World directive §9). Every
@@ -375,7 +384,7 @@
   // not locations (no layer item carries geography). Live World
   // Build 1: pan and zoom are real view controls on this same
   // local data, and weather appears only via SEARCH THIS AREA.
-  var ZOOM_TRUTH = " Drag, scroll or use + / − to pan and zoom: the zoom is a real view zoom on this same local data — the outlines are coarse (110m), so zooming shows them larger, not satellite imagery and not street-level detail. Weather appears only when you search an area, live from Open-Meteo with its source shown.";
+  var ZOOM_TRUTH = " Drag, scroll or use + / − to pan and zoom: the zoom is a real view zoom on this same local data — the outlines are coarse (110m), so zooming shows them larger, not satellite imagery and not street-level detail. Weather appears only when you search an area, live from the provider that answers (National Weather Service for US points, Open-Meteo worldwide) with its source shown.";
   function truthLabelForMode(mode) {
     if (mode === "TERRAIN") return "2D visual shell — not a 3D terrain engine. No terrain data is connected. A local engine draws a flat world map from public-domain Natural Earth outlines and city points; country, state and city names are hidden for now by owner direction; marker positions are layout, not locations." + ZOOM_TRUTH;
     return "No live map feed is connected — a local engine draws this flat world map from public-domain Natural Earth outlines and city points. Country, state and city names are hidden for now by owner direction. The glowing markers are this cockpit's recorded layers; marker positions are layout, not locations." + ZOOM_TRUTH;
@@ -432,8 +441,15 @@
     // same counts, one canonical source. If the graph path fails,
     // the synchronous layers simply stay.
     var liveLayers = null;
+    // Module-local EARTHQUAKES layer (see the LAYER_BUTTONS note):
+    // observations from WorldData.earthquakes, kept apart from
+    // GlobeIntelligence's canonical five layers.
+    var quakeLayer = { id: "EARTHQUAKES", label: "Earthquakes", state: "NO_DATA", items: [], count: 0, enabled: true,
+      note: "No earthquakes loaded yet — tap “Load earthquakes” in the Live World panel. Positions will be the events' real coordinates." };
+    var quakePoints = []; // [{lat, lon, label}] real coordinates for the DOM markers
 
     function getLayerSafe(id) {
+      if (id === "EARTHQUAKES") return quakeLayer;
       if (liveLayers) {
         for (var i = 0; i < liveLayers.length; i++) {
           if (liveLayers[i] && liveLayers[i].id === id) return liveLayers[i];
@@ -519,6 +535,40 @@
     visual.appendChild(glowLayer);
     var glowPoints = [];
 
+    // Earthquake markers (v92): DOM markers at the observations'
+    // REAL coordinates, projected exactly like the alert glows.
+    // Visible only while the EARTHQUAKES layer is selected and
+    // points were actually loaded through the router.
+    var quakeLayerEl = U.el("div", { class: "globe-quake-layer", "aria-hidden": "true" }, []);
+    visual.appendChild(quakeLayerEl);
+
+    function refreshQuakeMarkers() {
+      quakeLayerEl.innerHTML = "";
+      if (selectedLayer !== "EARTHQUAKES") return;
+      quakePoints.forEach(function (p) {
+        quakeLayerEl.appendChild(U.el("span", { class: "globe-quake-marker", title: p.label }, ""));
+      });
+      positionQuakeMarkers();
+    }
+
+    function positionQuakeMarkers() {
+      if (!globeEngine || typeof globeEngine.project !== "function") return;
+      var wpx = 0, hpx = 0;
+      try {
+        if (globeCanvas) { wpx = globeCanvas.clientWidth || 0; hpx = globeCanvas.clientHeight || 0; }
+      } catch (e) {}
+      quakeLayerEl.querySelectorAll(".globe-quake-marker").forEach(function (m, i) {
+        var p = quakePoints[i];
+        if (!p || selectedLayer !== "EARTHQUAKES") { m.style.display = "none"; return; }
+        var px = null;
+        try { px = globeEngine.project(p.lon, p.lat); } catch (e) {}
+        if (!px || px.x < 0 || px.y < 0 || px.x > wpx || px.y > hpx) { m.style.display = "none"; return; }
+        m.style.display = "";
+        m.style.left = px.x + "px";
+        m.style.top = px.y + "px";
+      });
+    }
+
     function alertAreaPoints() {
       var AS = global.AngelSecurity, GI = global.GlobeIntelligence;
       if (!AS || !GI || typeof AS.listAlerts !== "function" ||
@@ -577,7 +627,10 @@
     // so the plotted markers always match the badges and the panel.
     function plotGlobe() {
       if (!globeEngine) return;
-      try { globeEngine.setData(getLayerSafe(selectedLayer), mode); } catch (e) {}
+      // EARTHQUAKES never goes to the canvas engine: its items are
+      // real-coordinate observations drawn as DOM markers, and the
+      // engine would plot them at layout positions — wrong geography.
+      try { globeEngine.setData(selectedLayer === "EARTHQUAKES" ? null : getLayerSafe(selectedLayer), mode); } catch (e) {}
     }
 
     // The alarm condition, read ONLY from GlobeIntelligence's own
@@ -839,11 +892,72 @@
       return card;
     }
 
+    // Capability Router result cards (v92, Free-First Fallback
+    // Directive): the SOURCE line names the provider that ACTUALLY
+    // answered; a fallback is shown when it happened; a cache answer
+    // past its freshness is LAST_KNOWN, never relabelled current.
+    function chainSummary(res) {
+      if (!res || !res.failures || !res.failures.length) return "";
+      return res.failures.map(function (f) { return f.provider + " (" + f.failureState + ")"; }).join(" → ");
+    }
+    function weatherCardFromResult(res, c) {
+      if (res && res.observations && res.observations.length) {
+        var o = res.observations[0], d = o.details || {};
+        var lines = [];
+        if (d.shortForecast) {
+          lines.push("Now: " + o.value + o.unit + " — " + d.shortForecast + (d.windSpeed ? "; wind " + d.windSpeed + (d.windDirection ? " " + d.windDirection : "") : ""));
+        } else {
+          lines.push("Now: " + o.value + o.unit + (d.windSpeedKmh != null ? ", wind " + d.windSpeedKmh + " km/h, direction " + d.windDirectionDeg + "°" : ""));
+        }
+        lines.push("Observed: " + fmtTime(o.observedAt) + " (the source's observation time — a snapshot reading, not a live feed)");
+        lines.push("Coordinates used: " + c.lat + ", " + c.lon);
+        if (res.freshnessState === "LAST_KNOWN") {
+          lines.push("The provider chain is OFFLINE for this area right now (" + chainSummary(res) + ") — this is the LAST KNOWN reading from " + res.provider + ", retrieved " + fmtTime(res.retrievedAt) + ", labelled as such and never as current.");
+        } else if (res.fromCache) {
+          lines.push("Served from the router's cache within its freshness window — original provider and times preserved, never relabelled.");
+        }
+        if (res.fallbackPosition > 0) {
+          lines.push("Fallback: the primary source could not answer (" + chainSummary(res) + ") — this reading is " + res.provider + "'s, labelled as such.");
+        }
+        var badge = res.freshnessState === "LAST_KNOWN" ? "LAST_KNOWN" : (res.freshnessState === "STALE" ? "STALE" : "STATIC SNAPSHOT");
+        return resultCard("Weather — current conditions", badge, lines, "SOURCE: " + res.provider);
+      }
+      return resultCard("Weather — current conditions", "OFFLINE", [
+        "No weather provider could answer for this area right now. No weather is shown rather than invented — try again when the connection is back.",
+        "Chain attempted: " + (chainSummary(res) || "no provider answered") + "."
+      ], "SOURCE: none answered");
+    }
+    function alertsCardFromResult(res) {
+      if (res && res.provider && res.observations) {
+        if (!res.observations.length) {
+          return resultCard("Weather alerts — this point", "NO_ALERTS", [
+            "No active NWS alerts for this point — the National Weather Service answered and recorded none.",
+            "That is the provider's answer for this point and moment, not a general claim of safety."
+          ], "SOURCE: National Weather Service");
+        }
+        var lines = res.observations.slice(0, 6).map(function (o) {
+          var d = o.details || {};
+          return (o.value || "Alert") + " — " + (d.severity || "severity not stated") + " · expires " + fmtTime(d.expires);
+        });
+        if (res.observations.length > 6) lines.push("+ " + (res.observations.length - 6) + " more active alerts at this point.");
+        lines.push("Headline: " + ((res.observations[0].details || {}).headline || "see the alert text from the source"));
+        return resultCard("Weather alerts — this point", "ACTIVE ALERTS", lines, "SOURCE: National Weather Service");
+      }
+      return resultCard("Weather alerts — this point", "NO_DATA", [
+        "Weather alerts could not be determined for this point: " + (chainSummary(res) || "no provider answered") + ".",
+        "Silence is not claimed as calm — the alerts state here is unknown, not clear."
+      ], null);
+    }
+
     // SEARCH THIS AREA (directive §11): an explicit owner tap, and
     // only then are sources asked — panning/zooming/tapping the map
-    // queries nothing. What is genuinely available for a point
-    // today is live weather from Open-Meteo; the recorded-layers
-    // line and the Media Selector state their own truths beside it.
+    // queries nothing. Weather now comes through the Capability
+    // Router (Free-First Fallback Directive): WorldData.weather
+    // runs NWS (US points) → Open-Meteo (worldwide) → cache, and
+    // the card names the provider that ACTUALLY answered. For US
+    // points the same tap also asks WorldData.alerts (NWS). The
+    // recorded-layers line and the Media Selector state their own
+    // truths beside it.
     searchAreaBtn.addEventListener("click", function () {
       var c = liveState.context;
       if (!c) {
@@ -853,41 +967,47 @@
       if (liveState.searching) return;
       liveState.searching = true;
       liveResults.innerHTML = "";
-      var weatherSlot = U.el("div", {}, "Asking Open-Meteo for the current weather at the selected point…");
+      var weatherSlot = U.el("div", {}, "Asking the weather capability for the current conditions at the selected point…");
       liveResults.appendChild(weatherSlot);
       liveResults.appendChild(resultCard("MTI6 recorded layers", null, [
         layerCountsLine(),
         "These layers are global recorded state with no geography — they are not results for this area, and their positions on the map are layout, not locations."
       ], null));
-      var url = "https://api.open-meteo.com/v1/forecast?latitude=" + encodeURIComponent(c.lat) +
-        "&longitude=" + encodeURIComponent(c.lon) + "&current_weather=true";
-      fetch(url).then(function (res) {
-        if (!res.ok) throw new Error("http_" + res.status);
-        return res.json();
-      }).then(function (data) {
+      var PR = global.ProviderRouter;
+      if (!PR || !PR.WorldData || typeof PR.WorldData.weather !== "function") {
         liveState.searching = false;
-        try { if (global.ApiRegistry) global.ApiRegistry.record("open-meteo", true, 200); } catch (e) {}
-        var w = data && data.current_weather;
         weatherSlot.innerHTML = "";
-        if (!w) {
-          weatherSlot.appendChild(resultCard("Weather — current conditions", "UNKNOWN", [
-            "Open-Meteo returned no current-conditions reading for this point. Nothing is shown in its place."
-          ], "SOURCE: Open-Meteo"));
-          return;
-        }
-        weatherSlot.appendChild(resultCard("Weather — current conditions", "STATIC SNAPSHOT", [
-          "Now: " + w.temperature + "°C, wind " + w.windspeed + " km/h, direction " + w.winddirection + "°",
-          "Observed: " + fmtTime(w.time) + " (the source's observation time — a snapshot reading, not a live feed)",
-          "Coordinates used: " + c.lat + ", " + c.lon
-        ], "SOURCE: Open-Meteo"));
+        weatherSlot.appendChild(resultCard("Weather — current conditions", "NOT_CONNECTED", [
+          "The Capability Router did not load (NOT_LOADED), so no provider was asked. No weather is shown rather than invented."
+        ], null));
+        return;
+      }
+      var isUS = c.country === "United States of America";
+      var alertsSlot = null;
+      if (isUS) {
+        alertsSlot = U.el("div", {}, "Asking the National Weather Service for active alerts at this point…");
+        liveResults.appendChild(alertsSlot);
+      }
+      PR.WorldData.weather(c.lat, c.lon, { forceFresh: true }).then(function (res) {
+        liveState.searching = false;
+        weatherSlot.innerHTML = "";
+        weatherSlot.appendChild(weatherCardFromResult(res, c));
       }).catch(function () {
         liveState.searching = false;
-        try { if (global.ApiRegistry) global.ApiRegistry.record("open-meteo", false, null); } catch (e) {}
         weatherSlot.innerHTML = "";
         weatherSlot.appendChild(resultCard("Weather — current conditions", "OFFLINE", [
-          "Could not reach Open-Meteo for this area right now. No weather is shown rather than invented — try again when the connection is back."
-        ], "SOURCE: Open-Meteo"));
+          "The weather capability failed unexpectedly. No weather is shown rather than invented."
+        ], null));
       });
+      if (alertsSlot) {
+        PR.WorldData.alerts(c.lat, c.lon, { forceFresh: true }).then(function (res) {
+          alertsSlot.innerHTML = "";
+          alertsSlot.appendChild(alertsCardFromResult(res));
+        }).catch(function () {
+          alertsSlot.innerHTML = "";
+          alertsSlot.appendChild(alertsCardFromResult(null));
+        });
+      }
     });
 
     // FIND MORE (directive §12) in its honest gated state: the Web
@@ -1355,10 +1475,10 @@
 
     function lensNote(id) {
       switch (id) {
-        case "LIVE": return "Live lens: only currently available live or near-live sources — today that is weather only (Open-Meteo, via SEARCH THIS AREA); every other live category is honestly empty.";
+        case "LIVE": return "Live lens: only currently available live or near-live sources — today that is weather (the provider that answers via SEARCH THIS AREA: National Weather Service for US points, Open-Meteo worldwide) and real-coordinate earthquake markers when loaded; every other live category is honestly empty.";
         case "TRAFFIC": return "Traffic lens: NOT_CONNECTED — no traffic source is connected, so nothing is shown as traffic.";
         case "TRANSIT": return "Transit lens: NOT_CONNECTED — no transit source is connected (GTFS / GTFS-RT are catalog candidates).";
-        case "WEATHER": return "Weather lens: Open-Meteo is connected — SEARCH THIS AREA takes this area's weather reading with its source and observation time shown.";
+        case "WEATHER": return "Weather lens: the weather capability is connected through the Capability Router (National Weather Service for US points, Open-Meteo worldwide) — SEARCH THIS AREA takes this area's reading with the answering provider and observation time shown.";
         case "OPPORTUNITIES": return "Opportunities lens: the Opportunities layer, global recorded state with no geography — its badge is its real state.";
         case "SECURITY": return "Security lens: the Security Alerts layer — alarm red is reserved for verified-and-active alerts; an alert with an area glows at its real point.";
         case "BOT_ACTIVITY": return "Bot activity lens: recorded workforce state only — workers are NOT_CONNECTED, and no bot motion is shown that was not recorded.";
@@ -1379,7 +1499,7 @@
       ];
       if (id === "LIVE") return [
         "Only currently available live or near-live sources appear under this lens.",
-        "Today exactly one live geographic source is connected: Open-Meteo weather, taken explicitly when you tap SEARCH THIS AREA. Every media category is NOT_CONNECTED, so the Live lens is weather-only — nothing else is presented as live."
+        "Today exactly one live geographic capability is connected: weather, taken explicitly when you tap SEARCH THIS AREA through the capability router — National Weather Service for US points, Open-Meteo worldwide. Earthquakes load on request at real coordinates. Every media category is NOT_CONNECTED, so the Live lens is weather + hazards only — nothing else is presented as live."
       ];
       if (id === "TRAFFIC") return [
         "No traffic provider is connected yet — no traffic results exist for any area and none are invented. The 511/DOT family is a source-catalog CANDIDATE under terms review."
@@ -1388,7 +1508,7 @@
         "No transit provider is connected yet — GTFS and GTFS-RT feeds are source-catalog CANDIDATEs. No routes, vehicles or stations are shown."
       ];
       if (id === "WEATHER") return [
-        "Weather for the current area comes from Open-Meteo, the platform's one connected geographic source — a STATIC SNAPSHOT with its observation time and source shown, never a live feed.",
+        "Weather for the current area comes through the capability router — National Weather Service primary for US points, Open-Meteo worldwide, cache last — a STATIC SNAPSHOT with its observation time and answering source shown, never a live feed.",
         liveState.context ? "Use the button below (the same SEARCH THIS AREA path) to take this area's reading." : "Tap the map to set an area first — then SEARCH THIS AREA takes its weather reading."
       ];
       if (id === "OPPORTUNITIES" || id === "BOT_ACTIVITY") {
@@ -1492,11 +1612,23 @@
       ]);
     }
 
-    function openMeteoUsage() {
+    // The weather capability's recorded outcomes (NWS + Open-Meteo
+    // through the Capability Router), read from the ApiRegistry
+    // usage journal — measured, never assumed. Returns the most
+    // recent outcome across both providers, or null before any call.
+    function weatherUsage() {
       try {
         if (!global.ApiRegistry || typeof global.ApiRegistry.getUsage !== "function") return null;
         var all = global.ApiRegistry.getUsage();
-        for (var i = 0; i < all.length; i++) if (all[i].id === "open-meteo") return all[i];
+        var latest = null, calls = 0;
+        for (var i = 0; i < all.length; i++) {
+          if (all[i].id !== "nws" && all[i].id !== "open-meteo") continue;
+          calls += all[i].callsToday || 0;
+          if (all[i].lastAt && (!latest || all[i].lastAt > latest.lastAt)) latest = all[i];
+        }
+        if (!latest) return null;
+        latest = { lastOk: latest.lastOk, callsToday: calls };
+        return latest;
       } catch (e) {}
       return null;
     }
@@ -1531,15 +1663,15 @@
           "No named place within 500 km in the local data" +
           (near.length ? " — nearest: " + near[0].name + ", " + Math.round(near[0].km) + " km." : ".")));
       }
-      // WEATHER — the one connected geographic source (Input B):
+      // WEATHER — the connected weather capability (Input B):
       // a capability statement; an observation only on request.
-      var om = openMeteoUsage();
-      var wxBasis = "Open-Meteo answers any coordinates on Earth — coverage, not an observation: tap SEARCH THIS AREA to take this area's reading.";
+      var om = weatherUsage();
+      var wxBasis = "The weather capability answers any coordinates on Earth (National Weather Service for US points, Open-Meteo worldwide, through the capability router) — coverage, not an observation: tap SEARCH THIS AREA to take this area's reading.";
       if (om && om.callsToday > 0) {
         wxBasis += om.lastOk ? " Last recorded check: OK." : " Last recorded check: FAILED — declared unavailable from the recorded outcome, not assumed.";
       }
       coverageBody.appendChild(coverageRow("WEATHER", "AVAILABLE", "AVAILABLE", wxBasis));
-      coverageBody.appendChild(U.el("div", { class: "globe-live-source" }, "SOURCE: Open-Meteo"));
+      coverageBody.appendChild(U.el("div", { class: "globe-live-source" }, "SOURCE: National Weather Service (US points) · Open-Meteo (worldwide) — capability router"));
       // WORLD ENGINE KNOWLEDGE — global platform state (Input C),
       // labelled global so it can never pose as area coverage.
       coverageBody.appendChild(coverageRow("WORLD ENGINE KNOWLEDGE", "GLOBAL", "STATIC SNAPSHOT",
@@ -1561,7 +1693,7 @@
       });
       // The three world states (directive §12), honestly held.
       coverageBody.appendChild(U.el("div", { class: "api-meta" },
-        "World states: CACHED BASE WORLD — this base map is vendored locally and works offline · ONLINE WORLD — live sources answer when the network allows · LIVE SOURCES UNAVAILABLE is declared per source from recorded outcomes (Open-Meteo: " +
+        "World states: CACHED BASE WORLD — this base map is vendored locally and works offline · ONLINE WORLD — live sources answer when the network allows · LIVE SOURCES UNAVAILABLE is declared per source from recorded outcomes (weather capability: " +
         (om ? (om.callsToday > 0 ? (om.lastOk ? "last check OK" : "last check FAILED") : "no check recorded yet") : "no registry read available") + ")."));
       // GAPS summary + the gated Find more (no missions yet).
       var gaps = U.el("div", { class: "globe-coverage__gaps" }, []);
@@ -1680,8 +1812,168 @@
     }
     try { document.addEventListener("keydown", routeKeys); } catch (e) {}
 
+    // Place search (v92): name → coordinates through the
+    // Capability Router's geocode capability (Open-Meteo
+    // Geocoding). Explicit tap only. Choosing a result centres
+    // the map there and sets the location context from the map's
+    // OWN vendored data at that point (pickAt / describeAt) — the
+    // geocoder's coordinates steer the view; the context's place
+    // identity still comes from MTI6's own geography.
+    var placeInput = U.el("input", { class: "price-input", type: "text", "aria-label": "Place name to search" });
+    placeInput.setAttribute("placeholder", "Place name — e.g. Houston, Reykjavík, Kyoto");
+    var placeBtn = U.el("button", { class: "btn", type: "button" }, "Search places");
+    var placeResults = U.el("div", { class: "globe-place-results" }, []);
+    var placeNote = U.el("div", { class: "api-meta" },
+      "Place search asks Open-Meteo Geocoding (through the Capability Router) only when you tap Search. Results carry their source; choosing one centres the map and sets the location context from the map's own vendored data.");
+    function gotoPlace(o) {
+      var lat = o.location.lat, lon = o.location.lon;
+      if (globeEngine && typeof globeEngine.setView === "function") {
+        try { globeEngine.setView({ lon: lon, lat: lat, scale: 12 }); } catch (e) {}
+      }
+      var pick = null;
+      if (globeEngine && typeof globeEngine.pickAt === "function" && typeof globeEngine.project === "function") {
+        try {
+          var px = globeEngine.project(lon, lat);
+          if (px) pick = globeEngine.pickAt(px.x, px.y);
+        } catch (e) {}
+      }
+      if (pick) { setContextFromPick(pick); }
+      else {
+        var d = describeAt(lon, lat);
+        setContextFromPick({ lat: lat, lon: lon, city: null, country: d.country, state: d.state, land: d.land, tier: "COUNTRY" });
+      }
+      syncViewUI();
+      liveNote.textContent = "Place selected: " + o.value + " — centred on the map; the location context above is set from the map's own vendored data at that point.";
+    }
+    placeBtn.addEventListener("click", function () {
+      var q = String(placeInput.value || "").trim();
+      placeResults.innerHTML = "";
+      if (!q) { placeNote.textContent = "Type a place name first — nothing was searched."; return; }
+      var PR = global.ProviderRouter;
+      if (!PR || !PR.WorldData || typeof PR.WorldData.geocode !== "function") {
+        placeNote.textContent = "Place search is NOT_CONNECTED — the Capability Router did not load (NOT_LOADED), so no provider was asked.";
+        return;
+      }
+      placeNote.textContent = "Asking Open-Meteo Geocoding for “" + q + "”…";
+      PR.WorldData.geocode(q).then(function (res) {
+        placeResults.innerHTML = "";
+        if (!res || !res.observations || !res.observations.length) {
+          placeNote.textContent = res && res.provider
+            ? res.provider + " answered with no matching place for “" + q + "”. Nothing was centred and nothing was invented."
+            : "Place search could not be answered (" + chainSummary(res || {}) + "). Nothing was centred and nothing was invented.";
+          return;
+        }
+        placeNote.textContent = res.observations.length + " place(s) for “" + q + "” · SOURCE: " + res.provider +
+          (res.freshnessState === "LAST_KNOWN" ? " · LAST_KNOWN (cached answer, labelled as such)" : "") + " — tap one to go there.";
+        res.observations.forEach(function (o) {
+          var d = o.details || {};
+          var b = U.el("button", { class: "btn globe-place-result", type: "button" }, [
+            U.el("span", {}, o.value + (d.admin1 ? " — " + d.admin1 : "") + (d.country ? ", " + d.country : "")),
+            U.el("span", { class: "api-meta" }, " " + o.location.lat + ", " + o.location.lon + (d.population ? " · population " + d.population : ""))
+          ]);
+          b.addEventListener("click", function () { gotoPlace(o); });
+          placeResults.appendChild(b);
+        });
+      }).catch(function () {
+        placeNote.textContent = "Place search failed unexpectedly — nothing was centred and nothing was invented.";
+      });
+    });
+    placeInput.addEventListener("keydown", function (e) { if (e.key === "Enter") placeBtn.click(); });
+    var placeSection = U.el("div", { class: "globe-place-search" }, [
+      U.el("h4", { class: "globe-live-media-title" }, "Place search"),
+      U.el("div", { class: "globe-route-row" }, [placeInput, placeBtn]),
+      placeResults,
+      placeNote
+    ]);
+
+    // Natural Events (v92): explicit loads through the router.
+    // Earthquakes (USGS) feed the EARTHQUAKES layer (real-
+    // coordinate DOM markers); NASA EONET natural events — the
+    // general Natural Events model: categories, named upstream
+    // sources, geometry — are listed here with the sources EONET
+    // records for each event. No background fetching — nothing
+    // is asked until a button is tapped.
+    var quakeBtn = U.el("button", { class: "btn", type: "button" }, "Load earthquakes");
+    var eventsBtn = U.el("button", { class: "btn", type: "button" }, "Load natural events");
+    var geoStatus = U.el("div", { class: "api-meta" },
+      "Earthquakes: USGS real-time feed (M4.5+, past day) through the Capability Router. Natural events: NASA EONET's curated catalogue. Both load only on tap.");
+    var eventsList = U.el("div", { class: "globe-geo-events" }, []);
+    quakeBtn.addEventListener("click", function () {
+      var PR = global.ProviderRouter;
+      if (!PR || !PR.WorldData || typeof PR.WorldData.earthquakes !== "function") {
+        geoStatus.textContent = "Earthquakes are NOT_CONNECTED — the Capability Router did not load (NOT_LOADED), so no provider was asked.";
+        return;
+      }
+      geoStatus.textContent = "Asking the USGS earthquake feed…";
+      PR.WorldData.earthquakes({ forceFresh: true }).then(function (res) {
+        quakePoints = (res.observations || []).map(function (o) {
+          return { lat: o.location.lat, lon: o.location.lon, label: "M" + o.value + " — " + ((o.details || {}).place || "earthquake") };
+        });
+        quakeLayer.items = (res.observations || []).map(function (o) {
+          return { id: o.observationId, label: "M" + o.value + " — " + ((o.details || {}).place || "earthquake"),
+            state: "OBSERVED", source: "USGS Earthquake Catalog" };
+        });
+        quakeLayer.count = quakeLayer.items.length;
+        if (res.observations && res.observations.length) {
+          quakeLayer.state = res.freshnessState === "LAST_KNOWN" ? "LAST_KNOWN" : "CURRENT";
+          quakeLayer.note = "USGS real-time feed (M4.5+, past day), feed generated " + fmtTime(res.observedAt) +
+            " · freshness " + res.freshnessState + (res.fromCache ? " (router cache — original provider and times preserved)" : "") +
+            ". Markers sit at the events' real coordinates.";
+          geoStatus.textContent = quakeLayer.items.length + " earthquakes loaded · SOURCE: USGS Earthquake Catalog · feed generated " +
+            fmtTime(res.observedAt) + " · " + res.freshnessState + ". The Earthquakes layer is selected — markers are at real coordinates.";
+          selectLayer("EARTHQUAKES");
+        } else {
+          quakeLayer.state = "NO_DATA";
+          quakeLayer.note = "The earthquake capability returned no data (" + chainSummary(res) + "). No markers are shown rather than invented.";
+          geoStatus.textContent = "No earthquake data: " + chainSummary(res) + ". Nothing was plotted.";
+          refreshLayerUI();
+        }
+      }).catch(function () {
+        geoStatus.textContent = "The earthquake capability failed unexpectedly — nothing was plotted.";
+      });
+    });
+    eventsBtn.addEventListener("click", function () {
+      var PR = global.ProviderRouter;
+      if (!PR || !PR.WorldData || typeof PR.WorldData.naturalEvents !== "function") {
+        geoStatus.textContent = "Natural events are NOT_CONNECTED — the Capability Router did not load (NOT_LOADED), so no provider was asked.";
+        return;
+      }
+      geoStatus.textContent = "Asking NASA EONET for open natural events…";
+      eventsList.innerHTML = "";
+      PR.WorldData.naturalEvents({ forceFresh: true }).then(function (res) {
+        if (!res.observations || !res.observations.length) {
+          geoStatus.textContent = res.provider
+            ? "NASA EONET answered: no open natural events in the current catalogue window. That is the catalogue's answer, not a claim that nothing is happening on Earth."
+            : "Natural events could not be loaded (" + chainSummary(res) + "). Nothing was listed rather than invented.";
+          return;
+        }
+        geoStatus.textContent = res.observations.length + " open natural events · SOURCE: NASA EONET · " + res.freshnessState +
+          " — each event names the upstream source EONET records for it; NEAR-LIVE/OBSERVED, never live video.";
+        res.observations.slice(0, 12).forEach(function (o) {
+          var d = o.details || {};
+          eventsList.appendChild(U.el("div", { class: "globe-geo-event" }, [
+            U.el("span", {}, o.value),
+            U.el("span", { class: "api-meta" }, " " + (d.categories || "") + " · " + fmtTime(o.observedAt) +
+              " · via " + ((d.sources && d.sources.length) ? d.sources.join(", ") : "source not recorded") + " · SOURCE: NASA EONET")
+          ]));
+        });
+        if (res.observations.length > 12) {
+          eventsList.appendChild(U.el("div", { class: "api-meta" }, "+ " + (res.observations.length - 12) + " more open events in the catalogue window."));
+        }
+      }).catch(function () {
+        geoStatus.textContent = "The natural-events capability failed unexpectedly — nothing was listed.";
+      });
+    });
+    var geoSection = U.el("div", { class: "globe-geo-section" }, [
+      U.el("h4", { class: "globe-live-media-title" }, "Natural Events"),
+      U.el("div", { class: "globe-route-row" }, [quakeBtn, eventsBtn]),
+      geoStatus,
+      eventsList
+    ]);
+
     var livePanel = U.el("section", { class: "api-panel globe-live-panel", "aria-label": "Live World" }, [
       U.el("h3", {}, "Live World"),
+      placeSection,
       U.el("div", { class: "globe-live-context" }, [
         U.el("div", { class: "globe-live-context__heading" }, "Location context"),
         liveContextBody
@@ -1696,6 +1988,7 @@
         "Media for an area appears here only from connected providers, every item with its source shown. No media provider is connected yet, so every category is honestly NOT_CONNECTED and shows no results — nothing is invented to fill them, and result counts are never hard-coded."),
       mediaList,
       routesSection,
+      geoSection,
       U.el("div", { class: "globe-controls globe-live-actions" }, [findMoreBtn]),
       liveNote
     ]);
@@ -1774,6 +2067,8 @@
       }
       // Alert-area glows track the real view transform.
       positionAlertGlows();
+      // Earthquake markers track it too (real coordinates).
+      positionQuakeMarkers();
     }
 
     function refreshModeUI() {
@@ -1865,6 +2160,7 @@
       var layers = listLayersSafe();
       var byId = {};
       if (layers) layers.forEach(function (l) { if (l) byId[l.id] = l; });
+      byId.EARTHQUAKES = quakeLayer; // module-local layer, merged for the chips
       LAYER_BUTTONS.forEach(function (l) {
         var layer = byId[l.id] || null;
         var state = layer ? layer.state : "NOT_LOADED";
@@ -1889,6 +2185,7 @@
       refreshHeader();
       plotGlobe();
       refreshAlertMode();
+      refreshQuakeMarkers();
       // Lens badges and the coverage GLOBAL row read the same
       // layer states — they refresh with the layers, including
       // the async graph swap, so they can never drift apart.
@@ -2071,22 +2368,37 @@
       }
     } catch (e) {}
 
-    // ---- Weather (real live public data, unchanged in substance) ------
+    // ---- Weather (real live public data, via the Capability Router) ---
+    // Same panel, same honesty: the reading now comes through
+    // WorldData.weather, so US points are answered by the National
+    // Weather Service and the output names the provider that
+    // ACTUALLY answered — never a hard-coded source.
     var lat = U.el("input", { class: "price-input", type: "text", value: "40.71", "aria-label": "Latitude" });
     var lon = U.el("input", { class: "price-input", type: "text", value: "-74.00", "aria-label": "Longitude" });
     var btn = U.el("button", { class: "btn btn-primary", type: "button" }, "Load weather");
     var out = U.el("div", { class: "api-meta" }, "Enter latitude/longitude (default: New York City) and tap Load weather.");
     btn.addEventListener("click", function () {
+      var la = parseFloat(lat.value), lo = parseFloat(lon.value);
+      var PR = global.ProviderRouter;
+      if (!PR || !PR.WorldData || typeof PR.WorldData.weather !== "function") {
+        out.textContent = "Weather is NOT_CONNECTED — the Capability Router did not load (NOT_LOADED), so no provider was asked.";
+        return;
+      }
       out.textContent = "Loading weather…";
-      var url = "https://api.open-meteo.com/v1/forecast?latitude=" + encodeURIComponent(lat.value.trim()) + "&longitude=" + encodeURIComponent(lon.value.trim()) + "&current_weather=true";
-      fetch(url).then(function (res) { if (!res.ok) throw new Error("http_" + res.status); return res.json(); }).then(function (data) {
-        try { if (global.ApiRegistry) global.ApiRegistry.record("open-meteo", true, 200); } catch (e) {}
-        var w = data && data.current_weather;
-        if (!w) { out.textContent = "No weather data returned for those coordinates."; return; }
-        out.textContent = "Now: " + w.temperature + "°C, wind " + w.windspeed + " km/h, direction " + w.winddirection + "° · Open-Meteo · " + fmtTime(w.time);
+      PR.WorldData.weather(la, lo).then(function (res) {
+        if (!res || !res.observations || !res.observations.length) {
+          out.textContent = "No weather data for those coordinates (" + chainSummary(res || {}) + "). Nothing is shown rather than invented.";
+          return;
+        }
+        var o = res.observations[0], d = o.details || {};
+        var reading = d.shortForecast
+          ? o.value + o.unit + " — " + d.shortForecast
+          : o.value + o.unit + ", wind " + d.windSpeedKmh + " km/h, direction " + d.windDirectionDeg + "°";
+        out.textContent = "Now: " + reading + " · " + res.provider + " · " + fmtTime(o.observedAt) +
+          (res.freshnessState === "LAST_KNOWN" ? " · LAST_KNOWN (the chain could not answer just now — this is the last known reading, not current)" : "") +
+          (res.fallbackPosition > 0 ? " · fallback (" + chainSummary(res) + ")" : "");
       }).catch(function () {
-        try { if (global.ApiRegistry) global.ApiRegistry.record("open-meteo", false, null); } catch (e) {}
-        out.textContent = "Could not reach Open-Meteo right now. Check the coordinates and try again.";
+        out.textContent = "The weather capability failed unexpectedly. Check the coordinates and try again.";
       });
     });
     root.appendChild(U.el("div", { class: "api-panel" }, [
