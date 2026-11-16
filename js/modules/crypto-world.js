@@ -65,6 +65,15 @@
   var currentRoot = null;
   var activitiesListBox = null;
 
+  // Entity pipeline surface state (P4). Filters are presentation only,
+  // scoped to this surface: candidates are searchable ONLY here, never
+  // in general search (design §24).
+  var pipelineStageFilter = "ALL";
+  var pipelineKindFilter = "ALL";
+  var pipelineQuery = "";
+  var pipelineStatus = "";
+  var OWNER_ACTOR = { type: "OWNER", ref: "owner" };
+
   // Stage 2 tab switcher. OVERVIEW is the default and renders the
   // whole screen stacked (tabs filter from ALL); every other tab
   // shows only its section(s). Tab ids are the section tags used in
@@ -76,6 +85,7 @@
     { id: "assets", label: "ASSETS" },
     { id: "networks", label: "NETWORKS" },
     { id: "protocols", label: "PROTOCOLS" },
+    { id: "pipeline", label: "PIPELINE" },
     { id: "positions", label: "POSITIONS" },
     { id: "opportunities", label: "OPPORTUNITIES" },
     { id: "risk", label: "RISK" },
@@ -482,6 +492,423 @@
       ? "No opportunities are recorded — the opportunity list starts empty and gains entries only through a validated import. No opportunity is shown, implied, or promised."
       : out.count + " opportunity record(s). Costs are UNKNOWN unless sourced; no return, APY, profit, or yield figure is recorded or shown.";
     return out;
+  }
+
+  // Entity pipeline summary (P4): real counts from the candidate
+  // records — candidates are proposals, never canonical, and this
+  // surface is the ONLY place they are visible (design §22/§24).
+  // Stage counts include the gate-owned stages (GATED / REGISTERED)
+  // alongside the P3 stages and terminals.
+  var PIPELINE_STAGES = ["DISCOVERED", "IDENTIFIED", "DEDUPED", "CLASSIFIED",
+    "RESOLVED", "MAPPED", "PREPARED", "GATED", "REGISTERED", "REJECTED", "DUPLICATE"];
+  function buildPipelineSummary(candidates, frozenBatches) {
+    var byStage = {};
+    PIPELINE_STAGES.forEach(function (s) { byStage[s] = 0; });
+    var stale = 0;
+    var ECmod = global.EntityCandidates;
+    (Array.isArray(candidates) ? candidates : []).forEach(function (c) {
+      if (!c) return;
+      if (byStage.hasOwnProperty(c.pipelineStage)) byStage[c.pipelineStage]++;
+      if (ECmod && typeof ECmod.isStale === "function" && safeCall(function () { return ECmod.isStale(c); })) stale++;
+    });
+    var frozen = 0, imported = 0;
+    (Array.isArray(frozenBatches) ? frozenBatches : []).forEach(function (b) {
+      if (!b) return;
+      if (b.status === "FROZEN") frozen++;
+      if (b.status === "IMPORTED") imported++;
+    });
+    return {
+      total: Array.isArray(candidates) ? candidates.length : 0,
+      byStage: byStage,
+      stale: stale,
+      frozenBatches: frozen,
+      importedBatches: imported,
+      prepared: byStage.PREPARED || 0
+    };
+  }
+
+  function pipelineFilterCandidates(candidates) {
+    var q = pipelineQuery.trim().toLowerCase();
+    return (Array.isArray(candidates) ? candidates : []).filter(function (c) {
+      if (!c) return false;
+      if (pipelineStageFilter !== "ALL" && c.pipelineStage !== pipelineStageFilter) return false;
+      if (pipelineKindFilter !== "ALL" && c.proposedKind !== pipelineKindFilter) return false;
+      if (!q) return true;
+      var hay = ((c.proposedName || "") + " " + (c.id || "") + " " +
+        ((c.aliases || []).join(" ")) + " " + (c.ticker || "") + " " +
+        ((c.resolution && c.resolution.canonicalId) || "")).toLowerCase();
+      return hay.indexOf(q) !== -1;
+    });
+  }
+
+  // ---- Entity pipeline surface (P4) ----------------------------------
+  // Candidates + the owner authority gate. Everything renders through
+  // U.el text paths — candidate names/evidence are user-supplied text
+  // and are never injected as HTML (design §28). Actions follow the
+  // Item 8 pattern: on failure only the status line changes (inputs
+  // survive); on success the screen re-renders from real records.
+  var pipelineStatusEl = null;
+  function pipelineFail(errors) {
+    pipelineStatus = "Not done: " + (Array.isArray(errors) ? errors.join(" ") : String(errors));
+    if (pipelineStatusEl) pipelineStatusEl.textContent = pipelineStatus;
+  }
+  function pipelineDone(message) {
+    pipelineStatus = message;
+    if (currentRoot) render(currentRoot);
+  }
+  function runPipelineAction(promise, successMessage) {
+    Promise.resolve(promise).then(function (res) {
+      if (res && res.ok) pipelineDone(successMessage);
+      else pipelineFail(res && res.errors ? res.errors : ["Unknown failure."]);
+    }).catch(function (e) { pipelineFail([e && e.message ? e.message : String(e)]); });
+  }
+  function pipeField(labelText, input) {
+    return U.el("div", { class: "api-meta", style: "margin-top:8px" }, [
+      U.el("div", {}, labelText), input
+    ]);
+  }
+  function pipeText(placeholder) {
+    return U.el("input", { class: "price-input", type: "text", placeholder: placeholder });
+  }
+  function pipeSelect(values) {
+    var sel = U.el("select", { class: "price-input" }, []);
+    values.forEach(function (v) { sel.appendChild(U.el("option", { value: v }, v)); });
+    return sel;
+  }
+  function pipeBtn(label, onClick) {
+    var b = U.el("button", { class: "btn btn-secondary btn-sm", type: "button" }, label);
+    b.addEventListener("click", onClick);
+    return b;
+  }
+  function splitList(s) {
+    return String(s || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+  }
+
+  function pipelineCandidateBlock(c) {
+    var EC = global.EntityCandidates;
+    var kids = [];
+    kids.push(U.el("h4", {}, (c.proposedName || c.id) + " — " + (c.proposedKind || "?") + " · " + c.pipelineStage));
+    kids.push(meta("Candidate: " + c.id + " · Type: " + (c.candidateType || "NEW_ENTITY") +
+      (c.targetCanonicalId ? " · Target: " + c.targetCanonicalId : "") +
+      " · Truth: " + (c.truthState || "UNVERIFIED") + " (candidates are always UNVERIFIED)"));
+    kids.push(meta("Proposed canonical id: " + ((c.resolution && c.resolution.canonicalId) || c.proposedId || "not resolved yet") +
+      ((c.resolution && c.resolution.confidence) ? " (" + c.resolution.confidence + ")" : "")));
+    var dd = c.dedupe || {};
+    kids.push(meta("Dedupe: " + (dd.verdict || "NOT_RUN") +
+      (dd.matchedCanonicalId ? " · matches canonical " + dd.matchedCanonicalId : "") +
+      (dd.matchedCandidateId ? " · matches candidate " + dd.matchedCandidateId : "") +
+      (dd.checkedBy ? " · checked by " + dd.checkedBy : "")));
+    var ev = Array.isArray(c.evidence) ? c.evidence : [];
+    kids.push(meta("Evidence: " + ev.length + (ev.length
+      ? " — " + ev.map(function (e) { return e.kind + ": " + e.ref; }).join("; ")
+      : " — none attached. Absence of evidence caps a candidate below PREPARED.")));
+    kids.push(meta("Identity signals: " + ((c.identitySignals || []).length) +
+      " · Discovered by " + (c.discoveredBy ? c.discoveredBy.type + ":" + c.discoveredBy.ref : "UNKNOWN") +
+      " at " + (c.discoveredAt || "UNKNOWN") +
+      (EC && EC.isStale(c) ? " · STALE (over " + EC.STALE_DAYS + " days in the pipeline)" : "")));
+    if (c.pipelineStage === "REJECTED" && c.rejection) {
+      kids.push(meta("Rejected by " + c.rejection.by + ": " + c.rejection.reason));
+    }
+    if (c.preparedBatchRef) kids.push(meta("Batch: " + c.preparedBatchRef));
+    var actions = [];
+    function act(label, fn) { actions.push(pipeBtn(label, fn)); }
+    if (EC) {
+      if (c.pipelineStage === "DISCOVERED") {
+        act("Mark IDENTIFIED", function () {
+          runPipelineAction(EC.transitionCandidate(c.id, "IDENTIFIED", OWNER_ACTOR, {}), c.id + " is IDENTIFIED.");
+        });
+      } else if (c.pipelineStage === "IDENTIFIED") {
+        act("Run dedupe", function () {
+          runPipelineAction(EC.runDedupe(c.id, OWNER_ACTOR), "Dedupe ran for " + c.id + ".");
+        });
+      } else if (c.pipelineStage === "DEDUPED") {
+        act("Classify", function () {
+          runPipelineAction(EC.transitionCandidate(c.id, "CLASSIFIED", OWNER_ACTOR, {}), c.id + " is CLASSIFIED.");
+        });
+      } else if (c.pipelineStage === "CLASSIFIED") {
+        act("Resolve identity (propose only)", function () {
+          runPipelineAction(EC.resolveIdentity(c.id, OWNER_ACTOR, {}), "Identity proposed for " + c.id + " — propose mode only, nothing registered.");
+        });
+      } else if (c.pipelineStage === "RESOLVED") {
+        var targetsIn = pipeText("Draft targets: canonical ids, comma-separated");
+        targetsIn.value = (c.networkRefs || []).join(", ");
+        kids.push(pipeField("Relationship draft targets (existing canonical ids or canonical-60 majors only)", targetsIn));
+        act("Map relationships (drafts only)", function () {
+          var drafts = splitList(targetsIn.value).map(function (t) { return { type: "REF", targetId: t }; });
+          runPipelineAction(EC.mapRelationships(c.id, drafts, OWNER_ACTOR), c.id + " is MAPPED (drafts only — not live edges).");
+        });
+      } else if (c.pipelineStage === "MAPPED") {
+        act("Prepare for the gate", function () {
+          runPipelineAction(EC.transitionCandidate(c.id, "PREPARED", OWNER_ACTOR, {}), c.id + " is PREPARED — it is now in the authority gate review list.");
+        });
+      } else if (c.pipelineStage === "PREPARED") {
+        kids.push(meta("PREPARED — waiting in the authority gate review list below. PREPARED is not REGISTERED and not VERIFIED."));
+      } else if (c.pipelineStage === "GATED") {
+        kids.push(meta("GATED — frozen into " + (c.preparedBatchRef || "a batch") + ". Registration happens only when the owner imports that batch through the two-phase gate."));
+      } else if (c.pipelineStage === "REGISTERED") {
+        kids.push(meta("REGISTERED through the two-phase import gate as part of " + (c.preparedBatchRef || "a frozen batch") + ". Truth remains UNVERIFIED."));
+      }
+    }
+    if (actions.length) {
+      kids.push(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, actions));
+    }
+    return U.el("div", { class: "api-panel" }, kids);
+  }
+
+  function pipelineIntakePanel() {
+    var EC = global.EntityCandidates;
+    var nameIn = pipeText("Entity name, e.g. Drift Protocol");
+    var kindSel = pipeSelect(["PROTOCOL", "ASSET", "NETWORK"]);
+    var tickerIn = pipeText("Ticker (assets only)");
+    var categoryIn = pipeText("Category (protocols, e.g. DEX, LENDING, BRIDGE)");
+    var networksIn = pipeText("Network refs, comma-separated canonical ids");
+    var aliasesIn = pipeText("Aliases, comma-separated");
+    var formerIn = pipeText("Former name (rebrands only)");
+    var anchorAddrIn = pipeText("Contract / mint address (optional anchor)");
+    var anchorNetIn = pipeText("Anchor network ref (required with an address)");
+    var anchorKindSel = pipeSelect(["contract", "mint"]);
+    var signalTypeIn = pipeText("Identity signal type"); signalTypeIn.value = "OFFICIAL_DOC";
+    var signalValueIn = pipeText("Identity signal — what identifies it");
+    var signalSourceIn = pipeText("Identity signal source (citation)");
+    var evKindSel = pipeSelect(EC ? EC.EVIDENCE_KINDS : ["OWNER_STATEMENT"]);
+    var evRefIn = pipeText("Evidence reference — URL, id, or owner note (optional at intake)");
+    var submit = pipeBtn("Record candidate at DISCOVERED", function () {
+      var draft = {
+        proposedKind: kindSel.value,
+        proposedName: nameIn.value.trim(),
+        aliases: splitList(aliasesIn.value),
+        networkRefs: splitList(networksIn.value),
+        identitySignals: []
+      };
+      if (tickerIn.value.trim()) draft.ticker = tickerIn.value.trim();
+      if (categoryIn.value.trim()) draft.category = categoryIn.value.trim();
+      if (formerIn.value.trim()) draft.formerName = formerIn.value.trim();
+      if (anchorAddrIn.value.trim()) {
+        draft.contractAnchors = [{ address: anchorAddrIn.value.trim(), networkRef: anchorNetIn.value.trim(), kind: anchorKindSel.value }];
+      }
+      if (signalValueIn.value.trim()) {
+        draft.identitySignals.push({ type: signalTypeIn.value.trim() || "OFFICIAL_DOC", value: signalValueIn.value.trim(), source: signalSourceIn.value.trim() });
+      }
+      if (evRefIn.value.trim()) {
+        draft.evidence = [{ kind: evKindSel.value, ref: evRefIn.value.trim(), capturedBy: "OWNER:owner" }];
+      }
+      runPipelineAction(EC.createCandidate(draft, OWNER_ACTOR),
+        "Candidate recorded at DISCOVERED. It is a proposal — UNVERIFIED and invisible to every canonical view.");
+    });
+    return panel("Owner candidate intake", [
+      meta("Record an entity you have identified. Intake creates a candidate at DISCOVERED with your provenance — it registers nothing, verifies nothing, and the candidate stays invisible to the Globe, the World Engine, search, and every canonical count until it passes the whole pipeline and your authority gate."),
+      pipeField("Name", nameIn),
+      pipeField("Kind", kindSel),
+      pipeField("Ticker", tickerIn),
+      pipeField("Category", categoryIn),
+      pipeField("Network refs", networksIn),
+      pipeField("Aliases", aliasesIn),
+      pipeField("Former name", formerIn),
+      pipeField("Anchor address", anchorAddrIn),
+      pipeField("Anchor network ref", anchorNetIn),
+      pipeField("Anchor kind", anchorKindSel),
+      pipeField("Identity signal type", signalTypeIn),
+      pipeField("Identity signal", signalValueIn),
+      pipeField("Identity signal source", signalSourceIn),
+      pipeField("Evidence kind", evKindSel),
+      pipeField("Evidence reference", evRefIn),
+      U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [submit])
+    ]);
+  }
+
+  function pipelineEvidencePanel(candidates) {
+    var EC = global.EntityCandidates;
+    var open = (candidates || []).filter(function (c) {
+      return c && ["REJECTED", "DUPLICATE", "REGISTERED"].indexOf(c.pipelineStage) === -1;
+    });
+    var sel = U.el("select", { class: "price-input" }, []);
+    open.forEach(function (c) {
+      sel.appendChild(U.el("option", { value: c.id }, (c.proposedName || c.id) + " (" + c.pipelineStage + ")"));
+    });
+    var kindSel = pipeSelect(EC ? EC.EVIDENCE_KINDS : ["OWNER_STATEMENT"]);
+    var refIn = pipeText("Evidence reference — URL, id, or owner note");
+    var submit = pipeBtn("Attach evidence (append-only)", function () {
+      if (!sel.value) { pipelineFail(["No open candidate to attach evidence to."]); return; }
+      runPipelineAction(
+        EC.addEvidence(sel.value, { kind: kindSel.value, ref: refIn.value.trim(), capturedBy: "OWNER:owner" }, OWNER_ACTOR),
+        "Evidence attached to " + sel.value + ". Provenance is append-only — it is never rewritten.");
+    });
+    return panel("Attach evidence", [
+      meta("Evidence is append-only provenance. Corrections add entries; history is never rewritten. A candidate needs at least one evidence entry before it can be PREPARED."),
+      pipeField("Candidate", sel),
+      pipeField("Evidence kind", kindSel),
+      pipeField("Evidence reference", refIn),
+      U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [submit])
+    ]);
+  }
+
+  function pipelineGatePanel(prepared) {
+    var EG = global.EntityGate;
+    var NI = global.NetworkIntelligence;
+    var kids = [
+      meta("The authority gate. Only the owner can freeze, return, or reject — STAR and workers can prepare candidates, never gate them. FREEZE INTO BATCH builds a frozen batch artifact in the Batch 1/2 shape and pre-validates it against the real import gate: a batch the gate would block is never frozen. Registration then happens only by importing the frozen batch through the two-phase gate (validate all, zero writes on any failure).")
+    ];
+    if (!prepared.length) {
+      kids.push(meta("No PREPARED candidates are waiting. The review list is honestly empty."));
+      return panel("🏛️ Authority gate — review list", kids);
+    }
+    var block = U.el("div", {}, []);
+    prepared.forEach(function (c) {
+      var rowKids = [];
+      var check = U.el("input", { type: "checkbox" });
+      check.checked = true;
+      check.setAttribute("data-freeze-id", c.id);
+      rowKids.push(U.el("div", { class: "api-meta" }, [
+        check,
+        U.el("span", {}, " Freeze " + (c.proposedName || c.id) + " → " +
+          ((c.resolution && c.resolution.canonicalId) || "?") + " (" + c.proposedKind + ", " +
+          ((c.evidence || []).length) + " evidence, dedupe " + ((c.dedupe && c.dedupe.verdict) || "NOT_RUN") + ")")
+      ]));
+      if (c.proposedKind === "NETWORK") {
+        var vmSel = pipeSelect(NI && Array.isArray(NI.VM_TYPES) ? NI.VM_TYPES : ["EVM", "SVM", "COSMOS", "UTXO", "MOVE", "SUBSTRATE"]);
+        vmSel.setAttribute("data-comp-vm", c.id);
+        var chainIn = pipeText("EIP-155 chain id (blank = none / non-EVM)");
+        chainIn.setAttribute("data-comp-chain", c.id);
+        rowKids.push(pipeField("VM (owner states it at the gate — the candidate schema does not carry it)", vmSel));
+        rowKids.push(pipeField("Chain id", chainIn));
+      }
+      if (c.proposedKind === "ASSET") {
+        var notSel = pipeSelect(["", "native", "token"]);
+        notSel.setAttribute("data-comp-not", c.id);
+        var classIn = pipeText("Asset class (blank = UNKNOWN)");
+        classIn.setAttribute("data-comp-class", c.id);
+        rowKids.push(pipeField("Native or token (blank = unstated)", notSel));
+        rowKids.push(pipeField("Asset class", classIn));
+      }
+      if (c.proposedKind === "PROTOCOL") {
+        var actIn = pipeText("Activity refs — canonical-60 major ids, comma-separated (drafts also apply)");
+        actIn.setAttribute("data-comp-act", c.id);
+        rowKids.push(pipeField("Activity refs", actIn));
+      }
+      var noteIn = pipeText("Return note — what evidence is needed");
+      noteIn.setAttribute("data-return-note", c.id);
+      var reasonIn = pipeText("Reject reason (required, retained)");
+      reasonIn.setAttribute("data-reject-reason", c.id);
+      rowKids.push(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [
+        pipeBtn("RETURN FOR EVIDENCE", function () {
+          runPipelineAction(EG.returnForEvidence(c.id, OWNER_ACTOR, { note: noteIn.value }),
+            c.id + " returned for evidence (back to MAPPED).");
+        }),
+        pipeBtn("REJECT", function () {
+          runPipelineAction(EG.rejectFromGate(c.id, OWNER_ACTOR, { reason: reasonIn.value }),
+            c.id + " REJECTED at the gate — retained as dedupe memory.");
+        })
+      ]));
+      rowKids.push(pipeField("Return note", noteIn));
+      rowKids.push(pipeField("Reject reason", reasonIn));
+      block.appendChild(U.el("div", { class: "api-panel" }, rowKids));
+    });
+    kids.push(block);
+    var freezeBtn = pipeBtn("FREEZE INTO BATCH (checked candidates)", function () {
+      var ids = [];
+      var completions = {};
+      block.querySelectorAll("input[data-freeze-id]").forEach(function (box) {
+        if (!box.checked) return;
+        var id = box.getAttribute("data-freeze-id");
+        ids.push(id);
+        var comp = {};
+        var vm = block.querySelector("[data-comp-vm=\"" + id + "\"]");
+        if (vm && vm.value) comp.vm = vm.value;
+        var chain = block.querySelector("[data-comp-chain=\"" + id + "\"]");
+        if (chain && chain.value.trim()) {
+          var n = parseInt(chain.value.trim(), 10);
+          comp.chainId = isNaN(n) ? chain.value.trim() : n;
+        }
+        var not = block.querySelector("[data-comp-not=\"" + id + "\"]");
+        if (not && not.value) comp.nativeOrToken = not.value;
+        var cls = block.querySelector("[data-comp-class=\"" + id + "\"]");
+        if (cls && cls.value.trim()) comp.assetClass = cls.value.trim();
+        var act = block.querySelector("[data-comp-act=\"" + id + "\"]");
+        if (act && act.value.trim()) comp.activityRefs = splitList(act.value);
+        completions[id] = comp;
+      });
+      if (!ids.length) { pipelineFail(["No candidate is checked for freezing."]); return; }
+      runPipelineAction(EG.freezeIntoBatch(ids, OWNER_ACTOR, { completions: completions }),
+        "Frozen into a new entity batch. Candidates are GATED — registration still requires importing the batch through the two-phase gate below.");
+    });
+    kids.push(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [freezeBtn]));
+    return panel("🏛️ Authority gate — review list", kids);
+  }
+
+  function pipelineFrozenPanel(frozenBatches) {
+    var EG = global.EntityGate;
+    var kids = [meta("Frozen batches are artifacts of the gate, in the exact Batch 1/2 shape. IMPORT runs the existing two-phase import gate — the only path from candidate to canonical. A blocked import writes nothing and leaves the batch FROZEN and its candidates GATED.")];
+    if (!frozenBatches.length) {
+      kids.push(meta("No frozen batches. Nothing has been frozen at the gate yet."));
+      return panel("❄️ Frozen batches", kids);
+    }
+    frozenBatches.forEach(function (b) {
+      var lines = [
+        row("Batch", b.batch + " — " + (b.label || "")),
+        row("Status", b.status),
+        row("Records", (b.records || []).length + " (" + (b.networks || []).length + " networks, " +
+          (b.assets || []).length + " assets, " + (b.protocols || []).length + " protocols)"),
+        row("Frozen by", (b.frozenBy || "UNKNOWN") + " at " + (b.frozenAt || "UNKNOWN")),
+        row("Candidates", (b.candidateIds || []).join(", "))
+      ];
+      if (b.importReport) {
+        lines.push(row("Last import", "imported " + b.importReport.imported + ", already present " +
+          b.importReport.alreadyPresent + (b.importReport.blocked ? ", BLOCKED — zero writes" : "")));
+      }
+      if (b.status === "FROZEN" && EG) {
+        lines.push(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [
+          pipeBtn("IMPORT THROUGH THE TWO-PHASE GATE", function () {
+            runPipelineAction(EG.importFrozenBatch(b.batch, OWNER_ACTOR),
+              b.batch + " imported through the two-phase gate and registered. Truth remains UNVERIFIED.");
+          })
+        ]));
+      }
+      kids.push(U.el("div", { class: "api-panel" }, lines));
+    });
+    return panel("❄️ Frozen batches", kids);
+  }
+
+  function buildPipelinePanel(candidates, frozenBatches) {
+    var EC = global.EntityCandidates, EG = global.EntityGate;
+    var kids = [];
+    kids.push(meta("The governed front door for Entity Universe growth. A candidate is a PROPOSAL, never a canonical entity: candidates and frozen-batch artifacts are excluded from every canonical view (Globe, World Engine, Encyclopedia, Universal Search, registry counts). Discovery is not verification — every candidate is UNVERIFIED at every stage, and PREPARED is not REGISTERED."));
+    pipelineStatusEl = U.el("div", { class: "api-meta", style: "margin-top:10px" }, pipelineStatus || "");
+    kids.push(pipelineStatusEl);
+    if (!EC || !EG) {
+      kids.push(meta(notLoadedLine(!EC ? "EntityCandidates" : "EntityGate", "the entity pipeline")));
+      return panel("🧬 Entity pipeline — candidates & authority gate", kids);
+    }
+    var summary = buildPipelineSummary(candidates, frozenBatches);
+    kids.push(row("Candidates recorded", String(summary.total)));
+    PIPELINE_STAGES.forEach(function (s) {
+      if (summary.byStage[s]) kids.push(row("Stage " + s, String(summary.byStage[s])));
+    });
+    kids.push(row("Stale candidates (flag only, never auto-rejected)", String(summary.stale)));
+    kids.push(row("Frozen batches", summary.frozenBatches + " frozen, " + summary.importedBatches + " imported"));
+    var stageSel = pipeSelect(["ALL"].concat(PIPELINE_STAGES));
+    stageSel.value = pipelineStageFilter;
+    stageSel.addEventListener("change", function () { pipelineStageFilter = stageSel.value; if (currentRoot) render(currentRoot); });
+    var kindSel = pipeSelect(["ALL", "NETWORK", "ASSET", "PROTOCOL"]);
+    kindSel.value = pipelineKindFilter;
+    kindSel.addEventListener("change", function () { pipelineKindFilter = kindSel.value; if (currentRoot) render(currentRoot); });
+    var queryIn = U.el("input", { class: "cw-filter-input", type: "search", placeholder: "Filter candidates by name (this surface only)…", value: pipelineQuery, "aria-label": "Filter candidates by name" });
+    queryIn.addEventListener("change", function () {
+      pipelineQuery = queryIn.value || "";
+      if (currentRoot) render(currentRoot);
+    });
+    kids.push(U.el("div", { class: "price-input-row" }, [stageSel, kindSel, queryIn]));
+    var filtered = pipelineFilterCandidates(candidates);
+    if (!filtered.length) {
+      kids.push(meta(candidates && candidates.length
+        ? "No candidate matches this filter — nothing is recorded under it, not a guess."
+        : "No candidates are recorded. The pipeline starts empty and gains entries only through intake — nothing is seeded or invented."));
+    }
+    filtered.forEach(function (c) { kids.push(pipelineCandidateBlock(c)); });
+    var wrap = panel("🧬 Entity pipeline — candidates & authority gate", kids);
+    var outer = U.el("div", {}, [wrap, pipelineIntakePanel(), pipelineEvidencePanel(candidates),
+      pipelineGatePanel((candidates || []).filter(function (c) { return c && c.pipelineStage === "PREPARED"; })),
+      pipelineFrozenPanel(frozenBatches)]);
+    return outer;
   }
 
   // ---- Render helpers -----------------------------------------------------
@@ -1044,6 +1471,22 @@
       "Nothing discovered by a bot becomes authoritative on its own; rejected, duplicate, stale, " +
       "and needs-review outcomes are kept as statuses."));
 
+    // ---- 15. Entity pipeline (P4): candidates + authority gate ---------
+    // Candidate data is read through EntityCandidates (direct store
+    // reads), NEVER through the canonical records above: candidates
+    // and frozen-batch artifacts are excluded from `records` by the
+    // CryptoWorld.getAllRecords canonical view, so nothing in this
+    // section can inflate a canonical count, the graph, or search.
+    var pipeCandidates = null;
+    var pipeFrozen = [];
+    if (global.EntityCandidates && typeof global.EntityCandidates.listCandidates === "function") {
+      try { pipeCandidates = await global.EntityCandidates.listCandidates(); } catch (e) { pipeCandidates = null; }
+    }
+    if (global.EntityGate && typeof global.EntityGate.listFrozenBatches === "function") {
+      try { pipeFrozen = await global.EntityGate.listFrozenBatches(); } catch (e) { pipeFrozen = []; }
+    }
+    addSection("pipeline", buildPipelinePanel(pipeCandidates, pipeFrozen));
+
     // Append per the active tab: OVERVIEW shows everything, any other
     // tab shows only its own sections. The drill-down list is only
     // built when its panel is on screen.
@@ -1064,6 +1507,7 @@
     buildAngelSummary: buildAngelSummary,
     buildBotSummary: buildBotSummary,
     buildOpportunitySummary: buildOpportunitySummary,
+    buildPipelineSummary: buildPipelineSummary,
     getViewFilter: function () { return viewFilter; },
     setViewFilter: setViewFilter,
     ACTIONS_NOT_IMPORTED_NOTE: ACTIONS_NOT_IMPORTED_NOTE
