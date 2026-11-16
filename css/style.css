@@ -3668,3 +3668,33 @@ body.route-globe .globe-visual { border: none; border-radius: 0; }
   .globe-explore:not(.globe-explore--hidden) .globe-explore__pad { animation: none; }
   .globe-chip, .globe-explore__arrow { transition: none; }
 }
+
+/* CW-2 — Crypto Workspace Frame (Master Directive §77). One frame
+ * for all 56 registry workspaces: header/ladder/views, the activity
+ * tree, context + intelligence panels, the actions row and its
+ * inspector. Phone stacks everything; wider bands split context and
+ * intelligence into two columns. No animation beyond the platform's
+ * existing transitions — reduced-motion safe by construction. */
+.cw2-ladder { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+.cw2-rung { padding: 6px 10px; border: 1px solid var(--border, #24435c); border-radius: 999px;
+  font-size: 12px; letter-spacing: .04em; min-height: 32px; display: inline-flex; align-items: center; }
+.cw2-rung--top { border-color: var(--cyan); color: var(--cyan); }
+.cw2-rung--locked { opacity: .55; }
+.cw2-rung--disabled { border-color: #8a2f35; color: #ff7a7a; opacity: .8; }
+.cw2-views { align-items: center; gap: 8px; margin: 10px 0; }
+.cw2-panel { margin: 12px 0; }
+.cw2-major { border-top: 1px solid var(--border, #24435c); padding: 10px 0 4px; }
+.cw2-major-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; justify-content: space-between; }
+.cw2-major-title { font-weight: 600; min-height: 44px; display: inline-flex; align-items: center; }
+.cw2-major-counts { font-size: 12px; opacity: .75; }
+.cw2-rec { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 3px 0; }
+.cw2-rec--i1 { margin-left: 18px; }
+.cw2-rec--i2 { margin-left: 36px; }
+.cw2-rec-link { min-height: 32px; display: inline-flex; align-items: center; }
+.cw2-rec-state { font-size: 12px; opacity: .75; }
+.cw2-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 6px; }
+.cw2-actions .btn, .cw2-views .btn { min-height: 44px; }
+.cw2-inspector .cw2-panel[hidden] { display: none; }
+@media (min-width: 768px) {
+  .cw2-frame-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+}

@@ -1119,7 +1119,22 @@
         if (item.definition) activitiesListBox.appendChild(meta(item.definition));
         var iChips = itemChips(item);
         if (iChips) activitiesListBox.appendChild(iChips);
-        activitiesListBox.appendChild(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [encyclopediaLink(item.id)]));
+        var majorActions = [encyclopediaLink(item.id)];
+        // CW-2 (additive): a Major Activity resolves to its primary
+        // workspace through the Screen Registry (§90) — the drill-
+        // down keeps its own navigation; this link is the resolver's
+        // doorway into the shared workspace frame.
+        if (state.level === "majors" && global.CryptoWorkspaceRegistry) {
+          var wsRes = global.CryptoWorkspaceRegistry.resolveMajor(item.id);
+          var wsObj = wsRes ? global.CryptoWorkspaceRegistry.getWorkspace(wsRes.primary) : null;
+          if (wsObj) {
+            majorActions.push(U.el("a", {
+              class: "btn btn-primary btn-sm",
+              href: global.CryptoWorkspaceRegistry.hrefFor(wsObj, item.id)
+            }, "Open workspace: " + wsObj.title));
+          }
+        }
+        activitiesListBox.appendChild(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, majorActions));
       }
     });
     if (state.note) activitiesListBox.appendChild(meta(state.note));
@@ -1239,6 +1254,30 @@
     activitiesListBox = U.el("div", {});
     activitiesPanel.appendChild(activitiesListBox);
     addSection("activities", activitiesPanel);
+
+    // ---- 2b. Workspaces index (CW-2, additive) ---------------------------
+    // The two-level §92 navigation: groups -> workspaces, generated
+    // from the Screen Registry (F-26) so this menu and the taxonomy
+    // can never drift apart. Seats carry their EXPANSION-GATED
+    // marker — visible, so the universe's shape is honest, but
+    // never styled as live workspaces.
+    var REG = global.CryptoWorkspaceRegistry;
+    if (REG) {
+      var wsKids = [meta("All " + REG.WORKSPACES.length + " registered workspaces by group. Workspaces on the shared frame (CW-2) render their registry scope over the same canonical records; the design-time §111 status is shown as recorded in the CW-1 registry — a frame surface is not data integration, and EXECUTION is DISABLED on every workspace.")];
+      REG.GROUPS.forEach(function (g) {
+        wsKids.push(U.el("h4", {}, g.label));
+        REG.byGroup(g.id).forEach(function (w) {
+          var chip = w.gated ? "EXPANSION-GATED SEAT"
+            : w.route === "crypto-ws" ? "WORKSPACE FRAME (CW-2) · design status: " + w.status111
+            : w.status111;
+          wsKids.push(U.el("div", { class: "status-row" }, [
+            U.el("a", { href: REG.hrefFor(w), class: "cw2-rec-link" }, w.title),
+            U.el("span", { class: "status-value" }, chip)
+          ]));
+        });
+      });
+      addSection("activities", panel("Workspaces — the 56 registered surfaces", wsKids));
+    }
 
     // ---- 3. 60-WAY TAXONOMY (preserved from the Part 1 screen) -----------
     var verifiedMajorCount = records.filter(function (r) { return r.level === "MAJOR_ACTIVITY" && r.verificationStatus === "VERIFIED"; }).length;

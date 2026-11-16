@@ -21,6 +21,13 @@
     // worker detail views — like tasks/projects/expenses it is a
     // registered route that is deliberately NOT a drawer nav link.
     "bot-profile": { label: "Bot Profile", icon: "👤" },
+    // Crypto Workspace (CW-2): one route renders all 56 registry
+    // workspaces through the shared frame — "#/crypto-ws/<workspace>"
+    // with an optional "/<contextId>". Like bot-profile it is a
+    // registered route deliberately NOT a drawer nav link; it is
+    // reached from the Crypto World screen (Workspaces index +
+    // "Open workspace" on every Major Activity).
+    "crypto-ws": { label: "Crypto Workspace", icon: "💱" },
     wallets: { label: "Wallets", icon: "◈" },
     opportunities: { label: "Opportunities", icon: "◎" },
     earn: { label: "Earnings", icon: "💵" },
