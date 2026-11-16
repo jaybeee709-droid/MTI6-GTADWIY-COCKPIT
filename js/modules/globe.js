@@ -21,6 +21,18 @@
  * .globe-side-panel showing the selected layer's detail. The zoom
  * scales the 2D presentation only — it is not map data. The visual
  * area is a 2D shell, never labelled as a 3D terrain engine.
+ *
+ * Globe Engine Build 1 (roadmap item 13): js/globe-engine.js renders
+ * a local canvas presentation globe inside the visual area and plots
+ * one marker per item of the SELECTED intelligence layer — the same
+ * layer objects this screen's tabs, badges and Details panel read
+ * (getLayerSafe), handed to the engine on every layer/mode refresh.
+ * No layer item carries geography anywhere in this platform, so
+ * marker anchors are deterministic presentation layout (a
+ * Fibonacci-sphere spread in registry order), never locations; the
+ * truth label inside the visual says so. If the engine or a 2D
+ * canvas context is unavailable, the screen keeps its previous
+ * presentation (label only) — nothing here depends on it.
  */
 (function (global) {
   "use strict";
@@ -89,10 +101,13 @@
 
   // Honest label inside the visual area. TERRAIN gets the explicit
   // 2D-shell disclaimer; every other mode states plainly that no
-  // live map feed is connected.
+  // live map feed is connected. Globe Engine Build 1: the globe is
+  // rendered locally from this cockpit's own recorded layers —
+  // still no live map feed, and marker positions are presentation
+  // layout, not locations (no layer item carries geography).
   function truthLabelForMode(mode) {
-    if (mode === "TERRAIN") return "2D visual shell — not a 3D terrain engine. No terrain data is connected.";
-    return "No live map feed is connected — this is a 2D visual shell, not a live map.";
+    if (mode === "TERRAIN") return "2D visual shell — not a 3D terrain engine. No terrain data is connected. A local visual engine renders the cockpit's recorded layers on it; marker positions are layout, not locations.";
+    return "No live map feed is connected — a local visual engine renders this cockpit's own recorded layers on a presentation globe; marker positions are layout, not locations.";
   }
 
   function fmtTime(iso) {
@@ -191,6 +206,32 @@
     ]);
     stage.appendChild(visual);
 
+    // Globe Engine Build 1: a canvas presentation globe inside the
+    // visual area (absolutely positioned by CSS; the truth label
+    // stays above it). The engine is presentation only — if it or a
+    // 2D context is unavailable, the canvas is removed again and the
+    // screen is exactly its pre-engine self. The plotted data is
+    // handed in by plotGlobe() from this screen's own layer reads.
+    var globeEngine = null;
+    try {
+      if (global.GlobeEngine && typeof global.GlobeEngine.create === "function") {
+        var globeCanvas = U.el("canvas", { class: "globe-canvas", "aria-hidden": "true" }, []);
+        visual.appendChild(globeCanvas);
+        globeEngine = global.GlobeEngine.create(globeCanvas);
+        if (!globeEngine) {
+          try { visual.removeChild(globeCanvas); } catch (e) {}
+        }
+      }
+    } catch (e) { globeEngine = null; }
+
+    // Hand the engine the screen's current layer + mode. Called on
+    // every layer/mode refresh (including both async layer swaps),
+    // so the plotted markers always match the badges and the panel.
+    function plotGlobe() {
+      if (!globeEngine) return;
+      try { globeEngine.setData(getLayerSafe(selectedLayer), mode); } catch (e) {}
+    }
+
     // Side panel: selected layer's detail, beside the visual on wide
     // screens and an overlay sheet on phone (layout is the
     // coordinator's CSS pass). Hidden until the Details button opens it.
@@ -273,6 +314,7 @@
         x.setAttribute("aria-pressed", active ? "true" : "false");
       });
       refreshHeader();
+      plotGlobe();
     }
 
     // Layer detail for the side panel. Items come only from
@@ -366,6 +408,7 @@
       });
       renderPanelContent();
       refreshHeader();
+      plotGlobe();
     }
 
     function selectMode(id) {
