@@ -140,7 +140,7 @@
   // failed, not blocked): wiring and import are separate owner steps.
   var ENTITY_BATCH_ENABLED = {
     "entity-batch-1": true,
-    "entity-batch-2": false
+    "entity-batch-2": true
   };
   function entityBatchEnabled(batch) {
     if (!batch) return false;
