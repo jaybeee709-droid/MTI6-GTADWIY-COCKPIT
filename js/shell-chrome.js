@@ -16,6 +16,13 @@
  * MutationObserver over the document (event-driven; no polling, no
  * timers), so the glow can never claim STAR is talking when the
  * panel says it is not.
+ *
+ * STAR's face (owner ruling 2026-11-16): Daniel designated his own
+ * portrait as STAR's avatar (js/data/star-avatar.js). When that
+ * data file is present, the portrait fills the launcher disc; the
+ * button's border and shadow keep carrying the state colour around
+ * it. If the file is missing or the image fails to load, the
+ * launcher keeps its ✨ glyph, exactly as before.
  */
 (function (global) {
   "use strict";
@@ -48,6 +55,21 @@
         global.StarOverlay.open();
       }
     });
+    // STAR's face (see header note): the owner's portrait fills the
+    // launcher disc when the avatar data file loaded. The ✨ glyph
+    // stays underneath as the fallback — if the image errors, it is
+    // removed and the launcher looks exactly as it did before.
+    if (typeof global.STAR_AVATAR_SRC === "string" && global.STAR_AVATAR_SRC) {
+      var avatarImg = document.createElement("img");
+      avatarImg.className = "star-launcher-img";
+      avatarImg.alt = "";
+      avatarImg.setAttribute("aria-hidden", "true");
+      avatarImg.addEventListener("error", function () {
+        if (avatarImg.parentNode) avatarImg.parentNode.removeChild(avatarImg);
+      });
+      avatarImg.src = global.STAR_AVATAR_SRC;
+      launcher.appendChild(avatarImg);
+    }
     if (typeof MutationObserver === "function") {
       var observer = new MutationObserver(function () { syncTalking(launcher); });
       observer.observe(document.body, {

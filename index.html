@@ -99,6 +99,11 @@
   <script src="./js/api-client.js"></script>
   <script src="./js/db.js"></script>
   <script src="./js/backup.js"></script>
+  <!-- STAR avatar (owner-designated 2026-11-16): Daniel's portrait as
+       STAR's face — a WebP data URI in a JS data file (text-only repo).
+       Optional by design: consumers fall back to the original glyphs
+       if it is missing. Loads before every STAR consumer. -->
+  <script src="./js/data/star-avatar.js"></script>
   <!-- Star 3.0 layers, in dependency order: state, backend, router, UI -->
   <script src="./js/star-state.js"></script>
   <script src="./js/star-backend.js"></script>

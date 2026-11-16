@@ -1275,6 +1275,19 @@ body.nav-open #nav-scrim {
   line-height: 1;
   flex-shrink: 0;
 }
+/* STAR's face in the panel header (owner ruling 2026-11-16): the
+   same owner portrait as the launcher, as a small round copy in
+   the identity slot. Rendered only when js/data/star-avatar.js
+   loaded; otherwise the slot keeps its 🌟 glyph. */
+.star-avatar-img {
+  display: block;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: center 20%;
+  border: 2px solid var(--state-star-idle);
+}
 .star-title {
   margin: 0;
   font-size: 17px;
@@ -2891,6 +2904,7 @@ html, body { overflow-x: hidden; }
   width: 56px;
   height: 56px;
   border-radius: 50%;
+  overflow: hidden;
   border: 2px solid var(--state-star-idle);
   background: radial-gradient(circle at 35% 30%, #0d4a6e, #07273d);
   font-size: 24px;
@@ -2910,6 +2924,25 @@ html, body { overflow-x: hidden; }
 }
 @media (prefers-reduced-motion: reduce) {
   #star-launcher { transition: none; }
+}
+/* STAR's face inside the launcher (owner ruling 2026-11-16): the
+   owner's portrait fills the disc while the button's border and
+   shadow keep carrying the state colour around it (electric blue
+   at rest, green glow while talking). The portrait is head-and-
+   shoulders with the face in its upper third, so the image is
+   zoomed toward the face for the small circle. If the image is
+   absent, nothing renders here and the ✨ glyph shows as before. */
+.star-launcher-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 20%;
+  transform: scale(1.45);
+  transform-origin: 50% 30%;
+  border-radius: 50%;
+  pointer-events: none;
 }
 
 /* ---- Command bar compaction ---- */

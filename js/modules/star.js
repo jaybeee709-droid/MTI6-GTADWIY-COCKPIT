@@ -19,11 +19,33 @@
   var U = global.U;
   if (!U) return;
 
+  // STAR's face (owner ruling 2026-11-16): Daniel designated his
+  // own portrait as STAR's avatar (js/data/star-avatar.js). The
+  // identity slot shows the portrait when the data file is present;
+  // if it is missing or the image fails to load, the 🌟 glyph
+  // stays — exactly the pre-avatar panel.
+  function avatarNode() {
+    var src = global.STAR_AVATAR_SRC;
+    if (typeof src === "string" && src) {
+      var img = U.el("img", {
+        class: "star-avatar-img",
+        src: src,
+        alt: "",
+        onerror: function () {
+          var slot = img.parentNode;
+          if (slot) slot.textContent = "🌟";
+        }
+      });
+      return U.el("span", { class: "star-avatar", "aria-hidden": "true" }, [img]);
+    }
+    return U.el("span", { class: "star-avatar", "aria-hidden": "true" }, "🌟");
+  }
+
   function renderPanel() {
     var panel = U.el("section", { class: "star-panel", "aria-label": "Star 3.0 command chat" }, [
       U.el("div", { class: "star-header" }, [
         U.el("div", { class: "star-identity" }, [
-          U.el("span", { class: "star-avatar", "aria-hidden": "true" }, "🌟"),
+          avatarNode(),
           U.el("div", {}, [
             U.el("h2", { class: "star-title" }, "STAR 3.0"),
             U.el("div", { class: "star-subtitle" }, "Your cockpit AI assistant — future commander of the MTI6 bot system")
