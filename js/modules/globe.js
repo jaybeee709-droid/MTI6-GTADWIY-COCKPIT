@@ -43,6 +43,12 @@
  * geography, NOT a live map feed — nothing is fetched. The layer
  * markers remain layout, never locations: a marker does not sit in
  * the country it happens to land on, and the truth label says so.
+ *
+ * Names-off ruling (owner, 2026-11-16, later the same day): the
+ * country/state/city name labels are hidden for now
+ * (LABELS_ENABLED = false in js/globe-engine.js). Outlines, city
+ * points and layer markers are unchanged, and the vendored label
+ * points stay in the data file for when names return.
  */
 (function (global) {
   "use strict";
@@ -113,13 +119,15 @@
   // 2D-shell disclaimer; every other mode states plainly that no
   // live map feed is connected. Globe Map Build 2: a local engine
   // draws a flat world map from vendored public-domain Natural
-  // Earth outlines — the outlines and the faded names sit at their
-  // real positions; the glowing markers are this cockpit's recorded
-  // layers and their positions are presentation layout, not
-  // locations (no layer item carries geography).
+  // Earth outlines and city points — they sit at their real
+  // positions; country, state and city names are hidden for now
+  // by owner direction (2026-11-16; LABELS_ENABLED in
+  // js/globe-engine.js). The glowing markers are this cockpit's
+  // recorded layers and their positions are presentation layout,
+  // not locations (no layer item carries geography).
   function truthLabelForMode(mode) {
-    if (mode === "TERRAIN") return "2D visual shell — not a 3D terrain engine. No terrain data is connected. A local engine draws a flat world map from public-domain Natural Earth outlines, names faded at their real positions; marker positions are layout, not locations.";
-    return "No live map feed is connected — a local engine draws this flat world map from public-domain Natural Earth outlines, with country, state and city names faded at their real positions. The glowing markers are this cockpit's recorded layers; marker positions are layout, not locations.";
+    if (mode === "TERRAIN") return "2D visual shell — not a 3D terrain engine. No terrain data is connected. A local engine draws a flat world map from public-domain Natural Earth outlines and city points; country, state and city names are hidden for now by owner direction; marker positions are layout, not locations.";
+    return "No live map feed is connected — a local engine draws this flat world map from public-domain Natural Earth outlines and city points. Country, state and city names are hidden for now by owner direction. The glowing markers are this cockpit's recorded layers; marker positions are layout, not locations.";
   }
 
   function fmtTime(iso) {

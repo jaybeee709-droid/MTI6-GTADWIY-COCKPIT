@@ -11,10 +11,13 @@
  *   stroked electric blue on black — the same scheme as the rest of
  *   the cockpit.
  * - US state outlines (52) on top, fainter and thinner.
- * - Names at their positions, FADED into the background: country
+ * - A tiny dot at each major city's real position (243).
+ * - Names at their positions, FADED into the background — country
  *   names (Natural Earth's own label points) most visible, then
- *   state names, then major-city names (243, smallest and most
- *   faded) with a tiny dot at each city's real position.
+ *   state names, then city names — are implemented below but are
+ *   currently NOT drawn: LABELS_ENABLED is false (owner ruling
+ *   2026-11-16, "take the names off for now"). The vendored data
+ *   keeps its label points untouched for when names return.
  * - The selected intelligence layer's items as glowing markers on
  *   top — the same layer object (GlobeIntelligence.getLayer /
  *   listLayersLive) the screen's tabs, badges and Details panel
@@ -23,9 +26,11 @@
  *
  * Truth rules (do not weaken them):
  * - The MAP is real public-domain geography used as presentation:
- *   outlines and names sit at their real positions (see the data
- *   file's provenance header). It is NOT a live map feed — nothing
- *   is fetched, no tiles, no imagery, no external requests.
+ *   outlines sit at their real positions, and so do the label
+ *   points in the data (currently not drawn — see LABELS_ENABLED;
+ *   see the data file's provenance header). It is NOT a live map
+ *   feed — nothing is fetched, no tiles, no imagery, no external
+ *   requests.
  * - The MARKERS are the cockpit's recorded layers, and their
  *   positions are LAYOUT, never locations: no layer item anywhere
  *   in this platform carries latitude, longitude, or any geography
@@ -64,7 +69,8 @@
   // disclaimer. BOUNDARIES emphasises the outlines; INTELLIGENCE
   // accents in STAR purple. Label colours are rgba so the names sit
   // faded in the background: countries strongest, states weaker,
-  // cities weakest.
+  // cities weakest. (Label colours are used only while
+  // LABELS_ENABLED is on — names are off for now.)
   var PALETTES = {
     WORLD: {
       bg: "#04070b", glow: "#10283d",
@@ -103,6 +109,16 @@
     }
   };
 
+  // NAME LABELS — OFF for now (owner ruling, 2026-11-16: "look at
+  // the Globe take the names off for now"). While this is false the
+  // renderer draws NO country/state/city name text at all. The
+  // label pass below and the label points in js/data/world-map.js
+  // are deliberately left intact — flip this one constant to true
+  // to bring the faded names back. City DOTS are geography, not
+  // names, and are drawn either way; layer markers are data and
+  // are unaffected.
+  var LABELS_ENABLED = false;
+
   // Projection window (degrees). Latitudes beyond +/-85 are pole
   // caps with no label content; Antarctica's outline continues
   // below the window and is clipped by the canvas edge, as on most
@@ -125,6 +141,7 @@
     var stats = {
       framesDrawn: 0, markersPlotted: 0,
       countriesDrawn: 0, statesDrawn: 0, citiesDrawn: 0, labelsDrawn: 0,
+      labelsCountries: 0, labelsStates: 0, labelsCities: 0,
       mapLoaded: false,
       layerId: null, layerState: null, mode: mode,
       running: false, reducedMotion: false, angle: 0
@@ -244,16 +261,21 @@
         stats.statesDrawn = states.length;
         // Faded background names at their real positions:
         // countries strongest, states weaker, cities weakest.
+        // Skipped entirely while LABELS_ENABLED is false (owner
+        // ruling 2026-11-16 — names off for now; see the constant).
         var s = proj.scale;
         var countryFont = Math.max(9, Math.min(15, s * 3.1));
-        labelTotal += drawLabels(countries, proj,
-          "600 " + countryFont.toFixed(1) + "px system-ui, sans-serif",
-          pal.labelCountry, "labelsCountries");
-        labelTotal += drawLabels(states, proj,
-          "500 " + (countryFont * 0.74).toFixed(1) + "px system-ui, sans-serif",
-          pal.labelState, "labelsStates");
+        if (LABELS_ENABLED) {
+          labelTotal += drawLabels(countries, proj,
+            "600 " + countryFont.toFixed(1) + "px system-ui, sans-serif",
+            pal.labelCountry, "labelsCountries");
+          labelTotal += drawLabels(states, proj,
+            "500 " + (countryFont * 0.74).toFixed(1) + "px system-ui, sans-serif",
+            pal.labelState, "labelsStates");
+        }
         var cities = Array.isArray(data.cities) ? data.cities : [];
-        // City dots at their real positions.
+        // City dots at their real positions (geography, not names —
+        // drawn whether or not labels are enabled).
         ctx.fillStyle = pal.cityDot;
         for (var ti = 0; ti < cities.length; ti++) {
           var cpt = cities[ti].at;
@@ -262,9 +284,11 @@
           ctx.fill();
         }
         stats.citiesDrawn = cities.length;
-        labelTotal += drawLabels(cities, proj,
-          "400 " + (countryFont * 0.58).toFixed(1) + "px system-ui, sans-serif",
-          pal.labelCity, "labelsCities");
+        if (LABELS_ENABLED) {
+          labelTotal += drawLabels(cities, proj,
+            "400 " + (countryFont * 0.58).toFixed(1) + "px system-ui, sans-serif",
+            pal.labelCity, "labelsCities");
+        }
       } else {
         stats.countriesDrawn = 0;
         stats.statesDrawn = 0;
@@ -395,6 +419,6 @@
     };
   }
 
-  global.GlobeEngine = { create: create, PALETTES: Object.keys(PALETTES) };
+  global.GlobeEngine = { create: create, PALETTES: Object.keys(PALETTES), LABELS_ENABLED: LABELS_ENABLED };
 })(typeof globalThis !== "undefined" ? globalThis :
   (typeof window !== "undefined" ? window : this));
