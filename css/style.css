@@ -984,18 +984,13 @@ body.nav-open #nav-scrim {
 
 /* ===================== Tablet / Desktop / Samsung DeX ===================== */
 @media (min-width: 768px) {
-  #side-nav {
-    transform: translateX(0);
-    position: sticky;
-    top: 56px;
-    height: calc(100vh - 56px);
-  }
-  #nav-scrim {
-    display: none !important;
-  }
-  #menu-toggle {
-    display: none;
-  }
+  /* Full-Screen World Shell (owner direction 2026-11-16): the
+     docked sidebar at >=768px is SUPERSEDED — the sidebar is
+     closed by default at every width and opens only from the
+     top-left menu button as an overlay drawer, so the base
+     #side-nav / #nav-scrim / #menu-toggle rules govern at all
+     widths; the sticky in-flow rules that lived here are
+     removed on purpose. */
   #view-root {
     max-width: 1100px;
   }
@@ -3686,3 +3681,90 @@ html, body { overflow-x: hidden; }
   cursor: pointer;
 }
 #skip-link:focus-visible { transform: none; }
+
+/* ================================================================
+   FULL-SCREEN WORLD SHELL (owner direction 2026-11-16):
+   1. "That side bar should be close until u hit the 3 bar icon
+      on the top left" — sidebar CLOSED by default at every
+      width; opens only from the menu button as an overlay
+      drawer (base #side-nav rules govern; the >=768px dock
+      rules above were removed). js/app.js carries
+      aria-expanded + focus moves.
+   2. "The World Engine is the whole screen with the stuff
+      across the top roll and bottom roll" — Globe route
+      (body.route-globe, set by the router): full-bleed stage;
+      controls in two overlay rows ON the map (.globe-roll
+      --top/--bottom, assembled by js/modules/globe.js from
+      the same v84 elements). Other routes unchanged.
+   3. "On the phone screen can rotate to big globe — sideways"
+      — phone LANDSCAPE immersive (block at the end): slim
+      command bar, full-viewport stage, slim rolls.
+   ================================================================ */
+
+/* Direction 2: full-bleed Globe route. */
+body.route-globe #main-content, body.route-globe #view-root { padding: 0; }
+/* Dots rail + header gutter. */
+body.route-globe #view-root > .dot-rail,
+body.route-globe #view-root > .mti6-screen-header { margin-inline: 12px; }
+body.route-globe .globe-stage {
+  border: none; border-radius: 0; padding: 0;
+  min-height: calc(100vh - var(--cmdbar-h));
+  min-height: calc(100dvh - var(--cmdbar-h));
+}
+body.route-globe .globe-stage:fullscreen { min-height: 100vh; min-height: 100dvh; }
+body.route-globe .globe-visual { border: none; border-radius: 0; }
+
+/* Direction 2: the two rolls. Rolls take pointer events on
+   their own boxes only — the map's middle stays interactive. */
+.globe-roll {
+  position: absolute; left: 0; right: 0; z-index: 3;
+  background: rgba(5, 12, 19, 0.88);
+  border-color: var(--mti6-border);
+}
+.globe-roll--top {
+  top: 0; display: flex; flex-direction: row; align-items: center;
+  flex-wrap: nowrap; gap: 10px; padding: 6px 10px;
+  overflow-x: auto; overflow-y: hidden;
+  border-bottom: 1px solid var(--mti6-border);
+}
+.globe-roll__group { display: flex; align-items: center; gap: 8px; flex: none; }
+.globe-roll .globe-controls__heading { white-space: nowrap; }
+.globe-roll .api-meta { white-space: nowrap; }
+.globe-roll .globe-mode-note { white-space: normal; flex: 0 1 300px; min-width: 160px; }
+/* Roll tappables keep the 44px minimum. */
+.globe-roll .btn, .globe-roll .mti6-tab { min-height: var(--touch-min); }
+.globe-roll--bottom {
+  bottom: 0; display: flex; flex-direction: column; gap: 6px;
+  /* Inline-end clearance keeps roll controls clear of the
+     STAR launcher disc at the viewport's bottom-right. */
+  padding: 8px 88px 8px 10px;
+  padding-bottom: max(8px, var(--safe-bottom));
+  border-top: 1px solid var(--mti6-border);
+}
+.globe-roll__main { order: 1; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.globe-roll__layers {
+  flex: 1 1 auto; min-width: 0;
+  font-size: var(--fs-caption); color: var(--mti6-text-secondary);
+}
+.globe-roll .globe-live-note { order: 2; margin-top: 0; white-space: normal; }
+.globe-roll .globe-roll__truth { order: 3; margin-top: 0; white-space: normal; }
+/* Alert Mode: the banner rides ABOVE both rolls (z 4 over 3),
+   clear of the top strip; the red frame is the banner + the
+   visual's inset shadow (the full-bleed visual has no border). */
+.globe-visual > .globe-alert-banner {
+  position: absolute; top: 72px; left: 10px; right: 10px; z-index: 4;
+}
+
+/* Direction 3: phone landscape = big globe. */
+@media (max-width: 767px) and (orientation: landscape) {
+  #top-bar { height: 44px; }
+  #app-shell { padding-top: 44px; }
+  #side-nav { inset-block-start: 44px; }
+  #nav-scrim { inset-block-start: 44px; }
+  body.route-globe .globe-stage { min-height: 100vh; min-height: 100dvh; }
+  body.route-globe .mti6-screen-header { margin-block: 2px 6px; }
+  /* Slim rolls; the 44px targets inside are untouched. */
+  .globe-roll--top { padding-block: 4px; gap: 8px; }
+  .globe-roll--bottom { padding-top: 6px; gap: 4px; }
+  .globe-visual > .globe-alert-banner { top: 62px; }
+}

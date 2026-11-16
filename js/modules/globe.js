@@ -95,6 +95,18 @@
  *   LOCATION OFF — it is not wired in this build, no device
  *   location is requested, read or inferred, and Explore never
  *   implies the owner is physically at the place on screen.
+ *
+ * Full-Screen World Shell (owner direction 2026-11-16): the Globe
+ * route is full-bleed and the controls that used to stack in rows
+ * under the map now live in two overlay rows ON the visual — a
+ * TOP ROLL (layer chips, Explore/Me, view readout + zoom, mode
+ * tabs, quick layer toggles, Details, Full screen, mode note) and
+ * a BOTTOM ROLL (the recorded-layers readout line, SEARCH THIS
+ * AREA / FIND MORE, the Live World note, and the truth label
+ * verbatim as the roll's last line). Same elements, same
+ * handlers, same honest states — only their parents changed.
+ * The Live World panel below the stage keeps the location
+ * context card, the search results and the Media Selector.
  */
 (function (global) {
   "use strict";
@@ -282,7 +294,7 @@
     var stage = U.el("section", { class: "globe-stage", "aria-label": "World Globe stage" }, []);
 
     // Visual area: keeps the existing mode class globe-mode-<mode>.
-    var truthLabel = U.el("div", { class: "api-meta" }, truthLabelForMode(mode));
+    var truthLabel = U.el("div", { class: "api-meta globe-roll__truth" }, truthLabelForMode(mode));
     var visual = U.el("div", { class: "globe-visual globe-mode-" + mode.toLowerCase(), id: "globe-visual" }, [
       truthLabel
     ]);
@@ -380,17 +392,18 @@
     stage.appendChild(panel);
 
     // ---- Controls row 1: mode tabs + mode note as a status line -----
+    // (Full-Screen World Shell: the wrapper rows are no longer
+    // appended to the stage — their children move into the two
+    // overlay rolls assembled after the Live World panel below.)
     var modeNoteEl = U.el("div", { class: "api-meta globe-mode-note" }, modeNote(mode));
     var modeTabs = U.el("div", { class: "mti6-tabs", role: "group", "aria-label": "World Globe visual mode" }, []);
     var modeControls = U.el("div", { class: "globe-controls" }, [modeTabs, modeNoteEl]);
-    stage.appendChild(modeControls);
 
     // ---- Controls row 2: layer tabs, each with its real-state badge -
     var layerTabs = U.el("div", { class: "mti6-tabs", role: "group", "aria-label": "World Globe intelligence layer" }, []);
     var layerControls = U.el("div", { class: "globe-controls globe-controls--layers" }, [
       U.el("h3", { class: "globe-controls__heading" }, "Intelligence layers"), layerTabs
     ]);
-    stage.appendChild(layerControls);
 
     // ---- Controls row 3: zoom, reset, layer toggles, Details, full screen
     var zoomReadout = U.el("span", { class: "api-meta" }, "");
@@ -425,7 +438,6 @@
     var meBtn = U.el("button", { class: "btn", type: "button", "aria-pressed": "false" }, "Me · LOCATION OFF");
     actionControls.appendChild(exploreBtn);
     actionControls.appendChild(meBtn);
-    stage.appendChild(actionControls);
 
     root.appendChild(stage);
 
@@ -616,6 +628,42 @@
     ]);
     root.appendChild(livePanel);
 
+    // ---- Full-Screen World Shell: the two rolls ON the map ---------
+    // Assembled here, once every control exists. The elements are
+    // the SAME nodes with the SAME handlers wired below — only
+    // their parents change (appendChild reparents). The bottom
+    // roll joins the visual BEFORE the top roll and the truth
+    // label is its first DOM child, so the truth label keeps its
+    // long-standing position as the first .api-meta inside the
+    // visual; flex `order` (css/style.css), not DOM order, lays
+    // the roll out visually: actions line, note, truth line last.
+    var readoutLine = U.el("div", { class: "globe-roll__layers", role: "status" }, "");
+    var topRoll = U.el("div", { class: "globe-roll globe-roll--top", "aria-label": "Globe controls" }, []);
+    var bottomRoll = U.el("div", { class: "globe-roll globe-roll--bottom", "aria-label": "Live World area actions and readouts" }, []);
+    bottomRoll.appendChild(truthLabel);
+    bottomRoll.appendChild(U.el("div", { class: "globe-roll__main" }, [readoutLine, searchAreaBtn, findMoreBtn]));
+    bottomRoll.appendChild(liveNote);
+    visual.appendChild(bottomRoll);
+    function rollGroup(children) {
+      var g = U.el("div", { class: "globe-roll__group" }, []);
+      children.forEach(function (c) { if (c) g.appendChild(c); });
+      return g;
+    }
+    topRoll.appendChild(rollGroup([layerControls.querySelector(".globe-controls__heading"), layerTabs]));
+    topRoll.appendChild(rollGroup([exploreBtn, meBtn]));
+    topRoll.appendChild(rollGroup([zoomOutBtn, zoomReadout, zoomInBtn, resetBtn]));
+    topRoll.appendChild(rollGroup([modeTabs]));
+    topRoll.appendChild(rollGroup([toggleBtns.SECURITY_ALERTS, toggleBtns.OPPORTUNITIES, toggleBtns.BOT_ACTIVITY]));
+    topRoll.appendChild(rollGroup([detailsBtn, fsBtn]));
+    topRoll.appendChild(rollGroup([modeNoteEl]));
+    visual.appendChild(topRoll);
+    // The two Live World action wrappers in the panel are empty
+    // now (their buttons live in the bottom roll) — remove them
+    // so the panel keeps no dead gaps.
+    livePanel.querySelectorAll(".globe-live-actions").forEach(function (w) {
+      if (!w.children.length) w.remove();
+    });
+
     // ---- Refreshers ---------------------------------------------------
     // Live World Build 1: the zoom controls drive the engine's
     // REAL view transform (centre + scale over the vendored data).
@@ -752,6 +800,9 @@
       refreshHeader();
       plotGlobe();
       refreshAlertMode();
+      // Bottom-roll readout line: the same live derivation the
+      // SEARCH THIS AREA layers card uses — never hard-coded.
+      try { readoutLine.textContent = layerCountsLine(); } catch (e) {}
     }
 
     function selectMode(id) {

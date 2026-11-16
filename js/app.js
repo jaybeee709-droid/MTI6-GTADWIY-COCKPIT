@@ -193,12 +193,44 @@
     }
   }
 
-  // ---- Mobile nav drawer: backdrop click, Escape key, swipe-left, link choice ----
+  // ---- Nav drawer: backdrop click, Escape key, swipe-left, link choice ----
+  // Full-Screen World Shell (owner direction 2026-11-16): the
+  // sidebar is CLOSED by default at EVERY width and opens only
+  // from the top-left ☰ as an overlay drawer — the earlier
+  // >=768px docked sidebar is superseded (see css/style.css).
+  // The ☰ button carries the state (aria-expanded / label), focus
+  // moves into the drawer on open, and closing returns focus to
+  // the ☰ when focus was inside the drawer.
+  function syncMenuToggle(open) {
+    const btn = document.getElementById("menu-toggle");
+    if (!btn) return;
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    btn.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+  }
   function closeMobileNav() {
+    const wasOpen = document.body.classList.contains("nav-open");
     document.body.classList.remove("nav-open");
+    if (!wasOpen) return;
+    syncMenuToggle(false);
+    // Return focus to the ☰ only when focus is still inside the
+    // drawer (a nav choice, Esc, the scrim) — never steal focus
+    // from wherever the user actually is (renderRoute calls this
+    // on every navigation as a safety net).
+    const drawer = document.getElementById("side-nav");
+    const btn = document.getElementById("menu-toggle");
+    if (drawer && btn && drawer.contains(document.activeElement)) {
+      try { btn.focus(); } catch (e) {}
+    }
   }
   function openMobileNav() {
     document.body.classList.add("nav-open");
+    syncMenuToggle(true);
+    const drawer = document.getElementById("side-nav");
+    if (!drawer) return;
+    const first = drawer.querySelector("select, button, [href], input");
+    if (first) {
+      try { first.focus(); } catch (e) {}
+    }
   }
 
   function wireDrawerGestures() {
@@ -247,10 +279,15 @@
     // from quick-nav, STAR, or dashboard actions went through the
     // router only — so the drawer stayed open over the new screen
     // until manually closed. Closing here is the general safety net
-    // (idempotent class removal; at >=768px the sidebar is sticky
-    // in-flow, so this is a visual no-op there).
+    // (idempotent class removal; the drawer is an overlay at every
+    // width since the Full-Screen World Shell change, 2026-11-16).
     closeMobileNav();
     const route = currentRoute();
+    // Full-Screen World Shell (owner direction 2026-11-16): the
+    // Globe route is full-bleed — css/style.css keys the edge-to-
+    // edge stage geometry off this body class; every other route
+    // keeps the normal reading layout.
+    document.body.classList.toggle("route-globe", route === "globe");
     const myGeneration = ++renderGeneration;
     const root = document.getElementById("view-root");
 
