@@ -2940,3 +2940,82 @@ html, body { overflow-x: hidden; }
 @media (min-width: 768px) {
   #global-search-suggestions { left: 272px; }
 }
+
+/* ================================================================
+   RESPONSIVE SYSTEM — Phase D: World Home (Master Responsive
+   Directive, owner-authorized 2026-11-15; built 2026-11-16 under
+   the continuous-build instruction). The World Globe is HOME and
+   the dominant hero: the stage takes the full width available to
+   the view and the first viewport of height, and the 2D visual
+   flexes to fill whatever the compact control rows leave.
+   Presentation only — the globe module, its World Engine data
+   wiring, its modes and its honest labels are untouched, and the
+   cold-load layer refresh (fixed 2026-11-15) is not disturbed.
+   Canonical bands: A <480 | B 480–767 | C 768–1023 | D 1024–1439
+   | E 1440+. All values consume Phase B tokens; no new hex.
+   ================================================================ */
+
+/* The home view uses the whole content column: the 980/1100px
+   reading caps that serve text screens would cage the hero.
+   (:has() precedent: the Bot Ops panel fix in this file. Older
+   browsers without :has() simply keep the capped column — the
+   stage still renders, just narrower.) */
+#view-root:has(.globe-stage) { max-width: none; }
+
+/* Hero geometry: the stage claims the first viewport, minus the
+   fixed command bar and the view's own vertical padding (16px
+   top + 16px bottom at base; the band rules below adjust where
+   that padding differs). The visual — already flex column child
+   of the stage — grows to fill the hero; its px min-height
+   floors (below + the historical rules above) keep it dominant
+   even when the stacked control rows push the stage past one
+   viewport on short screens. vh first, dvh second: browsers
+   without dvh keep the vh value. */
+.globe-stage {
+  min-height: calc(100vh - var(--cmdbar-h) - 32px);
+  min-height: calc(100dvh - var(--cmdbar-h) - 32px);
+}
+.globe-visual { flex: 1 1 auto; }
+
+/* Full screen (the stage's own Fullscreen API): the stage IS the
+   viewport, so the hero sizing resolves against it directly and
+   the visual fills it. */
+.globe-stage:fullscreen {
+  min-height: 100vh;
+  min-height: 100dvh;
+  border-radius: 0;
+}
+
+/* Band C — Tablet (768–1023px): #main-content padding grows to
+   20px at >=768px (Analytics block above), so the hero budget
+   grows with it: 56 bar + 20 + 16 + 16 view/main padding. */
+@media (min-width: 768px) {
+  .globe-stage {
+    min-height: calc(100vh - var(--cmdbar-h) - 52px);
+    min-height: calc(100dvh - var(--cmdbar-h) - 52px);
+  }
+}
+
+/* Band D — Laptop/Desktop (1024–1439px): the layer Details panel
+   docks BESIDE the visual (the side-by-side layout globe.js's
+   comments have always described) instead of stacking under it;
+   the three control rows take their own full-width rows beneath.
+   When the panel is closed (display:none) the visual takes the
+   whole row. The visual's dominance floor moves to the canonical
+   1024 edge (the historical 1200px rule above still applies at
+   >=1200 and agrees). */
+@media (min-width: 1024px) {
+  .globe-stage { flex-direction: row; flex-wrap: wrap; }
+  .globe-visual { flex: 1 1 420px; min-height: 480px; }
+  .globe-side-panel { flex: 0 1 360px; }
+  .globe-stage > .globe-controls { flex: 1 1 100%; }
+}
+
+/* Band E — Large Cockpit (1440px+): ultrawide anchoring (Phase B
+   reserved --shell-max for Phase D/E). The shell itself is
+   already capped at 1600px, so this binds only if the shell cap
+   ever moves; the visual's floor rises for large displays. */
+@media (min-width: 1440px) {
+  .globe-stage { max-width: var(--shell-max); margin-inline: auto; width: 100%; }
+  .globe-visual { min-height: 560px; }
+}
