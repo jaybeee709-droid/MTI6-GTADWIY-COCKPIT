@@ -1508,6 +1508,24 @@ body.nav-open #nav-scrim {
 .star-panel--presence .star-figure-img {
   height: 132px;
 }
+/* Presence header fit (fix, found in the v80 preview check): in the
+   compact 370px dock the single header row crushed the identity
+   block — the title ran over the round avatar and the actions
+   crowded its edge. In presence form the header wraps instead: the
+   identity row keeps its natural width and the actions drop to
+   their own row, right-aligned. Full-panel layout is untouched. */
+.star-panel--presence .star-header {
+  flex-wrap: wrap;
+}
+.star-panel--presence .star-identity {
+  flex: 1 1 auto;
+}
+.star-panel--presence .star-title {
+  white-space: nowrap;
+}
+.star-panel--presence .star-header-actions {
+  margin-inline-start: auto;
+}
 @media (max-width: 380px) {
   .star-panel--presence .star-figure-img { height: 96px; }
 }
