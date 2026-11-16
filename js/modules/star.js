@@ -24,6 +24,44 @@
   // identity slot shows the portrait when the data file is present;
   // if it is missing or the image fails to load, the 🌟 glyph
   // stays — exactly the pre-avatar panel.
+  // STAR's expressions (Embodiment Build 1, owner direction
+  // 2026-11-16): STAR_AVATAR_EXPRESSIONS carries the talking /
+  // thinking / smile faces beside the idle STAR_AVATAR_SRC. Any
+  // missing expression falls back to the idle face; a missing data
+  // file falls back to the glyphs, exactly as before.
+  function idleSrc() {
+    var src = global.STAR_AVATAR_SRC;
+    return typeof src === "string" && src ? src : null;
+  }
+  function expressionSrc(name) {
+    var exprs = global.STAR_AVATAR_EXPRESSIONS;
+    var s = exprs && typeof exprs[name] === "string" && exprs[name] ? exprs[name] : null;
+    return s || idleSrc();
+  }
+
+  // STAR's embodied figure (Embodiment Build 1): the full
+  // head-and-shoulders cutout — that IS his body — standing at the
+  // top of the panel beside the name/status block. Rendered only
+  // when the avatar data file loaded; without it the panel is
+  // exactly the pre-embodiment panel. The figure's expression and
+  // motion are driven by setStatus() below — see the state-mapping
+  // note there. If the image fails to load, the figure removes
+  // itself and the panel keeps its header avatar / glyph.
+  function figureNode() {
+    var src = idleSrc();
+    if (!src) return null;
+    var img = U.el("img", {
+      class: "star-figure-img",
+      src: src,
+      alt: "",
+      onerror: function () {
+        var fig = img.parentNode;
+        if (fig && fig.parentNode) fig.parentNode.removeChild(fig);
+      }
+    });
+    return U.el("div", { class: "star-figure", "aria-hidden": "true" }, [img]);
+  }
+
   function avatarNode() {
     var src = global.STAR_AVATAR_SRC;
     if (typeof src === "string" && src) {
@@ -42,30 +80,42 @@
   }
 
   function renderPanel() {
-    var panel = U.el("section", { class: "star-panel", "aria-label": "Star 3.0 command chat" }, [
-      U.el("div", { class: "star-header" }, [
-        U.el("div", { class: "star-identity" }, [
-          avatarNode(),
-          U.el("div", {}, [
-            U.el("h2", { class: "star-title" }, "STAR 3.0"),
-            U.el("div", { class: "star-subtitle" }, "Your cockpit AI assistant — future commander of the MTI6 bot system")
-          ])
-        ]),
-        U.el("button", {
-          class: "btn btn-ghost btn-sm star-clear-btn",
-          title: "Clear this demo conversation (local only)",
-          "aria-label": "Clear Star conversation",
-          onclick: function () {
-            if (global.StarState) global.StarState.clear();
-            renderMessages();
-            setStatus("ready");
-          }
-        }, "Clear")
+    var headerEl = U.el("div", { class: "star-header" }, [
+      U.el("div", { class: "star-identity" }, [
+        avatarNode(),
+        U.el("div", {}, [
+          U.el("h2", { class: "star-title" }, "STAR 3.0"),
+          U.el("div", { class: "star-subtitle" }, "Your cockpit AI assistant — future commander of the MTI6 bot system")
+        ])
       ]),
-      U.el("div", { class: "star-status", role: "status" }, [
-        U.el("span", { class: "star-status-dot", "aria-hidden": "true" }),
-        U.el("span", { class: "star-status-text" }, statusText("ready"))
-      ]),
+      U.el("button", {
+        class: "btn btn-ghost btn-sm star-clear-btn",
+        title: "Clear this demo conversation (local only)",
+        "aria-label": "Clear Star conversation",
+        onclick: function () {
+          if (global.StarState) global.StarState.clear();
+          renderMessages();
+          setStatus("ready");
+        }
+      }, "Clear")
+    ]);
+    var statusEl = U.el("div", { class: "star-status", role: "status" }, [
+      U.el("span", { class: "star-status-dot", "aria-hidden": "true" }),
+      U.el("span", { class: "star-status-text" }, statusText("ready"))
+    ]);
+    // Embodiment: when STAR has his figure, it stands at the top
+    // of the panel beside the name/status block (figure left,
+    // header + status in the column beside him). Without the
+    // avatar data file there is no figure and no wrapper — the
+    // panel's structure is exactly the pre-embodiment panel.
+    var figureEl = figureNode();
+    var topEls = figureEl
+      ? [U.el("div", { class: "star-top" }, [
+          figureEl,
+          U.el("div", { class: "star-top-main" }, [headerEl, statusEl])
+        ])]
+      : [headerEl, statusEl];
+    var panel = U.el("section", { class: "star-panel", "aria-label": "Star 3.0 command chat" }, topEls.concat([
       U.el("div", { class: "star-messages", role: "log", "aria-live": "polite" }),
       U.el("div", { class: "star-input-row" }, [
         U.el("input", {
@@ -93,8 +143,9 @@
       ]),
       U.el("div", { class: "star-footnote" },
         "Demo mode: Star answers locally on this device. No AI backend is connected yet, and no keys live in this page.")
-    ]);
+    ]));
 
+    var figureImg = panel.querySelector(".star-figure-img");
     var input = panel.querySelector(".star-input");
     var sendBtn = panel.querySelector(".star-send-btn");
     var micBtn = panel.querySelectorAll(".star-icon-btn")[0];
@@ -123,11 +174,61 @@
       area.scrollTop = area.scrollHeight;
     }
 
+    // STAR's expression + motion mapping (Embodiment Build 1) —
+    // the honesty core of the embodiment. The figure is driven
+    // ONLY by this panel's real status state, through setStatus(),
+    // the single choke point every send/reply path already passes
+    // through. No timers, no polling, no simulated talking:
+    //
+    //   - "thinking" (setStatus("thinking")): send() sets this
+    //     synchronously when a message is sent, and every reply
+    //     path clears it with setStatus("ready") the moment the
+    //     reply lands. In this app that interval IS the speaking
+    //     interval — the reply is being produced throughout it —
+    //     so the figure shows the TALKING face and the gentle bob
+    //     for exactly that interval, and the launcher mirror in
+    //     js/shell-chrome.js (keyed on the same .star-status-
+    //     thinking class) swaps the launcher face to match.
+    //   - reply completion (the thinking -> ready transition
+    //     inside setStatus): the figure settles to the SMILE face
+    //     and keeps it while the panel rests in the answered
+    //     state; the next send flips it back to talking, and
+    //     Clear (setStatus("ready") with no production in flight)
+    //     returns it to idle.
+    //   - ready with no reply produced yet: the IDLE face, with
+    //     the slow breathing motion.
+    //
+    // The THINKING face (gaze up-and-to-the-side) is deliberately
+    // NOT bound to any state: this chat flow has exactly one
+    // production state — setStatus("thinking") fires in the same
+    // tick as the send, so there is no separate pre-reply
+    // deliberation moment to hang a thoughtful expression on.
+    // Inventing one (a fake pause, a timer) would claim a state
+    // STAR is not in. The asset ships in STAR_AVATAR_EXPRESSIONS
+    // and stays unused until a real state exists for it.
+    var wasThinking = false;
+    function setFigure(state) {
+      panel.classList.toggle("star-state-talking", state === "talking");
+      panel.classList.toggle("star-state-answered", state === "smile");
+      if (!figureImg) return;
+      var src = state === "idle" ? idleSrc() : expressionSrc(state);
+      if (src && figureImg.getAttribute("src") !== src) figureImg.src = src;
+    }
+
     function setStatus(kind) {
       var dot = panel.querySelector(".star-status-dot");
       var text = panel.querySelector(".star-status-text");
       if (dot) dot.className = "star-status-dot" + (kind === "thinking" ? " star-status-thinking" : "");
       if (text) text.textContent = statusText(kind);
+      if (kind === "thinking") {
+        wasThinking = true;
+        setFigure("talking");
+      } else if (wasThinking) {
+        wasThinking = false;
+        setFigure("smile");
+      } else {
+        setFigure("idle");
+      }
     }
 
     function statusText(kind) {

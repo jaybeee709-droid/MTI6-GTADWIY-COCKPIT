@@ -1288,6 +1288,61 @@ body.nav-open #nav-scrim {
   object-position: center 20%;
   border: 2px solid var(--state-star-idle);
 }
+/* STAR's embodied figure (Embodiment Build 1, owner direction
+   2026-11-16): the full head-and-shoulders cutout — that IS his
+   body — stands at the top of the panel beside the name/status
+   block (figure left, header + status in the column beside him).
+   Rendered only when js/data/star-avatar.js loaded; without it
+   there is no figure and no .star-top wrapper. Expression and
+   motion follow the panel's REAL state (js/modules/star.js
+   setStatus): breathing at rest, the talking face + a gentle bob
+   while a reply is being produced (.star-state-talking), the
+   smile face while the panel rests answered
+   (.star-state-answered). Transform/opacity only; the scoped
+   reduced-motion guard below (and the Phase H global net)
+   disable every animation here. */
+.star-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.star-top-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.star-figure {
+  flex: 0 0 auto;
+  line-height: 0;
+}
+.star-figure-img {
+  display: block;
+  height: 168px;
+  width: auto;
+  transform-origin: 50% 100%;
+  animation: star-breathe 4.6s ease-in-out infinite;
+}
+@keyframes star-breathe {
+  0%, 100% { transform: scale(1) translateY(0); }
+  50% { transform: scale(1.016) translateY(-1.5px); }
+}
+.star-panel.star-state-talking .star-figure-img {
+  animation: star-talk-bob 0.85s ease-in-out infinite;
+}
+@keyframes star-talk-bob {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  30% { transform: translateY(-3px) rotate(-0.5deg); }
+  65% { transform: translateY(-1px) rotate(0.4deg); }
+}
+@media (max-width: 767px) {
+  .star-figure-img { height: 118px; }
+}
+@media (max-width: 380px) {
+  .star-top { gap: 10px; }
+  .star-figure-img { height: 84px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .star-figure-img { animation: none; }
+}
 .star-title {
   margin: 0;
   font-size: 17px;

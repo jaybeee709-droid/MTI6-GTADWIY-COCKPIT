@@ -23,13 +23,32 @@
  * button's border and shadow keep carrying the state colour around
  * it. If the file is missing or the image fails to load, the
  * launcher keeps its ✨ glyph, exactly as before.
+ *
+ * STAR's expression (Embodiment Build 1, owner direction
+ * 2026-11-16): the same .star-status-thinking mirror also swaps
+ * the launcher face — the TALKING expression while a reply is
+ * being produced (in this app the thinking interval IS the
+ * speaking interval; see the state-mapping note in
+ * js/modules/star.js), the idle face otherwise. A missing talking
+ * asset falls back to the idle face. Event-driven like the glow:
+ * no timers, no polling, no simulated talking.
  */
 (function (global) {
   "use strict";
 
+  var launcherImg = null;
+
   function syncTalking(launcher) {
     var thinking = !!document.querySelector(".star-status-thinking");
     launcher.classList.toggle("star-talking", thinking);
+    if (launcherImg) {
+      var exprs = global.STAR_AVATAR_EXPRESSIONS;
+      var talkingSrc = exprs && typeof exprs.talking === "string" && exprs.talking ? exprs.talking : null;
+      var target = thinking && talkingSrc ? talkingSrc : global.STAR_AVATAR_SRC;
+      if (typeof target === "string" && target && launcherImg.getAttribute("src") !== target) {
+        launcherImg.src = target;
+      }
+    }
   }
 
   var initialized = false;
@@ -66,9 +85,11 @@
       avatarImg.setAttribute("aria-hidden", "true");
       avatarImg.addEventListener("error", function () {
         if (avatarImg.parentNode) avatarImg.parentNode.removeChild(avatarImg);
+        if (launcherImg === avatarImg) launcherImg = null;
       });
       avatarImg.src = global.STAR_AVATAR_SRC;
       launcher.appendChild(avatarImg);
+      launcherImg = avatarImg;
     }
     if (typeof MutationObserver === "function") {
       var observer = new MutationObserver(function () { syncTalking(launcher); });
