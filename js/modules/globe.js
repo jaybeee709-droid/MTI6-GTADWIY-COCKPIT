@@ -16,10 +16,9 @@
  * Visual Build Stage 2 (W1 — World Globe): the globe dominates the
  * composition (.globe-stage > .globe-visual, mode class kept), with
  * compact .globe-controls (mode tabs, layer tabs with real-state
- * badges, presentation zoom, reset, layer toggles, Details panel,
+ * badges, view zoom, reset, layer toggles, Details panel,
  * full screen via the browser Fullscreen API) and a collapsible
- * .globe-side-panel showing the selected layer's detail. The zoom
- * scales the 2D presentation only — it is not map data. The visual
+ * .globe-side-panel showing the selected layer's detail. The visual
  * area is a 2D shell, never labelled as a 3D terrain engine.
  *
  * Globe Engine Build 1 (roadmap item 13): js/globe-engine.js renders
@@ -65,6 +64,37 @@
  * locations — and the truth label says so while it is on.
  * AngelSecurity has no live detectors; nothing here claims
  * live detection.
+ *
+ * Live World Build 1 (owner direction, 2026-11-16): the Globe
+ * screen becomes the Live World surface, on the local engine
+ * enhanced in place (mapping-stack audit Option 1 — no new
+ * dependencies, no tiles, no framework):
+ * - REAL pan/zoom: the engine holds a view transform (centre +
+ *   scale); drag pans, wheel/pinch zoom, + / − / Reset drive it,
+ *   and tiers run WORLD → REGION → COUNTRY → LOCAL. The old CSS
+ *   "presentation zoom" is gone — zoom now re-projects the
+ *   vendored geography. Its honesty limit stands: the outlines
+ *   are coarse (110m), so zoom shows them larger; it is not
+ *   satellite imagery and there is no street-level detail.
+ * - LOCATION CONTEXT: tapping the map inverse-projects the tap
+ *   to lon/lat; near a vendored city the context names that city
+ *   and its country (real dataset positions), otherwise it shows
+ *   coordinates with an honest land/ocean label from the coarse
+ *   outlines. The context card states the data truth plainly.
+ * - SEARCH THIS AREA queries only what is genuinely available
+ *   for the point: live weather from Open-Meteo (keyless, the
+ *   same API this screen already uses) as a result card with its
+ *   observation time and a SOURCE: Open-Meteo line; a recorded-
+ *   layers line that says the cockpit's layers are global state
+ *   with no geography; and the MEDIA SELECTOR whose twelve
+ *   categories are all honestly NOT_CONNECTED — no provider is
+ *   connected yet, so no media results exist and none are
+ *   invented. FIND MORE is present in its gated state: discovery
+ *   workers are not running yet.
+ * - EXPLORE / ME toggle: Explore is the active mode. Me Mode is
+ *   LOCATION OFF — it is not wired in this build, no device
+ *   location is requested, read or inferred, and Explore never
+ *   implies the owner is physically at the place on screen.
  */
 (function (global) {
   "use strict";
@@ -89,8 +119,16 @@
     { id: "SECURITY_ALERTS", label: "Security Alerts" }
   ];
 
-  // Presentation zoom only: scales the 2D visual, never map data.
-  var ZOOM_STEPS = [1, 1.25, 1.5, 2];
+  // Media Selector categories (Live World directive §9). Every
+  // category is a view over connected providers' results; no
+  // provider is connected yet, so every category renders its
+  // honest NOT_CONNECTED state and zero results — counts are
+  // never hard-coded and results are never invented.
+  var MEDIA_CATEGORIES = [
+    "ALL", "LIVE CAMS", "TRAFFIC CAMS", "PUBLIC CAMS", "WEBCAMS",
+    "LIVE VIDEO", "PHOTOS", "STREET IMAGERY", "TIMELAPSES",
+    "SOCIAL / PUBLIC VIDEO", "BUSINESS / TOURISM", "OWNER CAMERAS"
+  ];
 
   // One document-level fullscreenchange listener for the whole module
   // (render() can run more than once; never attach it twice).
@@ -140,10 +178,13 @@
   // by owner direction (2026-11-16; LABELS_ENABLED in
   // js/globe-engine.js). The glowing markers are this cockpit's
   // recorded layers and their positions are presentation layout,
-  // not locations (no layer item carries geography).
+  // not locations (no layer item carries geography). Live World
+  // Build 1: pan and zoom are real view controls on this same
+  // local data, and weather appears only via SEARCH THIS AREA.
+  var ZOOM_TRUTH = " Drag, scroll or use + / − to pan and zoom: the zoom is a real view zoom on this same local data — the outlines are coarse (110m), so zooming shows them larger, not satellite imagery and not street-level detail. Weather appears only when you search an area, live from Open-Meteo with its source shown.";
   function truthLabelForMode(mode) {
-    if (mode === "TERRAIN") return "2D visual shell — not a 3D terrain engine. No terrain data is connected. A local engine draws a flat world map from public-domain Natural Earth outlines and city points; country, state and city names are hidden for now by owner direction; marker positions are layout, not locations.";
-    return "No live map feed is connected — a local engine draws this flat world map from public-domain Natural Earth outlines and city points. Country, state and city names are hidden for now by owner direction. The glowing markers are this cockpit's recorded layers; marker positions are layout, not locations.";
+    if (mode === "TERRAIN") return "2D visual shell — not a 3D terrain engine. No terrain data is connected. A local engine draws a flat world map from public-domain Natural Earth outlines and city points; country, state and city names are hidden for now by owner direction; marker positions are layout, not locations." + ZOOM_TRUTH;
+    return "No live map feed is connected — a local engine draws this flat world map from public-domain Natural Earth outlines and city points. Country, state and city names are hidden for now by owner direction. The glowing markers are this cockpit's recorded layers; marker positions are layout, not locations." + ZOOM_TRUTH;
   }
 
   // Alert Mode truth sentence, appended to the truth label only
@@ -179,7 +220,6 @@
     var mode = getMode();
     var selectedLayer = "WORLD";
     var panelOpen = false;
-    var zoomIndex = 0;
 
     // ---- Screen header (Stage 1 primitives) -------------------------
     var headerStatus = U.el("div", { class: "mti6-screen-header__status" }, []);
@@ -354,8 +394,8 @@
 
     // ---- Controls row 3: zoom, reset, layer toggles, Details, full screen
     var zoomReadout = U.el("span", { class: "api-meta" }, "");
-    var zoomOutBtn = U.el("button", { class: "btn", type: "button", "aria-label": "Zoom out (presentation zoom only)" }, "−");
-    var zoomInBtn = U.el("button", { class: "btn", type: "button", "aria-label": "Zoom in (presentation zoom only)" }, "+");
+    var zoomOutBtn = U.el("button", { class: "btn", type: "button", "aria-label": "Zoom out" }, "−");
+    var zoomInBtn = U.el("button", { class: "btn", type: "button", "aria-label": "Zoom in" }, "+");
     var resetBtn = U.el("button", { class: "btn", type: "button" }, "Reset view");
     var detailsBtn = U.el("button", {
       class: "btn", type: "button",
@@ -378,20 +418,225 @@
     });
     actionControls.appendChild(detailsBtn);
     actionControls.appendChild(fsBtn);
+    // Live World mode toggle (directive §§14–15): Explore is the
+    // active mode; Me Mode stays LOCATION OFF in this build (its
+    // handlers are wired with the Live World panel below).
+    var exploreBtn = U.el("button", { class: "btn", type: "button", "aria-pressed": "true" }, "Explore");
+    var meBtn = U.el("button", { class: "btn", type: "button", "aria-pressed": "false" }, "Me · LOCATION OFF");
+    actionControls.appendChild(exploreBtn);
+    actionControls.appendChild(meBtn);
     stage.appendChild(actionControls);
 
     root.appendChild(stage);
 
+    // ---- Live World panel (Build 1) ----------------------------------
+    // Location context + SEARCH THIS AREA + Media Selector, sitting
+    // under the stage like the Weather / Headlines panels. Everything
+    // here reads real state only: the context comes from the owner's
+    // own tap on the map, weather comes live from Open-Meteo, the
+    // recorded-layers line is derived from the same layer reads the
+    // tabs use, and the media categories show their genuine
+    // NOT_CONNECTED state (no provider connected yet).
+    var liveState = { context: null, searching: false };
+    var liveContextBody = U.el("div", { class: "globe-live-context__body" },
+      "No area selected yet — tap or click the map to set a location context.");
+    var liveResults = U.el("div", { class: "globe-live-results" }, []);
+    var liveNote = U.el("div", { class: "api-meta globe-live-note" },
+      "Explore mode: you are looking at a place on the map — MTI6 does not take you to be there. Pan, zoom and tap to explore it.");
+    var searchAreaBtn = U.el("button", { class: "btn btn-primary", type: "button" }, "Search this area");
+    var findMoreBtn = U.el("button", { class: "btn", type: "button" }, "Find more");
+
+    function fmtCoord(v, pos, neg) {
+      return Math.abs(v).toFixed(2) + "° " + (v >= 0 ? pos : neg);
+    }
+
+    function renderContext() {
+      liveContextBody.innerHTML = "";
+      var c = liveState.context;
+      if (!c) {
+        liveContextBody.textContent = "No area selected yet — tap or click the map to set a location context.";
+        return;
+      }
+      var title;
+      if (c.city) {
+        title = c.city.name + (c.city.country ? ", " + c.city.country : "");
+      } else if (c.country) {
+        title = c.country + " — unnamed area";
+      } else {
+        title = "Open ocean — unnamed area";
+      }
+      liveContextBody.appendChild(U.el("div", { class: "globe-live-context__title" }, title));
+      liveContextBody.appendChild(U.el("div", { class: "api-meta" },
+        "Latitude " + fmtCoord(c.lat, "N", "S") + " · Longitude " + fmtCoord(c.lon, "E", "W") +
+        " · Zoom tier: " + c.tier));
+      if (!c.city) {
+        liveContextBody.appendChild(U.el("div", { class: "api-meta" },
+          c.land
+            ? "Land area — no named place in the local map data at this point; the country above comes from the coarse outlines, not from a place lookup."
+            : "Open ocean — no land outline in the local map data contains this point."));
+      }
+      liveContextBody.appendChild(U.el("div", { class: "api-meta" },
+        "Local map data (Natural Earth, public domain) — outlines are coarse (110m); no street-level detail."));
+    }
+
+    function setContextFromPick(pick) {
+      if (!pick) return;
+      liveState.context = pick;
+      liveResults.innerHTML = "";
+      renderContext();
+      liveNote.textContent = "Location context set. Tap SEARCH THIS AREA to ask what is genuinely available for this area.";
+    }
+
+    // The recorded-layers line: counts derived live from the same
+    // layer reads as the tabs/badges — never hard-coded — with the
+    // standing truth that these layers carry no geography.
+    function layerCountsLine() {
+      var parts = [];
+      LAYER_BUTTONS.forEach(function (l) {
+        var layer = getLayerSafe(l.id);
+        var count = layer && layer.items ? layer.items.length : 0;
+        var state = layer ? layer.state : "NOT_LOADED";
+        parts.push(l.label + " " + count + " (" + state + ")");
+      });
+      return parts.join(" · ");
+    }
+
+    function resultCard(title, stateLabel, bodyLines, sourceLine) {
+      var card = U.el("div", { class: "globe-live-card" }, []);
+      var head = [U.el("span", { class: "globe-live-card__title" }, title)];
+      if (stateLabel) {
+        head.push(U.el("span", { class: badgeClassForState(stateLabel) }, stateLabel));
+      }
+      card.appendChild(U.el("div", { class: "globe-live-card__head" }, head));
+      bodyLines.forEach(function (line) {
+        card.appendChild(U.el("div", { class: "api-meta" }, line));
+      });
+      if (sourceLine) {
+        card.appendChild(U.el("div", { class: "globe-live-source" }, sourceLine));
+      }
+      return card;
+    }
+
+    // SEARCH THIS AREA (directive §11): an explicit owner tap, and
+    // only then are sources asked — panning/zooming/tapping the map
+    // queries nothing. What is genuinely available for a point
+    // today is live weather from Open-Meteo; the recorded-layers
+    // line and the Media Selector state their own truths beside it.
+    searchAreaBtn.addEventListener("click", function () {
+      var c = liveState.context;
+      if (!c) {
+        liveNote.textContent = "Tap or click the map to choose an area first — then SEARCH THIS AREA queries that area.";
+        return;
+      }
+      if (liveState.searching) return;
+      liveState.searching = true;
+      liveResults.innerHTML = "";
+      var weatherSlot = U.el("div", {}, "Asking Open-Meteo for the current weather at the selected point…");
+      liveResults.appendChild(weatherSlot);
+      liveResults.appendChild(resultCard("MTI6 recorded layers", null, [
+        layerCountsLine(),
+        "These layers are global recorded state with no geography — they are not results for this area, and their positions on the map are layout, not locations."
+      ], null));
+      var url = "https://api.open-meteo.com/v1/forecast?latitude=" + encodeURIComponent(c.lat) +
+        "&longitude=" + encodeURIComponent(c.lon) + "&current_weather=true";
+      fetch(url).then(function (res) {
+        if (!res.ok) throw new Error("http_" + res.status);
+        return res.json();
+      }).then(function (data) {
+        liveState.searching = false;
+        try { if (global.ApiRegistry) global.ApiRegistry.record("open-meteo", true, 200); } catch (e) {}
+        var w = data && data.current_weather;
+        weatherSlot.innerHTML = "";
+        if (!w) {
+          weatherSlot.appendChild(resultCard("Weather — current conditions", "UNKNOWN", [
+            "Open-Meteo returned no current-conditions reading for this point. Nothing is shown in its place."
+          ], "SOURCE: Open-Meteo"));
+          return;
+        }
+        weatherSlot.appendChild(resultCard("Weather — current conditions", "STATIC SNAPSHOT", [
+          "Now: " + w.temperature + "°C, wind " + w.windspeed + " km/h, direction " + w.winddirection + "°",
+          "Observed: " + fmtTime(w.time) + " (the source's observation time — a snapshot reading, not a live feed)",
+          "Coordinates used: " + c.lat + ", " + c.lon
+        ], "SOURCE: Open-Meteo"));
+      }).catch(function () {
+        liveState.searching = false;
+        try { if (global.ApiRegistry) global.ApiRegistry.record("open-meteo", false, null); } catch (e) {}
+        weatherSlot.innerHTML = "";
+        weatherSlot.appendChild(resultCard("Weather — current conditions", "OFFLINE", [
+          "Could not reach Open-Meteo for this area right now. No weather is shown rather than invented — try again when the connection is back."
+        ], "SOURCE: Open-Meteo"));
+      });
+    });
+
+    // FIND MORE (directive §12) in its honest gated state: the Web
+    // Discovery workers do not exist yet, so the button explains
+    // instead of fabricating research.
+    findMoreBtn.addEventListener("click", function () {
+      liveNote.textContent = "Discovery workers are not running yet — web research arrives with a later authorized phase. Nothing was searched and nothing was invented.";
+    });
+
+    // Explore / Me Mode (directive §§14–15). Explore is active. Me
+    // Mode is NOT wired in this build: tapping it explains, keeps
+    // LOCATION OFF, and never requests, reads or infers a device
+    // location. Explore never implies the owner is at the place.
+    exploreBtn.addEventListener("click", function () {
+      exploreBtn.setAttribute("aria-pressed", "true");
+      meBtn.setAttribute("aria-pressed", "false");
+      liveNote.textContent = "Explore mode: you are looking at a place on the map — MTI6 does not take you to be there. Pan, zoom and tap to explore it.";
+    });
+    meBtn.addEventListener("click", function () {
+      exploreBtn.setAttribute("aria-pressed", "true");
+      meBtn.setAttribute("aria-pressed", "false");
+      liveNote.textContent = "Me Mode is LOCATION OFF: it needs your explicit device-location permission, and it is not wired in this build — no location was requested, read or inferred. Explore mode never implies you are physically at the place on screen.";
+    });
+
+    var mediaList = U.el("div", { class: "globe-live-media-list" }, []);
+    MEDIA_CATEGORIES.forEach(function (cat) {
+      mediaList.appendChild(U.el("div", { class: "globe-live-media-row" }, [
+        U.el("span", { class: "globe-live-media-row__name" }, cat),
+        U.el("span", { class: badgeClassForState("NOT_CONNECTED") }, "NOT_CONNECTED"),
+        U.el("span", { class: "api-meta" }, "no provider connected yet")
+      ]));
+    });
+
+    var livePanel = U.el("section", { class: "api-panel globe-live-panel", "aria-label": "Live World" }, [
+      U.el("h3", {}, "Live World"),
+      U.el("div", { class: "globe-live-context" }, [
+        U.el("div", { class: "globe-live-context__heading" }, "Location context"),
+        liveContextBody
+      ]),
+      U.el("div", { class: "globe-controls globe-live-actions" }, [searchAreaBtn]),
+      liveResults,
+      U.el("h4", { class: "globe-live-media__heading" }, "Media selector"),
+      U.el("div", { class: "api-meta" },
+        "Media for an area appears here only from connected providers, every item with its source shown. No media provider is connected yet, so every category is honestly NOT_CONNECTED and shows no results — nothing is invented to fill them, and result counts are never hard-coded."),
+      mediaList,
+      U.el("div", { class: "globe-controls globe-live-actions" }, [findMoreBtn]),
+      liveNote
+    ]);
+    root.appendChild(livePanel);
+
     // ---- Refreshers ---------------------------------------------------
-    function applyZoom() {
-      var z = ZOOM_STEPS[zoomIndex];
-      // .style exists on every real-DOM element; a minimal stub DOM
-      // may not provide it — zoom is presentation-only, so skip the
-      // transform there instead of throwing.
-      if (visual.style) visual.style.transform = z === 1 ? "" : "scale(" + z + ")";
-      zoomReadout.textContent = "Zoom " + Math.round(z * 100) + "% — presentation zoom, not map data";
-      zoomOutBtn.disabled = zoomIndex === 0;
-      zoomInBtn.disabled = zoomIndex === ZOOM_STEPS.length - 1;
+    // Live World Build 1: the zoom controls drive the engine's
+    // REAL view transform (centre + scale over the vendored data).
+    // The readout names the current tier and scale and keeps the
+    // honesty line: this is view zoom on coarse local outlines —
+    // not satellite imagery, not street-level detail. The engine's
+    // onViewChange callback keeps the readout true for wheel,
+    // drag and pinch zooms too.
+    function syncViewUI() {
+      var v = null;
+      try { if (globeEngine && typeof globeEngine.getView === "function") v = globeEngine.getView(); } catch (e) {}
+      if (!v) {
+        zoomReadout.textContent = "Map view unavailable — the map engine did not start.";
+        zoomOutBtn.disabled = true;
+        zoomInBtn.disabled = true;
+        return;
+      }
+      zoomReadout.textContent = "View: " + v.tier + " tier · " +
+        (Math.round(v.scale * 10) / 10) + "× — real view zoom on the local map data (not satellite, not street level)";
+      zoomOutBtn.disabled = v.scale <= v.minScale;
+      zoomInBtn.disabled = v.scale >= v.maxScale;
     }
 
     function refreshModeUI() {
@@ -550,20 +795,22 @@
     });
 
     zoomOutBtn.addEventListener("click", function () {
-      if (zoomIndex > 0) { zoomIndex--; applyZoom(); }
+      try { if (globeEngine && typeof globeEngine.zoomOut === "function") globeEngine.zoomOut(); } catch (e) {}
+      syncViewUI();
     });
     zoomInBtn.addEventListener("click", function () {
-      if (zoomIndex < ZOOM_STEPS.length - 1) { zoomIndex++; applyZoom(); }
+      try { if (globeEngine && typeof globeEngine.zoomIn === "function") globeEngine.zoomIn(); } catch (e) {}
+      syncViewUI();
     });
 
     resetBtn.addEventListener("click", function () {
       mode = "WORLD";
       setMode("WORLD");
-      zoomIndex = 0;
       selectedLayer = "WORLD";
-      applyZoom();
+      try { if (globeEngine && typeof globeEngine.resetView === "function") globeEngine.resetView(); } catch (e) {}
       refreshModeUI();
       refreshLayerUI();
+      syncViewUI();
     });
 
     detailsBtn.addEventListener("click", function () { setPanelOpen(!panelOpen); });
@@ -606,8 +853,21 @@
       syncFsBtn();
     });
 
+    // ---- Engine interaction wiring (Live World Build 1) --------------
+    // Taps on the map set the location context; any view change
+    // (buttons, wheel, drag, pinch) keeps the readout truthful.
+    if (globeEngine && typeof globeEngine.setInteractionHandlers === "function") {
+      try {
+        globeEngine.setInteractionHandlers({
+          onTap: function (pick) { setContextFromPick(pick); },
+          onViewChange: function () { syncViewUI(); }
+        });
+      } catch (e) {}
+    }
+
     // ---- Initial paint --------------------------------------------------
-    applyZoom();
+    syncViewUI();
+    renderContext();
     refreshModeUI();
     refreshLayerUI();
 

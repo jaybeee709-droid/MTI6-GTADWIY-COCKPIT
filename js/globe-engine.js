@@ -72,6 +72,26 @@
  * never turns red. Alert records carry no geography, so alert
  * mode changes colours only — never positions, never a regional
  * framing.
+ *
+ * Live World Build 1 (owner direction, 2026-11-16: "set
+ * everything up on the screen... we should be able to zoom in
+ * on any area on the map"): the map gains a REAL view transform
+ * — a centre (lon/lat) plus a scale multiplier over the
+ * whole-world fit — applied inside the projection, so pan and
+ * zoom re-project the vendored geography itself (drag pans,
+ * wheel/pinch zoom at the pointer, + / − / reset via the API).
+ * This is Option 1 of the mapping-stack audit: the local engine
+ * enhanced in place — zero new dependencies, no tiles, no
+ * imagery, no network. Zoom tiers by scale: WORLD → REGION →
+ * COUNTRY → LOCAL. Truth limits, stated on the screen as well:
+ * zooming shows the SAME coarse 110m outlines larger — it is
+ * not satellite imagery and there is no street-level detail in
+ * the data. Tapping the map reports a geographic pick (pickAt):
+ * the inverse-projected lon/lat, the nearest vendored city when
+ * the tap lands within a small pixel radius of its real point
+ * (cities sit at true coordinates), and land/country from
+ * point-in-polygon over the vendored outlines — approximate
+ * near coasts at this resolution, and labelled as such.
  */
 (function (global) {
   "use strict";
@@ -190,6 +210,26 @@
   // flat world maps.
   var LON_MIN = -180, LON_SPAN = 360, LAT_MAX = 85, LAT_SPAN = 170;
 
+  // Live World Build 1 view transform bounds + zoom tiers. Scale
+  // is a multiplier over the whole-world fit (1 = whole world).
+  // Tier boundaries are by scale only; the tier names describe
+  // how specific the viewed area is, never a data resolution the
+  // vendored outlines do not have.
+  var VIEW_MIN_SCALE = 1, VIEW_MAX_SCALE = 40;
+  var VIEW_TIERS = [
+    { id: "WORLD", min: 1 },
+    { id: "REGION", min: 2.5 },
+    { id: "COUNTRY", min: 7 },
+    { id: "LOCAL", min: 20 }
+  ];
+  function tierForScale(scale) {
+    var tier = "WORLD";
+    for (var i = 0; i < VIEW_TIERS.length; i++) {
+      if (scale >= VIEW_TIERS[i].min) tier = VIEW_TIERS[i].id;
+    }
+    return tier;
+  }
+
   function create(canvas) {
     if (!canvas || typeof canvas.getContext !== "function") return null;
     var ctx = null;
@@ -213,6 +253,13 @@
     var items = [];
     var markers = [];
     var viewW = 0, viewH = 0;
+    // Live World Build 1 view state: centre (lon/lat) + scale
+    // multiplier over the whole-world fit. The default view
+    // (0, 0, 1) reproduces the historical fit-to-box projection
+    // exactly — every pre-existing draw is unchanged until the
+    // view is moved.
+    var view = { lon: 0, lat: 0, scale: 1 };
+    var handlers = null;
     var stats = {
       framesDrawn: 0, markersPlotted: 0,
       countriesDrawn: 0, statesDrawn: 0, citiesDrawn: 0, labelsDrawn: 0,
@@ -234,17 +281,285 @@
       viewW = w; viewH = h;
     }
 
-    // Equirectangular projection, fit to the visual box with the
-    // aspect preserved and the map centred (letterboxed).
+    // Equirectangular projection through the Live World view
+    // transform: the whole-world fit scale multiplied by
+    // view.scale, centred on (view.lon, view.lat). At the default
+    // view this is exactly the historical fit-to-box projection
+    // (aspect preserved, letterboxed).
+    function fitScale() {
+      return Math.min(viewW / LON_SPAN, viewH / LAT_SPAN);
+    }
     function projector() {
-      var s = Math.min(viewW / LON_SPAN, viewH / LAT_SPAN);
-      var ox = (viewW - LON_SPAN * s) / 2;
-      var oy = (viewH - LAT_SPAN * s) / 2;
+      var s = fitScale() * view.scale;
       return {
         scale: s,
-        x: function (lon) { return ox + (lon - LON_MIN) * s; },
-        y: function (lat) { return oy + (LAT_MAX - lat) * s; }
+        x: function (lon) { return viewW / 2 + (lon - view.lon) * s; },
+        y: function (lat) { return viewH / 2 + (view.lat - lat) * s; }
       };
+    }
+    function project(lon, lat) {
+      var p = projector();
+      return { x: p.x(lon), y: p.y(lat) };
+    }
+    function unproject(x, y) {
+      var s = fitScale() * view.scale;
+      if (!s) return { lon: view.lon, lat: view.lat };
+      return {
+        lon: view.lon + (x - viewW / 2) / s,
+        lat: view.lat - (y - viewH / 2) / s
+      };
+    }
+    // Pan/zoom clamp: scale stays inside [MIN, MAX] and the view
+    // centre never leaves the map window, so at least half the
+    // viewport always shows map — the map can never be panned or
+    // zoomed entirely away.
+    function clampView() {
+      if (view.scale < VIEW_MIN_SCALE) view.scale = VIEW_MIN_SCALE;
+      if (view.scale > VIEW_MAX_SCALE) view.scale = VIEW_MAX_SCALE;
+      if (view.lon < LON_MIN) view.lon = LON_MIN;
+      if (view.lon > -LON_MIN) view.lon = -LON_MIN;
+      if (view.lat < -LAT_MAX) view.lat = -LAT_MAX;
+      if (view.lat > LAT_MAX) view.lat = LAT_MAX;
+    }
+    function notifyView() {
+      if (handlers && typeof handlers.onViewChange === "function") {
+        try { handlers.onViewChange(getView()); } catch (e) {}
+      }
+    }
+    function getView() {
+      return {
+        lon: view.lon, lat: view.lat, scale: view.scale,
+        tier: tierForScale(view.scale),
+        minScale: VIEW_MIN_SCALE, maxScale: VIEW_MAX_SCALE
+      };
+    }
+    function setView(next) {
+      if (!alive || !next) return;
+      if (typeof next.lon === "number" && isFinite(next.lon)) view.lon = next.lon;
+      if (typeof next.lat === "number" && isFinite(next.lat)) view.lat = next.lat;
+      if (typeof next.scale === "number" && isFinite(next.scale)) view.scale = next.scale;
+      clampView();
+      draw();
+      notifyView();
+    }
+    // Zoom by a factor around a canvas point (CSS pixels): the
+    // geographic point under that pixel stays under it.
+    function zoomAt(factor, px, py) {
+      if (!alive || !(factor > 0) || !isFinite(factor)) return;
+      fit();
+      if (!viewW || !viewH) return;
+      if (typeof px !== "number") px = viewW / 2;
+      if (typeof py !== "number") py = viewH / 2;
+      var before = unproject(px, py);
+      view.scale = view.scale * factor;
+      clampView();
+      var s = fitScale() * view.scale;
+      if (s) {
+        view.lon = before.lon - (px - viewW / 2) / s;
+        view.lat = before.lat + (py - viewH / 2) / s;
+      }
+      clampView();
+      draw();
+      notifyView();
+    }
+    var ZOOM_STEP = 1.6;
+    function zoomIn() { zoomAt(ZOOM_STEP, viewW / 2, viewH / 2); }
+    function zoomOut() { zoomAt(1 / ZOOM_STEP, viewW / 2, viewH / 2); }
+    // Drag pan: the map follows the pointer (content moves with
+    // the drag), so the centre moves the opposite way.
+    function panBy(dxPx, dyPx) {
+      if (!alive) return;
+      fit();
+      var s = fitScale() * view.scale;
+      if (!s) return;
+      view.lon -= dxPx / s;
+      view.lat += dyPx / s;
+      clampView();
+      draw();
+      notifyView();
+    }
+    function resetView() {
+      if (!alive) return;
+      view = { lon: 0, lat: 0, scale: 1 };
+      draw();
+      notifyView();
+    }
+
+    // ---- Geographic pick (Live World Build 1) ------------------
+    // Point-in-polygon over the vendored country rings (ray
+    // casting, even-odd across all of a country's rings so
+    // enclaves/holes behave). The outlines are coarse (110m,
+    // coordinates rounded to 2 decimals), so containment near a
+    // coast is approximate — the screen labels it as such.
+    function ringContains(ring, lon, lat) {
+      var inside = false;
+      for (var i = 0, j = ring.length - 2; i < ring.length; j = i, i += 2) {
+        var xi = ring[i], yi = ring[i + 1];
+        var xj = ring[j], yj = ring[j + 1];
+        // Antimeridian-cut segments (rings are stored cut at
+        // +/-180): skip them for containment — the segments on
+        // either side still bound the polygon.
+        if (Math.abs(xi - xj) > 180) continue;
+        if ((yi > lat) !== (yj > lat)) {
+          var xInt = xi + (lat - yi) * (xj - xi) / (yj - yi);
+          if (lon < xInt) inside = !inside;
+        }
+      }
+      return inside;
+    }
+    function countryAt(lon, lat) {
+      var data = global.WorldMapData;
+      if (!data || !Array.isArray(data.countries)) return null;
+      for (var ci = 0; ci < data.countries.length; ci++) {
+        var rings = data.countries[ci].p || [];
+        var inside = false;
+        for (var r = 0; r < rings.length; r++) {
+          if (ringContains(rings[r], lon, lat)) inside = !inside;
+        }
+        if (inside) return data.countries[ci].n;
+      }
+      return null;
+    }
+    // A tap lands on a city when its projected point is within
+    // this many CSS pixels of the tap. Because the radius is in
+    // pixels, the geographic threshold tightens as you zoom in —
+    // a small threshold at the current tier, by construction.
+    var CITY_PICK_RADIUS_PX = 28;
+    function pickAt(px, py) {
+      fit();
+      var pt = unproject(px, py);
+      var lon = Math.max(LON_MIN, Math.min(-LON_MIN, pt.lon));
+      var lat = Math.max(-LAT_MAX, Math.min(LAT_MAX, pt.lat));
+      var data = global.WorldMapData;
+      var city = null;
+      if (data && Array.isArray(data.cities)) {
+        var proj = projector();
+        var best = null, bestD = Infinity;
+        for (var i = 0; i < data.cities.length; i++) {
+          var c = data.cities[i];
+          var dx = proj.x(c.at[0]) - px, dy = proj.y(c.at[1]) - py;
+          var d = Math.sqrt(dx * dx + dy * dy);
+          if (d < bestD) { bestD = d; best = c; }
+        }
+        if (best && bestD <= CITY_PICK_RADIUS_PX) {
+          city = {
+            name: best.n,
+            at: [best.at[0], best.at[1]],
+            distancePx: Math.round(bestD * 10) / 10,
+            country: countryAt(best.at[0], best.at[1])
+          };
+        }
+      }
+      var country = countryAt(lon, lat);
+      return {
+        lon: Math.round(lon * 10000) / 10000,
+        lat: Math.round(lat * 10000) / 10000,
+        city: city,
+        country: country,
+        land: !!country,
+        tier: tierForScale(view.scale),
+        scale: view.scale
+      };
+    }
+
+    // ---- Pointer interaction (Live World Build 1) --------------
+    // Drag pans, the wheel zooms at the cursor, a two-pointer
+    // pinch zooms at its midpoint, and a press that barely moves
+    // is a TAP (the screen's location-context pick). All
+    // manipulation is direct — no tweening anywhere — so
+    // prefers-reduced-motion is honoured by construction.
+    var pointers = {};
+    var pointerCount = 0;
+    var dragMoved = 0;
+    var lastPinchDist = 0;
+
+    function canvasPoint(e) {
+      var left = 0, top = 0;
+      try {
+        if (typeof canvas.getBoundingClientRect === "function") {
+          var rect = canvas.getBoundingClientRect();
+          left = rect.left || 0; top = rect.top || 0;
+        }
+      } catch (err) {}
+      var cx = e && typeof e.clientX === "number" ? e.clientX : 0;
+      var cy = e && typeof e.clientY === "number" ? e.clientY : 0;
+      return { x: cx - left, y: cy - top };
+    }
+    function onPointerDown(e) {
+      if (!alive) return;
+      var id = e && typeof e.pointerId === "number" ? e.pointerId : 0;
+      if (!pointers[id]) pointerCount++;
+      pointers[id] = canvasPoint(e);
+      dragMoved = 0;
+      lastPinchDist = 0;
+      try { if (typeof canvas.setPointerCapture === "function") canvas.setPointerCapture(id); } catch (err) {}
+    }
+    function onPointerMove(e) {
+      if (!alive) return;
+      var id = e && typeof e.pointerId === "number" ? e.pointerId : 0;
+      if (!pointers[id]) return;
+      var pt = canvasPoint(e);
+      var prev = pointers[id];
+      pointers[id] = pt;
+      if (pointerCount === 1) {
+        var dx = pt.x - prev.x, dy = pt.y - prev.y;
+        dragMoved += Math.abs(dx) + Math.abs(dy);
+        if (dx || dy) panBy(dx, dy);
+      } else if (pointerCount === 2) {
+        var pts = [];
+        for (var k in pointers) {
+          if (Object.prototype.hasOwnProperty.call(pointers, k)) pts.push(pointers[k]);
+        }
+        if (pts.length === 2) {
+          var ddx = pts[0].x - pts[1].x, ddy = pts[0].y - pts[1].y;
+          var dist = Math.sqrt(ddx * ddx + ddy * ddy);
+          if (lastPinchDist > 0 && dist > 0) {
+            dragMoved += Math.abs(dist - lastPinchDist);
+            zoomAt(dist / lastPinchDist,
+              (pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2);
+          }
+          lastPinchDist = dist;
+        }
+      }
+    }
+    function onPointerUp(e) {
+      if (!alive) return;
+      var id = e && typeof e.pointerId === "number" ? e.pointerId : 0;
+      var wasTracked = !!pointers[id];
+      var pt = pointers[id] || canvasPoint(e);
+      if (wasTracked) { delete pointers[id]; pointerCount--; }
+      lastPinchDist = 0;
+      if (wasTracked && pointerCount === 0 && dragMoved < 6) {
+        if (handlers && typeof handlers.onTap === "function") {
+          try { handlers.onTap(pickAt(pt.x, pt.y)); } catch (err) {}
+        }
+      }
+    }
+    function onWheel(e) {
+      if (!alive) return;
+      if (e && typeof e.preventDefault === "function") {
+        try { e.preventDefault(); } catch (err) {}
+      }
+      var dy = e && typeof e.deltaY === "number" ? e.deltaY : 0;
+      if (!dy) return;
+      var pt = canvasPoint(e);
+      zoomAt(dy < 0 ? 1.2 : 1 / 1.2, pt.x, pt.y);
+    }
+    var interactive = typeof canvas.addEventListener === "function";
+    if (interactive) {
+      canvas.addEventListener("pointerdown", onPointerDown);
+      canvas.addEventListener("pointermove", onPointerMove);
+      canvas.addEventListener("pointerup", onPointerUp);
+      canvas.addEventListener("pointercancel", onPointerUp);
+      try { canvas.addEventListener("wheel", onWheel, { passive: false }); }
+      catch (err) { canvas.addEventListener("wheel", onWheel); }
+      if (canvas.style) {
+        canvas.style.touchAction = "none";
+        canvas.style.cursor = "grab";
+      }
+    }
+    function setInteractionHandlers(h) {
+      handlers = h || null;
     }
 
     // Trace one feature's rings. Segments jumping more than 180
@@ -359,12 +674,16 @@
         }
         var cities = Array.isArray(data.cities) ? data.cities : [];
         // City dots at their real positions (geography, not names —
-        // drawn whether or not labels are enabled).
+        // drawn whether or not labels are enabled). Dots outside
+        // the viewport are culled (the canvas clips regardless;
+        // culling keeps zoomed draws cheap).
         ctx.fillStyle = pal.cityDot;
         for (var ti = 0; ti < cities.length; ti++) {
           var cpt = cities[ti].at;
+          var cpx = proj.x(cpt[0]), cpy = proj.y(cpt[1]);
+          if (cpx < -4 || cpx > viewW + 4 || cpy < -4 || cpy > viewH + 4) continue;
           ctx.beginPath();
-          ctx.arc(proj.x(cpt[0]), proj.y(cpt[1]), 1.1, 0, TAU);
+          ctx.arc(cpx, cpy, 1.1, 0, TAU);
           ctx.fill();
         }
         stats.citiesDrawn = cities.length;
@@ -389,6 +708,7 @@
       for (var mi = 0; mi < markers.length; mi++) {
         var mk = markers[mi];
         var mx = proj.x(mk.lon), my = proj.y(mk.lat);
+        if (mx < -24 || mx > viewW + 24 || my < -24 || my > viewH + 24) continue;
         ctx.globalAlpha = 1;
         ctx.fillStyle = mk.color;
         ctx.strokeStyle = mk.color;
@@ -507,6 +827,15 @@
       if (!alive) return;
       alive = false;
       cancelAlertTween();
+      if (interactive && typeof canvas.removeEventListener === "function") {
+        canvas.removeEventListener("pointerdown", onPointerDown);
+        canvas.removeEventListener("pointermove", onPointerMove);
+        canvas.removeEventListener("pointerup", onPointerUp);
+        canvas.removeEventListener("pointercancel", onPointerUp);
+        canvas.removeEventListener("wheel", onWheel);
+      }
+      pointers = {};
+      pointerCount = 0;
       if (resizeObserver) { try { resizeObserver.disconnect(); } catch (e) {} resizeObserver = null; }
       if (typeof global.removeEventListener === "function") {
         global.removeEventListener("resize", onResize);
@@ -561,14 +890,37 @@
           reducedMotion: stats.reducedMotion,
           angle: stats.angle,
           alertMode: alertOn,
-          alertBlend: alertBlend
+          alertBlend: alertBlend,
+          viewLon: view.lon,
+          viewLat: view.lat,
+          viewScale: view.scale,
+          viewTier: tierForScale(view.scale)
         };
       },
       setAlertMode: setAlertMode,
+      getView: getView,
+      setView: setView,
+      zoomAt: zoomAt,
+      zoomIn: zoomIn,
+      zoomOut: zoomOut,
+      panBy: panBy,
+      resetView: resetView,
+      project: project,
+      unproject: unproject,
+      pickAt: pickAt,
+      setInteractionHandlers: setInteractionHandlers,
       stop: destroy
     };
   }
 
-  global.GlobeEngine = { create: create, PALETTES: Object.keys(PALETTES), LABELS_ENABLED: LABELS_ENABLED };
+  global.GlobeEngine = {
+    create: create,
+    PALETTES: Object.keys(PALETTES),
+    LABELS_ENABLED: LABELS_ENABLED,
+    TIERS: VIEW_TIERS.map(function (t) { return t.id; }),
+    tierForScale: tierForScale,
+    VIEW_MIN_SCALE: VIEW_MIN_SCALE,
+    VIEW_MAX_SCALE: VIEW_MAX_SCALE
+  };
 })(typeof globalThis !== "undefined" ? globalThis :
   (typeof window !== "undefined" ? window : this));
