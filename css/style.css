@@ -1931,6 +1931,22 @@ html, body { overflow-x: hidden; }
   color: var(--text-1);
   margin-bottom: 8px;
 }
+/* Tribe principal portraits (owner ruling 2026-11-16): a generated
+   face from js/data/tribe-portraits.js fills the round avatar slot.
+   Rendered only when TRIBE_PORTRAITS holds an entry for that
+   principal; otherwise the slot keeps its order-number + initial
+   mark exactly as before. */
+.principal-card__avatar--portrait {
+  border-style: solid;
+  overflow: hidden;
+}
+.tribe-portrait-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 20%;
+}
 .tribe-card-label {
   font-weight: 700;
 }

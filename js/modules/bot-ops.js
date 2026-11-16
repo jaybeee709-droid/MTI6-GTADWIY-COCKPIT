@@ -944,16 +944,46 @@
 
   // ---- Render helpers --------------------------------------------------------
 
+  // Tribe principal portrait (owner ruling 2026-11-16): when
+  // js/data/tribe-portraits.js loaded and holds an entry for this
+  // principal's permanent id, the avatar slot shows his generated
+  // face (round, object-fit cover). The data file is OPTIONAL: a
+  // missing file, a missing entry, or an image that fails to load
+  // falls back to the original Tribe mark (Revelation 7 order
+  // number + initial) exactly as before.
+  function principalAvatarNode(entry) {
+    var mark = String(entry.order) + " " + entry.displayName.charAt(0);
+    var portraits = global.TRIBE_PORTRAITS;
+    var src = portraits && typeof portraits[entry.id] === "string" && portraits[entry.id]
+      ? portraits[entry.id] : null;
+    if (!src) {
+      return U.el("div", { class: "tribe-card-avatar principal-card__avatar", "aria-hidden": "true" }, mark);
+    }
+    var img = U.el("img", {
+      class: "tribe-portrait-img",
+      src: src,
+      alt: "",
+      onerror: function () {
+        var slot = img.parentNode;
+        if (slot) {
+          slot.classList.remove("principal-card__avatar--portrait");
+          slot.textContent = mark;
+        }
+      }
+    });
+    return U.el("div", { class: "tribe-card-avatar principal-card__avatar principal-card__avatar--portrait", "aria-hidden": "true" }, [img]);
+  }
+
   function tribeCard(entry) {
     var assigned = entry.assignmentState !== "UNASSIGNED";
     // Visual Build Stage 2: .principal-card on the existing tribe
     // card (structure, Bring behaviour, and detail view unchanged).
-    // Tribe mark: the principal's Revelation 7 order number + initial
-    // (existing avatar hook — no new artwork). Meta line: stable ID,
+    // Avatar slot: the principal's generated portrait when
+    // TRIBE_PORTRAITS holds one for his id, else the Tribe mark
+    // (Revelation 7 order number + initial). Meta line: stable ID,
     // current role, REAL worker count, status — all real values.
     var card = U.el("button", { class: "tribe-card principal-card" + (assigned ? "" : " tribe-card-unassigned"), type: "button" }, [
-      U.el("div", { class: "tribe-card-avatar principal-card__avatar", "aria-hidden": "true" },
-        String(entry.order) + " " + entry.displayName.charAt(0)),
+      principalAvatarNode(entry),
       U.el("div", { class: "tribe-card-label" }, entry.displayName),
       U.el("div", { class: "tribe-card-status" }, entry.assignmentState),
       U.el("div", { class: "principal-card__meta" },
