@@ -369,6 +369,57 @@
     }
   }
 
+  function presenceAvailable() {
+    return !!(global.Presence && typeof global.Presence.show === "function");
+  }
+
+  // The recorded-state readout lines for a principal's presence
+  // bubble (Presence Anywhere Build 1, owner ruling 2026-11-16).
+  // Derived ONLY from the principal's real records — the same
+  // buildPrincipalDetail record the detail view renders: his
+  // current task (or the plain fact that none is recorded), his
+  // assignment role when one is set, and the standing worker-link
+  // truth. No dialogue, opinion, or activity is invented: a
+  // principal's presence presents his records, labelled as a
+  // record readout — it is not live speech, and no worker is
+  // attached (NOT_CONNECTED).
+  function principalPresenceLines(detail) {
+    var task = detail && detail.currentTask && detail.currentTask !== "—" ? detail.currentTask : null;
+    var role = detail && detail.currentRole && detail.currentRole !== "—" ? detail.currentRole : null;
+    var lines = [];
+    lines.push(task ? ("Assignment: " + task) : "No assignment recorded");
+    if (role) lines.push("Assignment role: " + role);
+    lines.push("Worker link: NOT_CONNECTED — no live worker is attached; this is a record readout.");
+    return lines;
+  }
+
+  // Shows the selected principal's presence: his large portrait
+  // (TRIBE_PORTRAITS when loaded, his Tribe mark otherwise) with
+  // the readout bubble. Reports unavailable and does nothing when
+  // the Presence component did not load — never a crash.
+  function showPrincipalPresence(detail) {
+    if (!presenceAvailable() || !detail) {
+      return { ok: false, reason: "presence unavailable" };
+    }
+    var portraits = global.TRIBE_PORTRAITS;
+    var src = portraits && typeof portraits[detail.id] === "string" && portraits[detail.id]
+      ? portraits[detail.id] : null;
+    try {
+      global.Presence.show({
+        figureSrc: src,
+        fallbackText: (detail.order !== null && detail.order !== undefined ? String(detail.order) + " " : "") +
+          detail.displayName.charAt(0),
+        name: detail.displayName,
+        label: "Record readout — not live speech",
+        lines: principalPresenceLines(detail),
+        mood: "readout"
+      });
+      return { ok: true, reason: null };
+    } catch (e) {
+      return { ok: false, reason: e && e.message ? e.message : String(e) };
+    }
+  }
+
   function dashToNull(value) {
     return value === "—" ? null : value;
   }
@@ -1158,7 +1209,23 @@
         bringBtn.disabled = true;
       }
     });
-    detailBox.appendChild(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [bringBtn]));
+    // Presence (Presence Anywhere Build 1): the principal appears
+    // on the current screen with his recorded state as a labelled
+    // readout — see showPrincipalPresence. Offered next to Bring;
+    // disabled with an honest label when the component is absent.
+    var presenceBtn = U.el("button", {
+      class: "btn btn-secondary",
+      type: "button",
+      disabled: presenceAvailable() ? undefined : true
+    }, presenceAvailable() ? ("Show " + detail.displayName + " presence") : "Presence unavailable");
+    presenceBtn.addEventListener("click", function () {
+      var result = showPrincipalPresence(detail);
+      if (!result.ok) {
+        presenceBtn.textContent = "Presence unavailable";
+        presenceBtn.disabled = true;
+      }
+    });
+    detailBox.appendChild(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [bringBtn, presenceBtn]));
   }
 
   // ---- HUD helpers (Visual Build Stage 2, §59-68) -----------------------
@@ -1682,6 +1749,9 @@
     buildEntityPipeline: buildEntityPipeline,
     bringPrincipal: bringPrincipal,
     participantsAvailable: participantsAvailable,
+    principalPresenceLines: principalPresenceLines,
+    showPrincipalPresence: showPrincipalPresence,
+    presenceAvailable: presenceAvailable,
     WALLET_TASK_TEMPLATES: WALLET_TASK_TEMPLATES,
     CRYPTO_TASK_TEMPLATES: CRYPTO_TASK_TEMPLATES,
     CANONICAL_PRINCIPALS: CANONICAL_PRINCIPALS

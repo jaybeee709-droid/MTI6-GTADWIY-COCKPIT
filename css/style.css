@@ -1357,6 +1357,11 @@ body.nav-open #nav-scrim {
 .star-clear-btn {
   flex-shrink: 0;
 }
+.star-header-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
 .star-status {
   display: flex;
   align-items: center;
@@ -1451,6 +1456,60 @@ body.nav-open #nav-scrim {
   font-size: 11px;
   color: var(--text-2);
   line-height: 1.4;
+}
+/* ---- STAR presence form (Presence Anywhere Build 1) ------------------
+ * The panel's compact form: the standing figure, the status line
+ * (which carries the demo truth), a bubble with the LATEST exchange
+ * only, the chat input, and the demo footnote. The full message
+ * log and the subtitle step aside; the log stays in the DOM and
+ * returns untouched when the form toggles off. The hosting window
+ * docks compact bottom-left (see .wm-window--presence below) so
+ * STAR stays present and talkable on any screen; the launcher at
+ * bottom-right is never covered. */
+.star-presence-exchange {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  margin-block-end: 12px;
+}
+.star-panel--presence .star-presence-exchange {
+  display: flex;
+}
+.star-presence-line {
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  border-radius: 12px;
+  border-start-start-radius: 4px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.star-presence-line--user {
+  background: var(--bg-3);
+  border-color: var(--cyan-dim);
+  border-start-start-radius: 12px;
+  border-end-end-radius: 4px;
+}
+.star-presence-who {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-block-end: 2px;
+}
+.star-presence-line--user .star-presence-who {
+  color: var(--cyan);
+}
+.star-panel--presence .star-messages,
+.star-panel--presence .star-subtitle {
+  display: none;
+}
+.star-panel--presence .star-figure-img {
+  height: 132px;
+}
+@media (max-width: 380px) {
+  .star-panel--presence .star-figure-img { height: 96px; }
 }
 @media (min-width: 768px) {
   .star-panel {
@@ -1823,6 +1882,21 @@ html, body { overflow-x: hidden; }
 .tribe-slot:hover {
   border-color: var(--cyan);
   color: var(--cyan);
+}
+/* Sidebar slot portrait (owner ruling 2026-11-16): when the
+   roster-position principal's generated face is available, it
+   fills the slot circle; otherwise the slot keeps its number. */
+.tribe-slot--portrait {
+  border-style: solid;
+  border-color: var(--line);
+  overflow: hidden;
+}
+.tribe-slot-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
 }
 .workers-active-line {
   font-size: 11px;
@@ -2321,6 +2395,27 @@ html, body { overflow-x: hidden; }
 .wm-window.wm-minimized .wm-body {
   display: none;
 }
+/* STAR presence form (Presence Anywhere Build 1): the STAR window
+   docks compact at the bottom-left corner of the screen — above
+   the current route's content, on any screen, never covering the
+   STAR launcher at bottom-right. The overlay's channel rows step
+   aside in this form; the panel inside carries the demo footnote
+   and status, so the demo truth stays visible. */
+.wm-window.wm-window--presence {
+  left: calc(12px + var(--safe-left)) !important;
+  right: auto;
+  top: auto !important;
+  bottom: calc(12px + var(--safe-bottom));
+  transform: none;
+  width: min(370px, 94vw);
+  max-height: 92dvh;
+  resize: none;
+}
+.wm-window.wm-window--presence .star-channels,
+.wm-window.wm-window--presence .star-channel-controls,
+.wm-window.wm-window--presence .star-conn {
+  display: none;
+}
 @media (max-width: 640px) {
   .wm-window {
     width: 96vw;
@@ -2375,6 +2470,107 @@ html, body { overflow-x: hidden; }
 }
 .star-conn {
   margin-top: 10px;
+}
+
+/* ---- Presence card (Presence Anywhere Build 1) -----------------------
+ * js/presence.js: one figure + speech bubble anchored bottom-left
+ * of the app viewport, above the current screen's content and
+ * below the window layer — the STAR launcher (bottom-right,
+ * z 130) is never covered. The entrance is a single fade/slide,
+ * transform/opacity only, off under reduced motion (this scoped
+ * guard plus the Phase H global net). The bubble carries only
+ * caller-supplied real state: STAR's actual chat content, or a
+ * principal's recorded state under its readout label. */
+.presence {
+  position: fixed;
+  left: calc(12px + var(--safe-left));
+  bottom: calc(12px + var(--safe-bottom));
+  z-index: var(--z-accounts);
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  max-width: min(430px, calc(100vw - 24px));
+  animation: presence-in 0.28s ease-out;
+}
+@keyframes presence-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .presence { animation: none; }
+}
+.presence-figure {
+  flex: 0 0 auto;
+  line-height: 0;
+}
+.presence-figure-img {
+  display: block;
+  height: 148px;
+  width: auto;
+}
+.presence-figure-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  border: 1px dashed var(--text-2);
+  background: var(--bg-2);
+  color: var(--text-1);
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1;
+}
+.presence-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  border-end-start-radius: 4px;
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+}
+.presence-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.presence-name {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--cyan);
+  font-size: 13px;
+}
+.presence-close {
+  flex-shrink: 0;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+}
+.presence-label {
+  font-size: 11px;
+  color: var(--text-2);
+  margin-block: 2px 6px;
+}
+.presence-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.presence-line {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-0);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 480px) {
+  .presence-figure-img { height: 104px; }
+  .presence-figure-mark { width: 60px; height: 60px; font-size: 13px; }
 }
 
 /* ---- World Globe visual modes ---- */

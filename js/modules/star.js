@@ -79,7 +79,29 @@
     return U.el("span", { class: "star-avatar", "aria-hidden": "true" }, "🌟");
   }
 
+  // STAR's greeting, shown as his first bubble when no exchange
+  // exists yet. One source for the full message log AND the
+  // presence-form exchange bubble, so the two can never disagree.
+  var GREETING = "Hi, I'm Star 3.0. Ask me about your cockpit — notes, tasks, spending, or projects — and I'll answer in demo mode for now. Try “BTC price” for a live crypto price, or “cockpit status” and “how many strategies” for answers from the cockpit's real records via the World Engine. Voice, video, specialist bots, and GitHub actions are coming later, and anything that changes something outside this device will need your approval first.";
+
   function renderPanel() {
+    // Presence form (Presence Anywhere Build 1, owner ruling
+    // 2026-11-16): the header's Presence toggle switches this
+    // window to a compact presence form — STAR's standing figure,
+    // a bubble with the latest exchange, and the chat input — so
+    // the owner can keep talking to STAR from any screen while
+    // navigating. It is the SAME panel and the SAME conversation:
+    // the figure's expression/motion still comes only from
+    // setStatus() below, the bubble mirrors StarState's real
+    // messages, and the demo footnote stays visible. Toggling off
+    // restores the full panel; nothing is re-rendered or lost.
+    var presenceBtn = U.el("button", {
+      class: "btn btn-ghost btn-sm star-presence-btn",
+      type: "button",
+      title: "Switch STAR to the compact presence form (figure + latest exchange + input, on any screen)",
+      "aria-label": "Toggle Star presence form",
+      "aria-pressed": "false"
+    }, "Presence");
     var headerEl = U.el("div", { class: "star-header" }, [
       U.el("div", { class: "star-identity" }, [
         avatarNode(),
@@ -88,16 +110,19 @@
           U.el("div", { class: "star-subtitle" }, "Your cockpit AI assistant — future commander of the MTI6 bot system")
         ])
       ]),
-      U.el("button", {
-        class: "btn btn-ghost btn-sm star-clear-btn",
-        title: "Clear this demo conversation (local only)",
-        "aria-label": "Clear Star conversation",
-        onclick: function () {
-          if (global.StarState) global.StarState.clear();
-          renderMessages();
-          setStatus("ready");
-        }
-      }, "Clear")
+      U.el("div", { class: "star-header-actions" }, [
+        presenceBtn,
+        U.el("button", {
+          class: "btn btn-ghost btn-sm star-clear-btn",
+          title: "Clear this demo conversation (local only)",
+          "aria-label": "Clear Star conversation",
+          onclick: function () {
+            if (global.StarState) global.StarState.clear();
+            renderMessages();
+            setStatus("ready");
+          }
+        }, "Clear")
+      ])
     ]);
     var statusEl = U.el("div", { class: "star-status", role: "status" }, [
       U.el("span", { class: "star-status-dot", "aria-hidden": "true" }),
@@ -115,7 +140,23 @@
           U.el("div", { class: "star-top-main" }, [headerEl, statusEl])
         ])]
       : [headerEl, statusEl];
+    // The presence-form exchange bubble: the owner's last message
+    // and STAR's last reply, exactly as they appear in the chat
+    // (renderMessages keeps it in step with StarState). Visible
+    // only in presence form (CSS); the full log stays in the DOM
+    // underneath and returns untouched when the form toggles off.
+    var exchangeEl = U.el("div", { class: "star-presence-exchange", "aria-label": "Latest exchange" }, [
+      U.el("div", { class: "star-presence-line star-presence-line--user" }, [
+        U.el("span", { class: "star-presence-who" }, "You"),
+        U.el("span", { class: "star-presence-text" }, "")
+      ]),
+      U.el("div", { class: "star-presence-line star-presence-line--star" }, [
+        U.el("span", { class: "star-presence-who" }, "🌟 Star 3.0"),
+        U.el("span", { class: "star-presence-text" }, "")
+      ])
+    ]);
     var panel = U.el("section", { class: "star-panel", "aria-label": "Star 3.0 command chat" }, topEls.concat([
+      exchangeEl,
       U.el("div", { class: "star-messages", role: "log", "aria-live": "polite" }),
       U.el("div", { class: "star-input-row" }, [
         U.el("input", {
@@ -151,6 +192,38 @@
     var micBtn = panel.querySelectorAll(".star-icon-btn")[0];
     var camBtn = panel.querySelectorAll(".star-icon-btn")[1];
 
+    // The presence-form exchange bubble mirrors the SAME
+    // StarState list the full log renders: the owner's last
+    // message and STAR's last reply, verbatim. With no messages
+    // at all it shows the greeting (the panel's own first bubble);
+    // while a reply is being produced it keeps the last completed
+    // reply — it never invents an in-flight answer.
+    function renderExchange(list) {
+      var userLine = exchangeEl.querySelector(".star-presence-line--user");
+      var starLine = exchangeEl.querySelector(".star-presence-line--star");
+      if (!userLine || !starLine) return;
+      var lastUser = null;
+      var lastStar = null;
+      list.forEach(function (m) {
+        if (m.role === "user") lastUser = m; else lastStar = m;
+      });
+      if (lastUser) {
+        userLine.style.display = "";
+        userLine.querySelector(".star-presence-text").textContent = lastUser.text;
+      } else {
+        userLine.style.display = "none";
+      }
+      if (lastStar) {
+        starLine.style.display = "";
+        starLine.querySelector(".star-presence-text").textContent = lastStar.text;
+      } else if (!list.length) {
+        starLine.style.display = "";
+        starLine.querySelector(".star-presence-text").textContent = GREETING;
+      } else {
+        starLine.style.display = "none";
+      }
+    }
+
     function renderMessages() {
       var area = panel.querySelector(".star-messages");
       if (!area) return;
@@ -159,9 +232,9 @@
       if (!list.length) {
         area.appendChild(U.el("div", { class: "star-msg star-msg-star" }, [
           U.el("div", { class: "star-msg-label" }, "🌟 Star 3.0 — Demo"),
-          U.el("div", { class: "star-msg-text" },
-            "Hi, I'm Star 3.0. Ask me about your cockpit — notes, tasks, spending, or projects — and I'll answer in demo mode for now. Try “BTC price” for a live crypto price, or “cockpit status” and “how many strategies” for answers from the cockpit's real records via the World Engine. Voice, video, specialist bots, and GitHub actions are coming later, and anything that changes something outside this device will need your approval first.")
+          U.el("div", { class: "star-msg-text" }, GREETING)
         ]));
+        renderExchange(list);
         return;
       }
       list.forEach(function (m) {
@@ -172,6 +245,7 @@
         ]));
       });
       area.scrollTop = area.scrollHeight;
+      renderExchange(list);
     }
 
     // STAR's expression + motion mapping (Embodiment Build 1) —
@@ -398,6 +472,26 @@
       }
       continueSend();
     }
+
+    // Presence form toggle (see the note at presenceBtn above):
+    // a class on the panel compacts it to figure + latest
+    // exchange + input, and a class on the hosting window docks
+    // that window, compact, at the bottom-left corner of the
+    // screen — the window floats above every route, so STAR is
+    // present and talkable on any screen while the owner
+    // navigates. The STAR launcher (bottom-right) is never
+    // covered. Toggling off removes both classes and the full
+    // panel is exactly as it was.
+    var presenceOn = false;
+    function setPresenceForm(on) {
+      presenceOn = !!on;
+      panel.classList.toggle("star-panel--presence", presenceOn);
+      presenceBtn.setAttribute("aria-pressed", presenceOn ? "true" : "false");
+      presenceBtn.textContent = presenceOn ? "Full panel" : "Presence";
+      var win = panel.closest ? panel.closest(".wm-window") : null;
+      if (win) win.classList.toggle("wm-window--presence", presenceOn);
+    }
+    presenceBtn.addEventListener("click", function () { setPresenceForm(!presenceOn); });
 
     sendBtn.addEventListener("click", send);
     input.addEventListener("keydown", function (e) {

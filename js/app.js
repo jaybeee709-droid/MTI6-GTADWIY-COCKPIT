@@ -102,7 +102,35 @@
         s.setAttribute("role", "listitem");
         s.title = slot.label + " — unassigned";
         s.setAttribute("aria-label", slot.label + ", unassigned Tribe principal slot");
-        s.innerHTML = '<span class="tribe-slot-num">' + String(slot.number).padStart(2, "0") + "</span>";
+        // Principal portraits (owner ruling 2026-11-16): the slot
+        // at roster position N shows that principal's generated
+        // face (js/data/tribe-portraits.js, keyed by the canonical
+        // TribePrincipals roster order) when the data file loaded.
+        // A missing file, a missing roster, or an image that fails
+        // to load keeps the numbered circle exactly as before; the
+        // slot's title / aria-label captions are unchanged either
+        // way.
+        const roster = global.TribePrincipals && Array.isArray(global.TribePrincipals.ROSTER)
+          ? global.TribePrincipals.ROSTER : null;
+        const portraits = global.TRIBE_PORTRAITS;
+        const entry = roster ? roster[slot.number - 1] : null;
+        const src = entry && portraits && typeof portraits[entry.id] === "string" && portraits[entry.id]
+          ? portraits[entry.id] : null;
+        if (src) {
+          s.classList.add("tribe-slot--portrait");
+          const img = document.createElement("img");
+          img.className = "tribe-slot-img";
+          img.src = src;
+          img.alt = "";
+          img.setAttribute("aria-hidden", "true");
+          img.addEventListener("error", () => {
+            s.classList.remove("tribe-slot--portrait");
+            s.innerHTML = '<span class="tribe-slot-num">' + String(slot.number).padStart(2, "0") + "</span>";
+          });
+          s.appendChild(img);
+        } else {
+          s.innerHTML = '<span class="tribe-slot-num">' + String(slot.number).padStart(2, "0") + "</span>";
+        }
         s.addEventListener("click", () => {
           location.hash = "#/bot-ops";
           closeMobileNav();
