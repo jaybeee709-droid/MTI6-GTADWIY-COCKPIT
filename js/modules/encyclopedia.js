@@ -1,0 +1,392 @@
+/* MTI6-GTADWIY-COCKPIT — Crypto Encyclopedia screen (v1, read-only)
+ * The reference layer on Part 1's registries: entries are registry
+ * records with a title and a definition, browsed by registry, searched
+ * locally, and opened in a detail view with relationship links and a
+ * verification badge. Presence in the encyclopedia is never presented
+ * as verification. v1 seeds no entries and authors none: entries arrive
+ * later through the discovery workflow or an approved import, and Way
+ * records are rejected by validateEntry until an authoritative import.
+ * Rendering only — entry model, validation, and queries live in
+ * js/crypto-world.js. No network calls, no new CSS, no transactions.
+ * Analytics is untouched by this screen.
+ */
+(function (global) {
+  "use strict";
+  var U = global.U;
+  if (!U) return;
+
+  var LABELS = {
+    assets: "Assets", chains: "Chains / Networks", protocols: "Protocols / DApps",
+    activities: "Activities / Actions", strategies: "Strategies",
+    ways: "60 Ways / Opportunity Taxonomy", datasources: "Data Sources",
+    botcapabilities: "Bot Capabilities", risks: "Risks",
+    discoveries: "Discovery Records", statuses: "Status / Verification",
+    positions: "Future Positions"
+  };
+
+  function panel(title, children) {
+    var kids = [U.el("h2", { class: "api-title" }, title)];
+    (children || []).forEach(function (c) { kids.push(c); });
+    return U.el("div", { class: "api-panel" }, kids);
+  }
+
+  function backBtn(label, onBack) {
+    return U.el("button", { class: "btn btn-primary btn-sm", type: "button", onclick: onBack }, label);
+  }
+
+  function labelList(items) {
+    var list = U.el("ul", { class: "price-offer-list" });
+    items.forEach(function (t) { list.appendChild(U.el("li", {}, t)); });
+    return list;
+  }
+
+  function badge(status) {
+    return "VERIFICATION: " + String(status || "UNKNOWN").replace(/_/g, " ");
+  }
+
+  async function render(root) {
+    var CW = global.CryptoWorld;
+    var records = [];
+    var meta = null;
+    var storeNote = null;
+    var importReports = [];
+    var importSummary = null;
+    var importError = null;
+    try {
+      if (CW) {
+        await CW.ensureTaxonomyMeta();
+        // Approved content imports run first (idempotent: records already
+        // in the store are counted, not rewritten), so the counts below
+        // include imported entries on the first visit after an update.
+        if (global.EncyclopediaImport && typeof global.EncyclopediaImport.importAll === "function") {
+          try { importSummary = await global.EncyclopediaImport.importAll(); } catch (e) { importError = e; }
+        }
+        records = await CW.getAllRecords();
+        meta = await CW.getTaxonomyMeta();
+        if (global.EncyclopediaImport && typeof global.EncyclopediaImport.report === "function") {
+          try { importReports = await global.EncyclopediaImport.report(); } catch (e) {}
+        }
+      }
+    } catch (e) {
+      storeNote = "Local registry store could not be read on this device — counts below are unavailable, not zero by proof.";
+    }
+    // Import-failure banner (Fix-up #3, defect B): a failed import must
+    // be VISIBLE, not swallowed. Before this fix the import summary was
+    // discarded (only .corrected was ever read) and the screen presented
+    // empty registries plus a "Batch B blocked: 356" gate verdict as if
+    // nothing had happened — while the real cause (the store could not
+    // be read or written in that profile) was invisible. The banner
+    // names which batch failed, why, and what to do (reload / revisit
+    // to retry — the import is idempotent and self-heals), and it
+    // renders at the top of the screen (header) as well as in the
+    // Content imports panel, so an empty search result is never the
+    // only thing the user sees.
+    var importNote = null;
+    if (importSummary && importSummary.failed && importSummary.error) {
+      importNote = "⚠️ Encyclopedia import did not complete on this device — " + importSummary.error +
+        " Empty registries below mean the import did not finish, not that nothing exists." +
+        " Reload the page or revisit this screen to retry the import.";
+    } else if (importError) {
+      importNote = "⚠️ Encyclopedia import did not complete on this device — " +
+        (importError && importError.message ? importError.message : String(importError)) +
+        " Empty registries below mean the import did not finish, not that nothing exists." +
+        " Reload the page or revisit this screen to retry the import.";
+    } else if (importReports && importReports.storeReadFailed) {
+      importNote = "⚠️ The local encyclopedia store could not be read on this device" +
+        (importReports.storeError ? " (" + importReports.storeError + ")" : "") +
+        " — counts below are unavailable, not zero by proof." +
+        " Reload the page or revisit this screen to retry the import.";
+    }
+    if (!CW) storeNote = "Crypto World data layer is not loaded, so the encyclopedia cannot read entries.";
+    meta = meta || (CW ? CW.defaultTaxonomyMeta() : { expectedCategoryCount: 60, importedCategoryCount: 0, status: "TAXONOMY_IMPORT_PENDING" });
+
+    function header() {
+      root.appendChild(
+        U.el("div", { class: "view-header" }, [
+          U.el("h1", {}, "📖 Crypto Encyclopedia"),
+          U.el("span", { class: "badge badge-cat cockpit-callsign" }, "REFERENCE — READ ONLY")
+        ])
+      );
+      root.appendChild(
+        U.el("p", { class: "about-text" },
+          "Reference entries for the Crypto World: definitions, relationships, risks, and " +
+          "verification state. Presence here is not verification — every entry carries its " +
+          "verification badge. Search below covers local entries only; the global search bar " +
+          "at the top of the app remains the path to the web.")
+      );
+      if (storeNote) root.appendChild(U.el("div", { class: "api-meta" }, storeNote));
+      if (importNote) root.appendChild(U.el("div", { class: "api-meta" }, importNote));
+    }
+
+    // Back navigation goes through the router (location.hash), so the URL
+    // always matches the view — Back from a routed detail (#/encyclopedia/<id>)
+    // resets the hash to #/encyclopedia instead of leaving the entry hash
+    // on an index view. Setting the hash to its current value fires no
+    // hashchange, so when the detail was opened in-page (hash already
+    // "#/encyclopedia") the target view is rendered in place instead.
+    function currentHashPath() {
+      return (location.hash || "").replace(/^#\/?/, "");
+    }
+    function goIndex() {
+      if (currentHashPath() !== "encyclopedia") location.hash = "#/encyclopedia";
+      else showIndex();
+    }
+    function goDetail(id) {
+      var target = "encyclopedia/" + encodeURIComponent(id);
+      if (currentHashPath() !== target) location.hash = "#/" + target;
+      else showDetail(id, { view: "index" });
+    }
+
+    function showIndex() {
+      root.innerHTML = "";
+      header();
+
+      // Local search.
+      var input = U.el("input", { class: "price-input", type: "text", placeholder: "Search the encyclopedia (local entries only)" });
+      var results = U.el("div", { class: "api-meta" }, "");
+      function runSearch() {
+        var hits = CW ? CW.searchEntries(records, input.value) : [];
+        results.innerHTML = "";
+        if (!input.value.trim()) {
+          results.appendChild(U.el("span", {}, "Type a word and tap Search."));
+          return;
+        }
+        if (!hits.length) {
+          results.appendChild(U.el("span", {}, "No local entries match that search."));
+          return;
+        }
+        var list = U.el("ul", { class: "price-offer-list" });
+        hits.forEach(function (h) {
+          list.appendChild(U.el("li", {}, [
+            U.el("button", { class: "btn btn-primary btn-sm", type: "button", onclick: function () { showDetail(h.id, { view: "index" }); } }, h.title),
+            U.el("span", {}, " — " + LABELS[h.registry] + " · " + badge(h.verificationStatus))
+          ]));
+        });
+        results.appendChild(list);
+      }
+      input.onkeyup = function (ev) { if (ev && ev.key === "Enter") runSearch(); };
+      root.appendChild(panel("🔍 Search the encyclopedia", [
+        input,
+        U.el("button", { class: "btn btn-primary btn-sm", type: "button", onclick: runSearch }, "Search"),
+        results
+      ]));
+
+      // Registry index with real counts.
+      var rows = U.el("ul", { class: "price-offer-list" });
+      (CW ? CW.REGISTRIES : []).forEach(function (reg) {
+        var count = CW.entriesByRegistry(records, reg).length;
+        rows.appendChild(U.el("li", {}, [
+          U.el("button", { class: "btn btn-primary btn-sm", type: "button", onclick: function () { showList(reg); } }, LABELS[reg]),
+          U.el("span", {}, " — " + count + (count === 1 ? " entry" : " entries"))
+        ]));
+      });
+      root.appendChild(panel("📚 Registry index", [
+        U.el("div", { class: "api-meta" }, "Counts are real entries in the local store. Empty registries say so honestly — nothing here is padded."),
+        rows
+      ]));
+
+      // 60 Ways taxonomy card — the single source of truth for the Ways.
+      // IMPORTED and VERIFIED are two different numbers and are shown as
+      // two different lines on purpose: imported means the 60 canonical
+      // Major Activities are in the encyclopedia; VERIFIED means an entry
+      // was checked against a cited external source. Imported is not
+      // verified — every activity stays UNVERIFIED until it meets the
+      // external-verification requirements.
+      var verifiedMajorCount = records.filter(function (r) { return r.level === "MAJOR_ACTIVITY" && r.verificationStatus === "VERIFIED"; }).length;
+      var taxonomyNote = meta.status === "TAXONOMY_IMPORTED"
+        ? "The 60 canonical Major Activities are imported. Imported is not verified — every activity stays UNVERIFIED until it is checked against a cited external source."
+        : "The authoritative category names are not in this app yet. Way entries appear only " +
+          "through an authoritative import — the encyclopedia never invents them.";
+      root.appendChild(panel("💎 60-WAY TAXONOMY", [
+        U.el("div", { class: "api-meta" }, "STATUS: " + String(meta.status).replace(/_/g, " ")),
+        U.el("div", { class: "api-meta" }, "Canonical Taxonomy: " + meta.importedCategoryCount + " / " + meta.expectedCategoryCount + " IMPORTED"),
+        U.el("div", { class: "api-meta" }, "External Verification: " + verifiedMajorCount + " / " + meta.expectedCategoryCount + " VERIFIED"),
+        U.el("div", { class: "api-meta" }, taxonomyNote)
+      ]));
+
+      // Content imports — live report, derived from batch data + store.
+      // UNVERIFIED means approved for inclusion, not externally verified.
+      // When the store could not be read, the per-batch lines are NOT
+      // rendered: "0 imported, 356 rejected" derived from an unread store
+      // is the defect-B misdiagnosis, and the failure banner above (in
+      // the header) plus the note here is the honest report instead.
+      var showImportPanel = importReports.length > 0 || !!importNote;
+      if (showImportPanel) {
+        var importKids = [U.el("div", { class: "api-meta" },
+          "Each batch is validated record by record before writing. Rejected records are " +
+          "listed with reasons and never written; the validator is never weakened to fill " +
+          "the encyclopedia.")];
+        if (importNote) {
+          importKids.push(U.el("div", { class: "api-meta" }, importNote));
+        }
+        if (importReports.storeReadFailed) {
+          importKids.push(U.el("div", { class: "api-meta" },
+            "The local encyclopedia store could not be read on this device" +
+            (importReports.storeError ? " (" + importReports.storeError + ")" : "") +
+            " — no import counts can be reported until it can be read." +
+            " Reload the page or revisit this screen to retry the import."));
+        } else {
+          importReports.forEach(function (rep) {
+            var line = rep.label + " — " + rep.imported + " imported, " + rep.pending +
+              " pending, " + rep.rejected.length + " rejected (of " + rep.total + " records).";
+            importKids.push(U.el("div", { class: "api-meta" }, line));
+            if (rep.blocked && rep.blockReason) {
+              importKids.push(U.el("div", { class: "api-meta" }, rep.blockReason));
+              if (importSummary && importSummary.failed) {
+                importKids.push(U.el("div", { class: "api-meta" },
+                  "That Batch B block is a consequence of the failed import above — its parent records were never written — not a problem with the Batch B data."));
+              }
+            }
+            rep.rejected.forEach(function (r) {
+              importKids.push(U.el("div", { class: "api-meta" },
+                "Rejected: " + r.id + " — " + r.reasons.join(" ")));
+            });
+          });
+        }
+        // Owner-approved corrections applied by this run (Q-BGR-10): the
+        // correction mechanism reports here so an alias fix that lands on
+        // an already-imported record is visible, not silent.
+        if (importSummary && importSummary.corrected > 0) {
+          importKids.push(U.el("div", { class: "api-meta" },
+            "Owner-approved corrections applied this run: " + importSummary.corrected +
+            " (family-cross-chain aliases now [Interoperability])."));
+        }
+        root.appendChild(panel("📥 Content imports", importKids));
+      }
+
+      // Schema reference — labels, not records.
+      root.appendChild(panel("🧭 Activity families (schema labels, not records)", [
+        U.el("div", { class: "api-meta" }, "Families organize activities. They are not opportunities, earning guarantees, protocols, assets, strategies, or the 60 Ways."),
+        labelList(CW.ACTIVITY_FAMILIES.map(function (f) { return f.id + ". " + f.name; }))
+      ]));
+      root.appendChild(panel("💰 Asset classes (schema labels, not holdings)", [labelList(CW.ASSET_CLASSES)]));
+      root.appendChild(panel("⚠️ Risk dimensions (labels only, no scores)", [labelList(CW.RISK_DIMENSIONS)]));
+      root.appendChild(panel("🧭 Activity modes", [labelList(CW.MODES)]));
+      root.appendChild(panel("✅ Verification states", [
+        U.el("div", { class: "api-meta" }, "Present in the encyclopedia is not verified. Only VERIFIED entries carry a source and a last-checked time."),
+        labelList(CW.VERIFICATION_STATES)
+      ]));
+
+      // Guided questions — what the encyclopedia answers once entries exist.
+      root.appendChild(panel("🔭 Questions this encyclopedia answers", [
+        U.el("div", { class: "api-meta" },
+          "Each question is answered from real entries once they exist. Today, where no entries " +
+          "exist yet, the honest answer is that nothing is recorded — not a guess."),
+        labelList([
+          "What can I do with this asset? — Assets, then its linked activities.",
+          "What protocols support this activity? — Activities, then linked protocols.",
+          "What chains can I use? — Assets and protocols, then linked chains.",
+          "What activities exist under a Major Activity? — the 60 canonical Major Activities, browsable under each family.",
+          "What are the risks? — Risks linked to the entry.",
+          "What can the bots research? — Bot Capabilities.",
+          "What requires wallet approval? — Entries whose mode is TRANSACTIONAL and verified.",
+          "What is informational versus transactional? — The entry's mode and verification badge."
+        ])
+      ]));
+    }
+
+    function showList(registry) {
+      root.innerHTML = "";
+      header();
+      root.appendChild(backBtn("← Back to index", goIndex));
+      var entries = CW ? CW.entriesByRegistry(records, registry) : [];
+      var kids = [U.el("div", { class: "api-meta" }, entries.length + (entries.length === 1 ? " entry." : " entries."))];
+      if (registry === "ways") {
+        kids.push(U.el("div", { class: "api-meta" },
+          "Way entries appear only through an authoritative import. Current status: " +
+          String(meta.status).replace(/_/g, " ") + " — " + meta.importedCategoryCount + " / " + meta.expectedCategoryCount + " imported, " +
+          records.filter(function (r) { return r.level === "MAJOR_ACTIVITY" && r.verificationStatus === "VERIFIED"; }).length + " / " + meta.expectedCategoryCount + " verified."));
+      }
+      if (!entries.length && registry !== "ways") {
+        kids.push(U.el("div", { class: "api-meta" }, "No entries recorded here yet."));
+      }
+      var list = U.el("ul", { class: "price-offer-list" });
+      entries.forEach(function (e) {
+        list.appendChild(U.el("li", {}, [
+          U.el("button", { class: "btn btn-primary btn-sm", type: "button", onclick: function () { showDetail(e.id, { view: "list", registry: registry }); } }, e.title),
+          U.el("span", {}, " · " + badge(e.verificationStatus))
+        ]));
+      });
+      kids.push(list);
+      root.appendChild(panel("📚 " + LABELS[registry], kids));
+    }
+
+    function showDetail(id, prev) {
+      root.innerHTML = "";
+      header();
+      root.appendChild(backBtn("← Back", function () {
+        if (prev && prev.view === "list") showList(prev.registry);
+        else if (prev && prev.view === "detail" && prev.id) goDetail(prev.id);
+        else goIndex();
+      }));
+      var entry = CW ? CW.getEntry(records, id) : null;
+      if (!entry || !CW.isEntry(entry)) {
+        root.appendChild(panel("Entry not found", [
+          U.el("div", { class: "api-meta" }, "That entry is not in the local encyclopedia.")
+        ]));
+        return;
+      }
+      var kids = [
+        U.el("div", { class: "api-meta" }, badge(entry.verificationStatus)),
+        U.el("div", { class: "api-meta" }, entry.definition)
+      ];
+      // THREAT/DEFENSE presentation (Batch B gate, design §F4): a fixed
+      // header making clear this is a risk/protective classification, not
+      // an executable financial Strategy. No new screen, no opportunity
+      // presentation, no transactional presentation, no bot assignment,
+      // no execution controls. Uses the existing Risks registry
+      // presentation; appliesTo links render through relatedEntries below.
+      if (entry.classification === "THREAT" || entry.classification === "DEFENSE") {
+        var threatHeader = entry.classification === "THREAT"
+          ? "⚠️ THREAT CLASSIFICATION — this describes a risk to users. It is not an opportunity, not a strategy, and the cockpit cannot perform it."
+          : "🛡️ DEFENSE CLASSIFICATION — a protective practice or monitoring capability. It is not an opportunity and creates no execution capability.";
+        kids.unshift(U.el("div", { class: "api-meta" }, threatHeader));
+        if (entry.threatKind) {
+          kids.push(U.el("div", { class: "api-meta" }, "Threat kind: " + entry.threatKind));
+        }
+      }
+      if (entry.aliases && entry.aliases.length) {
+        kids.push(U.el("div", { class: "api-meta" }, "Also known as: " + entry.aliases.join(", ")));
+      }
+      var related = CW.relatedEntries(records, entry);
+      if (related.length) {
+        var rlist = U.el("ul", { class: "price-offer-list" });
+        related.forEach(function (r) {
+          rlist.appendChild(U.el("li", {}, [
+            U.el("button", { class: "btn btn-primary btn-sm", type: "button", onclick: function () { showDetail(r.id, { view: "detail", id: entry.id }); } }, r.title),
+            U.el("span", {}, " — " + LABELS[r.registry])
+          ]));
+        });
+        kids.push(U.el("div", { class: "api-meta" }, "Related entries:"));
+        kids.push(rlist);
+      }
+      var dangling = CW.danglingRefs(records, entry);
+      if (dangling.length) {
+        kids.push(U.el("div", { class: "api-meta" }, "Not yet in the encyclopedia: " + dangling.join(", ")));
+      }
+      if (entry.source) kids.push(U.el("div", { class: "api-meta" }, "Source: " + entry.source));
+      if (entry.sourceTimestamp) kids.push(U.el("div", { class: "api-meta" }, "Source time: " + entry.sourceTimestamp));
+      if (entry.lastChecked) kids.push(U.el("div", { class: "api-meta" }, "Last checked: " + entry.lastChecked));
+      if (entry.level) kids.push(U.el("div", { class: "api-meta" }, "Level: " + entry.level + (entry.familySet ? " · Family set: " + entry.familySet : "") + (entry.canonicalSet ? " · Canonical set: " + entry.canonicalSet : "")));
+      if (entry.primaryFamily) kids.push(U.el("div", { class: "api-meta" }, "Primary family: " + entry.primaryFamily + (entry.relatedFamilies && entry.relatedFamilies.length ? " · Related families: " + entry.relatedFamilies.join(", ") : "")));
+      if (entry.workspace) kids.push(U.el("div", { class: "api-meta" }, "Workspace: " + entry.workspace));
+      if (entry.globeView) kids.push(U.el("div", { class: "api-meta" }, "Globe view: " + entry.globeView));
+      if (entry.importBatch) kids.push(U.el("div", { class: "api-meta" }, "Imported by: " + entry.importBatch));
+      if (entry.assetClass) kids.push(U.el("div", { class: "api-meta" }, "Asset class: " + entry.assetClass));
+      if (entry.modes) kids.push(U.el("div", { class: "api-meta" }, "Modes: " + (Array.isArray(entry.modes) ? entry.modes.join(", ") : entry.modes)));
+      root.appendChild(panel(entry.title + " — " + LABELS[entry.registry], kids));
+    }
+
+    // Per-entry route (#/encyclopedia/<id>): the router exposes the
+    // id as global.CockpitRouteParam. A routed id opens that entry's
+    // detail view directly; an unknown id renders the existing
+    // "Entry not found" panel. The in-page Back button from a routed
+    // detail returns to the index.
+    var routedId = (typeof global.CockpitRouteParam === "string" && global.CockpitRouteParam)
+      ? global.CockpitRouteParam : null;
+    if (routedId) showDetail(routedId, { view: "index" }); else showIndex();
+  }
+
+  global.CockpitModules = global.CockpitModules || {};
+  global.CockpitModules.encyclopedia = { render: render };
+})(window);

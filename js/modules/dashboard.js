@@ -1,0 +1,644 @@
+/* MTI6-GTADWIY-COCKPIT — Dashboard module */
+(function (global) {
+  "use strict";
+  const { el, fmtMoney, fmtDate, fmtDateTime, monthKey, debounce, parseLocalDate, todayLocal } = U;
+
+  // ---- Custom widgets -------------------------------------------------
+  // Widget layout is user-configurable and persisted in the "widgets" store,
+  // so the dashboard's widget set is real data, not a fixed hardcoded panel.
+  const WIDGET_TYPES = {
+    notes_count: { label: "Knowledge Vault count", route: "vault" },
+    tasks_open: { label: "Open tasks", route: "tasks" },
+    month_spend: { label: "This month's spend", route: "expenses" },
+    active_projects: { label: "Active projects", route: "projects" },
+    pinned_notes: { label: "Pinned notes list", route: "vault" },
+    upcoming_tasks: { label: "Upcoming tasks list", route: "tasks" },
+    recent_expenses: { label: "Recent expenses list", route: "expenses" },
+    project_progress: { label: "Project progress list", route: "projects" },
+    clock_date: { label: "Date & time", route: null },
+    spend_chart: { label: "7-day spending chart", route: "expenses" }
+  };
+
+  const DEFAULT_WIDGETS = [
+    { type: "notes_count", order: 0 },
+    { type: "tasks_open", order: 1 },
+    { type: "month_spend", order: 2 },
+    { type: "active_projects", order: 3 },
+    { type: "spend_chart", order: 4 }
+  ];
+
+  // Seeding guard: the check-then-act in ensureDefaultWidgets spans
+  // awaits, so two overlapping dashboard renders (rapid navigation, or
+  // two tabs sharing one IndexedDB) could both see an empty store and
+  // each seed a full default set — every widget twice, same type and
+  // order, distinct ids. Concurrent callers share one seeding pass.
+  // (A second tab can still double-seed in principle; the render-time
+  // dedupe below heals that too, so it stays invisible.)
+  let seedingWidgets = null;
+
+  async function ensureDefaultWidgets() {
+    const existing = await CockpitDB.getAll("widgets");
+    if (existing.length) return existing;
+    if (seedingWidgets) return seedingWidgets;
+    seedingWidgets = (async () => {
+      // Re-check inside the shared pass: another caller may have
+      // seeded already while this call was awaiting getAll.
+      const rechecked = await CockpitDB.getAll("widgets");
+      if (rechecked.length) return rechecked;
+      const seeded = [];
+      for (const w of DEFAULT_WIDGETS) {
+        const record = { id: CockpitDB.uuid(), type: w.type, order: w.order, title: "" };
+        await CockpitDB.put("widgets", record);
+        seeded.push(record);
+      }
+      return seeded;
+    })();
+    try {
+      return await seedingWidgets;
+    } finally {
+      seedingWidgets = null;
+    }
+  }
+
+  // A store that already holds duplicate default records (same type,
+  // order, and title — the fingerprint of a double seed) renders each
+  // widget twice. Collapse exact duplicates at read time and delete
+  // the extras, so a polluted store heals itself on the next visit.
+  // User-added widgets always get a fresh max+1 order, so two
+  // legitimate widgets of one type never share (type, order) and are
+  // never collapsed.
+  async function dedupeWidgets(widgets) {
+    const seen = new Map();
+    const keep = [];
+    const extras = [];
+    for (const w of widgets) {
+      if (!w || typeof w !== "object") continue;
+      const key = w.type + "|" + (w.order || 0) + "|" + (w.title || "");
+      if (seen.has(key)) extras.push(w);
+      else { seen.set(key, w); keep.push(w); }
+    }
+    for (const w of extras) {
+      try { await CockpitDB.delete("widgets", w.id); } catch (e) {}
+    }
+    return keep;
+  }
+
+  // Fix-up #3, defect A — one unreadable store must not kill the whole
+  // dashboard. The old render read its six stores with a single
+  // all-or-nothing Promise.all, so one store throwing on read rejected
+  // the entire render and the app.js error boundary showed "Something
+  // went wrong" — and "Try again" re-ran the same read against the
+  // same still-failing store, so the retry could never succeed. Each
+  // store now loads on its own: a failed store contributes an empty
+  // list, is named in `failedStores` for the honest note below, and
+  // the rest of the dashboard renders. A later retry re-reads the
+  // store, so a transient failure recovers.
+  async function safeGetAll(storeName, failedStores) {
+    try {
+      const rows = await CockpitDB.getAll(storeName);
+      return Array.isArray(rows) ? rows : [];
+    } catch (e) {
+      console.error("Dashboard: could not load store \"" + storeName + "\"; continuing without it.", e);
+      failedStores.push(storeName);
+      return [];
+    }
+  }
+
+  // Fix-up #3, defect A — a dashboard panel must never kill the
+  // dashboard. Each panel's UI layer and its data layer load as
+  // separate scripts, so the UI can be present while its data layer
+  // is missing (slow/failed script load, mixed cache) — and a panel's
+  // render can throw on unexpected local data. The Scouts panel was
+  // the live hole: dashboard.js guarded `global.ScoutsUI` but
+  // scouts.js renderPanel() calls `global.KnowledgeScout
+  // .listKnowledge()` unconditionally, so a session without the
+  // KnowledgeScout layer threw TypeError inside render, the boundary
+  // showed the error panel, and retry re-ran the same render against
+  // the same still-missing layer (dead button) while a reload
+  // re-fetched the scripts and rendered fine. A panel that cannot
+  // render is skipped (and logged) instead of failing the screen;
+  // its name is collected for the honest note below. Panels whose
+  // own renderPanel already reports a missing layer (Prices,
+  // ApiHealth) keep that in-panel message and need no dataCheck here.
+  function safePanel(ui, dataCheck) {
+    if (!ui || typeof ui.renderPanel !== "function") return null;
+    if (dataCheck && !dataCheck()) return null;
+    try {
+      return ui.renderPanel();
+    } catch (e) {
+      console.error("Dashboard: panel failed to render, skipped.", e);
+      return null;
+    }
+  }
+
+  async function render(root) {
+    const failedStores = [];
+    const [notes, tasks, expenses, projects, milestones, activity] = await Promise.all([
+      safeGetAll("notes", failedStores),
+      safeGetAll("tasks", failedStores),
+      safeGetAll("expenses", failedStores),
+      safeGetAll("projects", failedStores),
+      safeGetAll("milestones", failedStores),
+      safeGetAll("activity", failedStores)
+    ]);
+    let widgets = [];
+    try {
+      widgets = await ensureDefaultWidgets();
+      widgets = await dedupeWidgets(widgets);
+    } catch (e) {
+      // Seeding/reading widgets failed (e.g. the widgets store threw
+      // on read): render without widgets rather than failing the
+      // whole screen. A retry re-runs the seed/read, so a transient
+      // failure recovers; a partial seed is kept as-is.
+      console.error("Dashboard: could not load widgets; continuing without them.", e);
+      if (failedStores.indexOf("widgets") === -1) failedStores.push("widgets");
+      widgets = [];
+    }
+    widgets = widgets.slice().sort((a, b) => (a.order || 0) - (b.order || 0));
+
+    const data = { notes, tasks, expenses, projects, milestones };
+
+    root.innerHTML = "";
+    root.appendChild(
+      el("div", { class: "view-header" }, [
+        el("h1", {}, "MTI6 Cockpit Dashboard"),
+        el("span", { class: "badge badge-cat cockpit-callsign" }, "COMMAND CENTER")
+      ])
+    );
+
+    root.appendChild(
+      el("input", {
+        class: "input search-input dash-search",
+        type: "search",
+        placeholder: "Search your notes, tasks, expenses, projects… (web search is in the top bar)",
+        oninput: debounce((e) => runSearch(root, e.target.value, { notes, tasks, expenses, projects }), 200)
+      })
+    );
+    root.appendChild(el("div", { id: "dash-search-results" }));
+
+    // ---- Dashboard panels --------------------------------------------
+    // Each panel is additive: if its layers fail to load, or its
+    // render throws, the panel is skipped and the dashboard still
+    // renders everything else below, unchanged. safePanel (above)
+    // does the guarding + try/catch; appendPanel records skipped
+    // panels for the honest note after the last panel.
+    const skippedPanels = [];
+    function appendPanel(title, panelName, node) {
+      if (!node) { skippedPanels.push(panelName); return; }
+      root.appendChild(el("h2", { class: "section-title" }, title));
+      root.appendChild(node);
+    }
+
+    // Star 3.0 Command Chat (V1): primary AI assistant panel,
+    // rendered on the dashboard only.
+    appendPanel("Star 3.0 Command Chat", "Star 3.0 Command Chat", safePanel(global.StarChatUI));
+
+    // Price Scouts (V1): read-only price panel, dashboard only.
+    appendPanel("Price Scouts", "Price Scouts", safePanel(global.PriceUI));
+
+    // API health/usage panel, after Prices.
+    appendPanel("API Health & Usage", "API Health & Usage", safePanel(global.ApiHealthUI));
+
+    // Scouts & Bot Knowledge panel, after API Health. Its data layer
+    // (KnowledgeScout) is checked as well as its UI layer: the panel
+    // itself dereferences KnowledgeScout unguarded, so without this
+    // check a missing layer threw inside render (defect A).
+    appendPanel("Scouts & Bot Knowledge", "Scouts & Bot Knowledge",
+      safePanel(global.ScoutsUI, function () {
+        return global.KnowledgeScout && typeof global.KnowledgeScout.listKnowledge === "function";
+      }));
+
+    // Development Center panel (read-only GitHub data), after Scouts.
+    appendPanel("Development Center", "Development Center", safePanel(global.DevCenterUI));
+
+    // Honest note when part of the dashboard could not load: counts
+    // and lists below cover only what loaded, so a failed store must
+    // never silently read as zero, and a skipped panel must never
+    // silently vanish. No numbers are invented here.
+    if (failedStores.length || skippedPanels.length) {
+      const problems = [];
+      if (failedStores.length) problems.push("data: " + failedStores.join(", "));
+      if (skippedPanels.length) problems.push("panels unavailable: " + skippedPanels.join(", "));
+      root.appendChild(el("div", { class: "empty-state" },
+        "Some dashboard content couldn't be loaded (" + problems.join("; ") +
+        "). Your data is safe — try again or reload to retry."));
+    }
+
+    // ---- Quick Actions: jump straight into creating a new record, no
+    // intermediate navigation step. Distinct from Quick Navigation below,
+    // which only opens a screen without starting a new record.
+    root.appendChild(el("h2", { class: "section-title" }, "Quick Actions"));
+    root.appendChild(
+      el("div", { class: "quicknav-grid quick-actions-grid" }, [
+        quickActionButton("📝", "New Note", () => openQuickCreate(root, "vault")),
+        quickActionButton("✅", "New Task", () => openQuickCreate(root, "tasks")),
+        quickActionButton("💳", "Log Expense", () => openQuickCreate(root, "expenses")),
+        quickActionButton("📁", "New Project", () => openQuickCreate(root, "projects"))
+      ])
+    );
+
+    root.appendChild(
+      el("div", { class: "view-header widgets-header" }, [
+        el("h2", { class: "section-title", style: "margin:0" }, "System Widgets"),
+        el("button", { class: "btn btn-ghost btn-sm", onclick: () => openAddWidgetDialog(root) }, "+ Add Widget")
+      ])
+    );
+    root.appendChild(
+      el(
+        "div",
+        { class: "widget-grid" },
+        widgets.map((w, i) => renderWidget(root, w, data, i, widgets))
+      )
+    );
+
+    root.appendChild(el("h2", { class: "section-title" }, "Quick Navigation"));
+    root.appendChild(
+      el("div", { class: "quicknav-grid" }, [
+        quickNavButton("📒", "Knowledge Vault", "vault"),
+        quickNavButton("✅", "Mission Control", "tasks"),
+        quickNavButton("💰", "Resource Tracker", "expenses"),
+        quickNavButton("📁", "Projects", "projects"),
+        quickNavButton("⚙️", "Settings", "settings")
+      ])
+    );
+
+    root.appendChild(el("h2", { class: "section-title" }, "Recent Activity"));
+    const activityList = el("div", { class: "activity-list" });
+    const recent = activity.slice().sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, 12);
+    if (!recent.length) {
+      activityList.appendChild(el("div", { class: "empty-state" }, "No activity yet — start by creating a note, task, or expense."));
+    } else {
+      recent.forEach((a) => {
+        activityList.appendChild(
+          el("div", { class: "activity-item" }, [
+            el("span", { class: `activity-dot activity-${a.type}` }),
+            el("span", { class: "activity-text" }, a.message),
+            el("span", { class: "activity-time" }, fmtDateTime(a.timestamp))
+          ])
+        );
+      });
+    }
+    root.appendChild(activityList);
+  }
+
+  function widgetStat(title, value, sub, route, controls) {
+    return el("div", { class: "stat-card widget-card" }, [
+      el("div", { class: "widget-card-body", onclick: route ? () => (location.hash = `#/${route}`) : null }, [
+        el("div", { class: "stat-label" }, title),
+        el("div", { class: "stat-value" }, value),
+        el("div", { class: "stat-sub" }, sub)
+      ]),
+      controls
+    ]);
+  }
+
+  function widgetList(title, route, items, emptyText, controls) {
+    return el("div", { class: "stat-card widget-card widget-list-card" }, [
+      el("div", { class: "widget-card-body", onclick: route ? () => (location.hash = `#/${route}`) : null }, [
+        el("div", { class: "stat-label" }, title),
+        items.length
+          ? el("ul", { class: "widget-mini-list" }, items.map((t) => el("li", {}, t)))
+          : el("div", { class: "stat-sub" }, emptyText)
+      ]),
+      controls
+    ]);
+  }
+
+  // Simple CSS bar chart — no external chart library, no network needed.
+  function widgetChart(title, route, days, controls) {
+    const maxVal = Math.max(1, ...days.map((d) => d.total));
+    return el("div", { class: "stat-card widget-card widget-chart-card" }, [
+      el("div", { class: "widget-card-body", onclick: route ? () => (location.hash = `#/${route}`) : null }, [
+        el("div", { class: "stat-label" }, title),
+        el(
+          "div",
+          { class: "bar-chart" },
+          days.map((d) =>
+            el("div", { class: "bar-chart-col" }, [
+              el("div", {
+                class: "bar-chart-bar",
+                style: `height:${Math.max(3, Math.round((d.total / maxVal) * 100))}%`,
+                title: `${d.label}: ${fmtMoney(d.total)}`
+              }),
+              el("div", { class: "bar-chart-label" }, d.label)
+            ])
+          )
+        )
+      ]),
+      controls
+    ]);
+  }
+
+  function widgetControls(root, widgets, index) {
+    const w = widgets[index];
+    return el("div", { class: "widget-controls" }, [
+      el("button", {
+        class: "widget-ctrl-btn",
+        title: "Move up",
+        disabled: index === 0 || undefined,
+        onclick: async (ev) => {
+          ev.stopPropagation();
+          await moveWidget(widgets, index, -1);
+          render(root);
+        }
+      }, "▲"),
+      el("button", {
+        class: "widget-ctrl-btn",
+        title: "Move down",
+        disabled: index === widgets.length - 1 || undefined,
+        onclick: async (ev) => {
+          ev.stopPropagation();
+          await moveWidget(widgets, index, 1);
+          render(root);
+        }
+      }, "▼"),
+      el("button", {
+        class: "widget-ctrl-btn widget-ctrl-remove",
+        title: "Remove widget",
+        onclick: async (ev) => {
+          ev.stopPropagation();
+          await CockpitDB.delete("widgets", w.id);
+          U.toast("Widget removed");
+          render(root);
+        }
+      }, "✕")
+    ]);
+  }
+
+  async function moveWidget(widgets, index, dir) {
+    const target = index + dir;
+    if (target < 0 || target >= widgets.length) return;
+    const a = widgets[index];
+    const b = widgets[target];
+    const orderA = a.order;
+    a.order = b.order;
+    b.order = orderA;
+    await CockpitDB.put("widgets", a);
+    await CockpitDB.put("widgets", b);
+  }
+
+  function renderWidget(root, w, data, index, widgets) {
+    const { notes, tasks, expenses, projects, milestones } = data;
+    const controls = widgetControls(root, widgets, index);
+
+    switch (w.type) {
+      case "notes_count":
+        return widgetStat(w.title || "Knowledge Vault", `${notes.length}`, "notes stored", "vault", controls);
+      case "tasks_open": {
+        const openTasks = tasks.filter((t) => t.status !== "Done").length;
+        const overdueTasks = tasks.filter((t) => {
+          const due = parseLocalDate(t.dueDate);
+          return due && t.status !== "Done" && due < todayLocal();
+        }).length;
+        return widgetStat(
+          w.title || "Open Tasks",
+          `${openTasks}`,
+          overdueTasks ? `${overdueTasks} overdue` : "all on track",
+          "tasks",
+          controls
+        );
+      }
+      case "month_spend": {
+        const thisMonthKey = monthKey();
+        const monthSpend = expenses.filter((e) => e.monthKey === thisMonthKey).reduce((s, e) => s + Number(e.amount || 0), 0);
+        return widgetStat(w.title || "This Month's Spend", fmtMoney(monthSpend), "Resource Tracker", "expenses", controls);
+      }
+      case "active_projects": {
+        const activeProjects = projects.filter((p) => p.status === "Active").length;
+        return widgetStat(w.title || "Active Projects", `${activeProjects}`, `${projects.length} total`, "projects", controls);
+      }
+      case "pinned_notes": {
+        const pinned = notes.filter((n) => n.pinned).slice(0, 4).map((n) => n.title || "(untitled)");
+        return widgetList(w.title || "Pinned Notes", "vault", pinned, "No pinned notes yet.", controls);
+      }
+      case "upcoming_tasks": {
+        const upcoming = tasks
+          .filter((t) => t.status !== "Done" && t.dueDate)
+          .sort((a, b) => parseLocalDate(a.dueDate) - parseLocalDate(b.dueDate))
+          .slice(0, 4)
+          .map((t) => `${t.title} — ${fmtDate(t.dueDate)}`);
+        return widgetList(w.title || "Upcoming Tasks", "tasks", upcoming, "Nothing due — you're clear.", controls);
+      }
+      case "recent_expenses": {
+        const recentExp = expenses
+          .slice()
+          .sort((a, b) => (parseLocalDate(b.date) || 0) - (parseLocalDate(a.date) || 0))
+          .slice(0, 4)
+          .map((e) => `${e.description || e.category || "Expense"} — ${fmtMoney(e.amount)}`);
+        return widgetList(w.title || "Recent Expenses", "expenses", recentExp, "No expenses logged yet.", controls);
+      }
+      case "project_progress": {
+        const lines = projects
+          .filter((p) => p.status === "Active")
+          .slice(0, 4)
+          .map((p) => {
+            const ms = milestones.filter((m) => m.projectId === p.id);
+            const pct = ms.length ? Math.round((ms.filter((m) => m.done).length / ms.length) * 100) : 0;
+            return `${p.name} — ${pct}%`;
+          });
+        return widgetList(w.title || "Project Progress", "projects", lines, "No active projects yet.", controls);
+      }
+      case "clock_date": {
+        const now = new Date();
+        return widgetStat(
+          w.title || "Today",
+          now.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }),
+          now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }),
+          null,
+          controls
+        );
+      }
+      case "spend_chart": {
+        const days = last7DaysTotals(expenses);
+        return widgetChart(w.title || "Last 7 Days Spending", "expenses", days, controls);
+      }
+      default:
+        return widgetStat(w.title || "Widget", "—", "Unknown widget type", null, controls);
+    }
+  }
+
+  function last7DaysTotals(expenses) {
+    const today = todayLocal();
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      days.push({ key, label: d.toLocaleDateString(undefined, { weekday: "narrow" }), total: 0 });
+    }
+    const byKey = Object.fromEntries(days.map((d) => [d.key, d]));
+    expenses.forEach((e) => {
+      const d = parseLocalDate(e.date);
+      if (!d) return;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      if (byKey[key]) byKey[key].total += Number(e.amount || 0);
+    });
+    return days;
+  }
+
+  function openAddWidgetDialog(root) {
+    const overlay = el("div", { class: "modal-overlay" });
+    const typeSelect = el(
+      "select",
+      { class: "input" },
+      Object.entries(WIDGET_TYPES).map(([key, info]) => el("option", { value: key }, info.label))
+    );
+    const titleInput = el("input", { class: "input", placeholder: "Custom title (optional)" });
+
+    const box = el("div", { class: "modal-box" }, [
+      el("h2", {}, "Add Widget"),
+      el("label", { class: "field-label" }, "Widget type"),
+      typeSelect,
+      el("label", { class: "field-label" }, "Title"),
+      titleInput,
+      el("div", { class: "modal-actions" }, [
+        el("button", { class: "btn btn-ghost", onclick: () => overlay.remove() }, "Cancel"),
+        el("button", {
+          class: "btn btn-primary",
+          onclick: async () => {
+            const all = await CockpitDB.getAll("widgets");
+            const maxOrder = all.reduce((m, w) => Math.max(m, w.order || 0), -1);
+            const record = {
+              id: CockpitDB.uuid(),
+              type: typeSelect.value,
+              title: titleInput.value.trim(),
+              order: maxOrder + 1
+            };
+            await CockpitDB.put("widgets", record);
+            await CockpitDB.logActivity("settings", `Added "${WIDGET_TYPES[typeSelect.value].label}" widget to dashboard`);
+            overlay.remove();
+            U.toast("Widget added");
+            render(root);
+          }
+        }, "Add Widget")
+      ])
+    ]);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  }
+
+  function quickActionButton(icon, label, onClick) {
+    return el("button", { class: "quicknav-btn quick-action-btn", onclick: onClick }, [
+      el("span", { class: "quicknav-icon" }, icon),
+      el("span", {}, label)
+    ]);
+  }
+
+  // Navigates to a module and immediately opens its "create new" editor, so a
+  // Quick Action is a single tap from dashboard straight into a blank form —
+  // not a two-step "go there, then tap + New" detour.
+  function openQuickCreate(root, route) {
+    function tryOpen() {
+      const mod = global.CockpitModules && global.CockpitModules[route];
+      if (mod && typeof mod.openNew === "function") {
+        const viewRoot = document.getElementById("view-root");
+        if (viewRoot) mod.openNew(viewRoot);
+      }
+    }
+    if (currentHashRoute() === route) {
+      tryOpen();
+      return;
+    }
+    const handler = (ev) => {
+      if (ev.detail && ev.detail.route === route) {
+        window.removeEventListener("cockpit:route-rendered", handler);
+        tryOpen();
+      }
+    };
+    window.addEventListener("cockpit:route-rendered", handler);
+    location.hash = `#/${route}`;
+  }
+
+  function currentHashRoute() {
+    return (location.hash || "").replace(/^#\/?/, "");
+  }
+
+  function quickNavButton(icon, label, route) {
+    return el("button", { class: "quicknav-btn", onclick: () => (location.hash = `#/${route}`) }, [
+      el("span", { class: "quicknav-icon" }, icon),
+      el("span", {}, label)
+    ]);
+  }
+
+  function runSearch(root, query, { notes, tasks, expenses, projects }) {
+    const resultsEl = root.querySelector("#dash-search-results");
+    resultsEl.innerHTML = "";
+    const q = query.trim().toLowerCase();
+    if (!q) return;
+
+    const results = [];
+    notes.forEach((n) => {
+      if ((n.title || "").toLowerCase().includes(q) || (n.body || "").toLowerCase().includes(q)) {
+        results.push({ type: "Note", label: n.title || "(untitled)", route: "vault" });
+      }
+    });
+    tasks.forEach((t) => {
+      if ((t.title || "").toLowerCase().includes(q)) {
+        results.push({ type: "Task", label: t.title, route: "tasks" });
+      }
+    });
+    expenses.forEach((e) => {
+      if ((e.description || "").toLowerCase().includes(q) || (e.category || "").toLowerCase().includes(q)) {
+        results.push({ type: "Expense", label: e.description || e.category, route: "expenses" });
+      }
+    });
+    projects.forEach((p) => {
+      if ((p.name || "").toLowerCase().includes(q)) {
+        results.push({ type: "Project", label: p.name, route: "projects" });
+      }
+    });
+
+    if (!results.length) {
+      // Dashboard search is local-only by design, so a web-style query
+      // used to dead-end here ("No matches"). Instead, hand it to the
+      // top search bar, which searches the web like a browser does,
+      // and offer a direct video search when the query asks for videos.
+      const box = el("div", { class: "empty-state" }, `No matches in your cockpit for "${query}". This box only searches your notes, tasks, expenses, and projects.`);
+      const webBtn = el("button", { class: "btn btn-primary btn-sm", onclick: () => {
+        if (global.GlobalSearch && typeof global.GlobalSearch.runSearch === "function") {
+          global.GlobalSearch.runSearch(query);
+        } else {
+          // Old top-bar version without runSearch (mixed cache): the old
+          // fallback only filled the top box and focused it, which looked
+          // like nothing happened. Open a real web search instead, so a
+          // tap here ALWAYS does something, whatever version mix is loaded.
+          window.open("https://duckduckgo.com/?q=" + encodeURIComponent(query), "_blank");
+        }
+      } }, "Search the web for this");
+      box.appendChild(webBtn);
+      // Plain links, not buttons: these work even if every script version
+      // on the page is mismatched, so "Search the web" can never silently
+      // do nothing again.
+      const ddg = document.createElement("a");
+      ddg.href = "https://duckduckgo.com/?q=" + encodeURIComponent(query);
+      ddg.target = "_blank"; ddg.rel = "noopener"; ddg.className = "btn btn-ghost btn-sm"; ddg.textContent = "Search DuckDuckGo";
+      box.appendChild(ddg);
+      const goog = document.createElement("a");
+      goog.href = "https://www.google.com/search?q=" + encodeURIComponent(query);
+      goog.target = "_blank"; goog.rel = "noopener"; goog.className = "btn btn-ghost btn-sm"; goog.textContent = "Search Google";
+      box.appendChild(goog);
+      if (/\b(youtube|video|videos)\b/i.test(query)) {
+        const terms = query.replace(/\b(give me|show me|find|youtube|videos?)\b/gi, "").trim() || query;
+        const a = document.createElement("a");
+        a.href = "https://www.youtube.com/results?search_query=" + encodeURIComponent(terms);
+        a.target = "_blank"; a.rel = "noopener"; a.className = "btn btn-ghost btn-sm"; a.textContent = "Search YouTube in your default browser";
+        box.appendChild(a);
+      }
+      resultsEl.appendChild(box);
+      return;
+    }
+
+    const list = el("div", { class: "list-stack search-results" });
+    results.slice(0, 20).forEach((r) => {
+      list.appendChild(
+        el("div", { class: "list-item", onclick: () => (location.hash = `#/${r.route}`) }, [
+          el("span", { class: "badge badge-neutral" }, r.type),
+          el("span", { class: "list-item-title" }, r.label)
+        ])
+      );
+    });
+    resultsEl.appendChild(list);
+  }
+
+  global.CockpitModules = global.CockpitModules || {};
+  global.CockpitModules.dashboard = { render };
+})(window);

@@ -1,54 +1,177 @@
-const CACHE_NAME = "mti6-cockpit-v1";
+/* MTI6-GTADWIY-COCKPIT — service worker
+ * Caches the entire app shell so the app keeps working with no network at all.
+ * All user data lives in IndexedDB on the device, never touched by this file.
+ */
+
+const CACHE_VERSION = "mti6-gtadwiy-cockpit-v59";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./offline.html",
   "./manifest.json",
-  "./favicon.svg",
-  "./icon.svg",
   "./css/style.css",
   "./js/utils.js",
+  "./js/truth.js",
+  "./js/star-accountant.js",
+  "./js/self-healing.js",
+  "./js/asset-intelligence.js",
+  "./js/network-intelligence.js",
+  "./js/api-client.js",
   "./js/db.js",
   "./js/backup.js",
+  "./js/star-state.js",
+  "./js/star-backend.js",
+  "./js/star-router.js",
+  "./js/star-command.js",
+  "./js/model-router.js",
+  "./js/learning-engine.js",
+  "./js/wallet-intelligence.js",
+  "./js/position-intelligence.js",
+  "./js/wallet-providers.js",
+  "./js/wallet-ecosystems.js",
+  "./js/wallet-health.js",
+  "./js/off-ramp.js",
+  "./js/cost-intelligence.js",
+  "./js/tool-router.js",
+  "./js/autonomy.js",
+  "./js/treasury-mandates.js",
+  "./js/transaction-preparation.js",
+  "./js/api-registry.js",
+  "./js/search-provider-registry.js",
+  "./js/search-url.js",
+  "./js/search-tabs.js",
+  "./js/search-history.js",
+  "./js/market-intelligence.js",
+  "./js/price-scout.js",
+  "./js/knowledge.js",
+  "./js/knowledge-model.js",
+  "./js/github-dev.js",
+  "./js/crypto-world.js",
+  "./js/risk-intelligence.js",
+  "./js/protocol-intelligence.js",
+  "./js/data/encyclopedia-batch-a.js",
+  "./js/data/encyclopedia-canonical-60.js",
+  "./js/data/encyclopedia-batch-b.js",
+  "./js/data/entity-batch-1.js",
+  "./js/data/entity-batch-2.js",
+  "./js/data/bot-naming-pool.js",
+  "./js/encyclopedia-import.js",
+  "./js/entity-candidates.js",
+  "./js/shell-bubbles.js",
+  "./js/shell-accounts.js",
+  "./js/shell-chrome.js",
   "./js/app.js",
+  "./js/modules/star.js",
+  "./js/tribes.js",
+  "./js/bot-ops-model.js",
+  "./js/tribe-principals.js",
+  "./js/worker-engine.js",
+  "./js/crypto-bot-assignments.js",
+  "./js/bot-body.js",
+  "./js/angel-security.js",
+  "./js/angel-identities.js",
+  "./js/circuit-breakers.js",
+  "./js/nav.js",
+  "./js/window-manager.js",
+  "./js/participants.js",
+  "./js/star-overlay.js",
+  "./js/modules/prices.js",
+  "./js/modules/api-health.js",
+  "./js/modules/scouts.js",
+  "./js/modules/devcenter.js",
+  "./js/modules/crypto-world.js",
+  "./js/modules/encyclopedia.js",
+  "./js/encyclopedia-bridge.js",
+  "./js/opportunity-intelligence.js",
+  "./js/globe-intelligence.js",
+  "./js/world-engine.js",
+  "./js/star-world.js",
+  "./js/screens-nav.js",
+  "./js/modules/globe.js",
+  "./js/modules/crypto.js",
+  "./js/modules/accounts.js",
+  "./js/modules/earn.js",
+  "./js/modules/web.js",
+  "./js/modules/security.js",
+  "./js/charts.js",
+  "./js/modules/analytics.js",
+  "./js/global-search.js",
   "./js/modules/dashboard.js",
   "./js/modules/vault.js",
   "./js/modules/tasks.js",
   "./js/modules/expenses.js",
   "./js/modules/projects.js",
-  "./js/modules/settings.js"
+  "./js/modules/settings.js",
+  "./js/modules/bot-ops.js",
+  "./js/modules/wallets.js",
+  "./js/modules/opportunities.js",
+  "./js/modules/positions.js",
+  "./js/modules/operations.js",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
+  "./icons/icon-512-maskable.png",
+  "./icons/icon.svg",
+  "./favicon.svg"
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE_VERSION).then((cache) => cache.addAll(APP_SHELL)));
+  // v13 fix (Oct 31, 2026): the old "wait for the user to tap Reload" design
+  // left phones stuck on stale shells (blank screens, missing search bar)
+  // across rapid preview pushes. Take over immediately instead; app.js
+  // already reloads the page on controllerchange, so the user lands on the
+  // new version on their next visit instead of a stuck old one. The update
+  // banner in app.js remains as a fallback prompt.
+  self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))).then(() => self.clients.claim())
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
 });
 
-self.addEventListener("fetch", (event) => {
-  const { request } = event;
-  if (request.method !== "GET") return;
-  if (request.mode === "navigate") {
-    event.respondWith(
-      fetch(request).catch(() => caches.match("./offline.html"))
-    );
-    return;
-  }
-  event.respondWith(
-    caches.match(request).then((cached) => cached || fetch(request).then((res) => {
-      const copy = res.clone();
-      caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-      return res;
-    }).catch(() => caches.match("./offline.html")))
-  );
-});
-
+// The page asks a waiting worker to take over immediately once the user
+// accepts the "Reload" banner.
 self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") {
     self.skipWaiting();
   }
+});
+
+// Cache-first for the app shell, with a network update-in-background for
+// same-origin GET requests. Cross-origin GETs (public APIs such as
+// CoinGecko, GitHub, Hacker News, Wikipedia, Open-Meteo) are NOT cached:
+// the handler below returns early for them and lets the network answer.
+// Page navigations that can't be served from cache AND fail on the network
+// fall back to offline.html.
+self.addEventListener("fetch", (event) => {
+  const req = event.request;
+  if (req.method !== "GET") return;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
+
+  const isNavigation = req.mode === "navigate";
+
+  event.respondWith(
+    caches.match(req).then((cached) => {
+      const networkFetch = fetch(req)
+        .then((res) => {
+          if (res && res.status === 200) {
+            const copy = res.clone();
+            caches.open(CACHE_VERSION).then((cache) => cache.put(req, copy));
+          }
+          return res;
+        })
+        .catch(() => {
+          if (cached) return cached;
+          if (isNavigation) return caches.match("./offline.html");
+          return caches.match("./index.html");
+        });
+      return cached || networkFetch;
+    })
+  );
 });
