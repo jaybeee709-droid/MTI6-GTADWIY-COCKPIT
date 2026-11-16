@@ -386,23 +386,49 @@
     }
 
     // ---- Geographic pick (Live World Build 1) ------------------
-    // Point-in-polygon over the vendored country rings (ray
-    // casting, even-odd across all of a country's rings so
-    // enclaves/holes behave). The outlines are coarse (110m,
-    // coordinates rounded to 2 decimals), so containment near a
-    // coast is approximate — the screen labels it as such.
+    // Point-in-polygon over the vendored country rings. The
+    // outlines are coarse (110m, coordinates rounded to 2
+    // decimals), so containment near a coast is approximate —
+    // the screen labels it as such.
+    //
+    // ANTIMERIDIAN: rings are stored CUT at +/-180, so a country
+    // like Fiji arrives as pieces at both map edges. Ray casting
+    // in the raw frame breaks parity for such rings (skipping the
+    // cut segment unbalances the crossing count — it once made
+    // La Paz, Bolivia report as Fiji). Containment is therefore
+    // tested in an UNWRAPPED frame: the ring's longitudes are
+    // made continuous (each step <= 180) and the test point's
+    // longitude is shifted by whole turns to sit nearest the
+    // ring's own longitude centre before the standard even-odd
+    // ray cast (applied across all of a country's rings, so
+    // enclaves/holes behave).
     function ringContains(ring, lon, lat) {
+      var n = ring.length / 2;
+      if (n < 3) return false;
+      var xs = new Array(n);
+      var prev = ring[0];
+      xs[0] = prev;
+      var sum = prev;
+      for (var k = 1; k < n; k++) {
+        var raw = ring[k * 2];
+        var d = raw - prev;
+        while (d > 180) { raw -= 360; d -= 360; }
+        while (d < -180) { raw += 360; d += 360; }
+        xs[k] = raw;
+        prev = raw;
+        sum += raw;
+      }
+      var centre = sum / n;
+      var px = lon;
+      while (px - centre > 180) px -= 360;
+      while (px - centre < -180) px += 360;
       var inside = false;
-      for (var i = 0, j = ring.length - 2; i < ring.length; j = i, i += 2) {
-        var xi = ring[i], yi = ring[i + 1];
-        var xj = ring[j], yj = ring[j + 1];
-        // Antimeridian-cut segments (rings are stored cut at
-        // +/-180): skip them for containment — the segments on
-        // either side still bound the polygon.
-        if (Math.abs(xi - xj) > 180) continue;
+      for (var i = 0, j = n - 1; i < n; j = i++) {
+        var xi = xs[i], yi = ring[i * 2 + 1];
+        var xj = xs[j], yj = ring[j * 2 + 1];
         if ((yi > lat) !== (yj > lat)) {
           var xInt = xi + (lat - yi) * (xj - xi) / (yj - yi);
-          if (lon < xInt) inside = !inside;
+          if (px < xInt) inside = !inside;
         }
       }
       return inside;
