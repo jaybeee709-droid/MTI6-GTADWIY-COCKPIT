@@ -3118,3 +3118,58 @@ html, body { overflow-x: hidden; }
     max-height: none;
   }
 }
+
+/* ================================================================
+   RESPONSIVE SYSTEM — Phase F: Existing screens (Master
+   Responsive Directive, owner-authorized 2026-11-15; built
+   2026-11-16). The screens keep their own markup, modules and
+   data — this phase aligns their LAYOUT breakpoints to the
+   canonical Phase B bands. The historical ad-hoc edges (640,
+   1200) split bands mid-way; the rules below are additive
+   overrides in the established style of this file (no existing
+   rule is edited), so inside each band every screen now behaves
+   one way:
+     A <480 | B 480–767 | C 768–1023 | D 1024–1439 | E 1440+
+   ================================================================ */
+
+/* Bot Operations grids (tribe/principal cards + HUD): the 640px
+   two-column step split band B in two. Through band B the cards
+   now stay single-column (full-width, thumb-reachable); the
+   existing >=640 rule still yields two columns from band C
+   (768) up, and the existing >=1024 rule three columns in
+   band D — both now land exactly on canonical edges. */
+@media (min-width: 640px) and (max-width: 767px) {
+  .botops-grid, .botops-hud { grid-template-columns: 1fr; }
+}
+
+/* Task queue rows: the stacked phone layout now spans the whole
+   phone range (the historical rule stopped at 640, mid-band-B);
+   from band C up the row layout governs. */
+@media (min-width: 641px) and (max-width: 767px) {
+  .task-queue__row { flex-direction: column; align-items: stretch; }
+  .task-queue__row > span:first-child { flex-basis: auto; }
+}
+
+/* Dashboard card grid: three columns now start at band D
+   (1024), not mid-band at 1200; the existing >=1200 rule still
+   applies above and agrees. */
+@media (min-width: 1024px) and (max-width: 1199px) {
+  .card-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* Band A — Compact Phone (320–479px): panel/card padding steps
+   down to the token spacing so content, not chrome, takes the
+   narrow width. (Analytics panels keep their own scoped padding
+   — higher specificity, untouched.) */
+@media (max-width: 479px) {
+  .api-panel, .mti6-card, .wallet-card { padding: var(--space-3); }
+}
+
+/* Band E — Large Cockpit (1440px+): the wide screens gain a
+   fourth column — the twelve Tribe principals lay out 4x3 and
+   dashboard cards stop stretching across the large display.
+   The view column itself keeps its readable cap; only the
+   grids use the room. */
+@media (min-width: 1440px) {
+  .card-grid, .botops-grid { grid-template-columns: repeat(4, 1fr); }
+}
