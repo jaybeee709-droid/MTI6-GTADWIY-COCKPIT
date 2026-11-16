@@ -11,7 +11,7 @@
  *   stroked electric blue on black — the same scheme as the rest of
  *   the cockpit.
  * - US state outlines (52) on top, fainter and thinner.
- * - A tiny dot at each major city's real position (243).
+ * - A tiny dot at each major city's real position (292).
  * - Names at their positions, FADED into the background — country
  *   names (Natural Earth's own label points) most visible, then
  *   state names, then city names — are implemented below but are

@@ -3289,8 +3289,13 @@ html, body { overflow-x: hidden; }
 .search-suggestion-detail { color: #9ca3af; font-size: 12px; }
 .search-suggestion-source { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #38bdf8; margin-left: auto; white-space: nowrap; }
 .search-onion-card { border: 1px solid #713f12; border-radius: 10px; padding: 10px 12px; background: #0b0f14; }
+/* Full-Screen World Shell follow-up (2026-11-16, Capitals
+   Completion): same docked-sidebar relic as the results panel
+   above — the sidebar is a closed-by-default drawer at every
+   width, so the suggestions overlay also aligns with the
+   full-width shell (left: 12px at >=768px, not 272px). */
 @media (min-width: 768px) {
-  #global-search-suggestions { left: 272px; }
+  #global-search-suggestions { left: 12px; }
 }
 
 /* ================================================================
