@@ -107,6 +107,32 @@
  * handlers, same honest states — only their parents changed.
  * The Live World panel below the stage keeps the location
  * context card, the search results and the Media Selector.
+ *
+ * Globe Explore Build (owner direction 2026-11-16, later):
+ * - EXACT PLACE: the context card names the US STATE as well
+ *   (engine stateAt over the vendored state rings) — "Houston,
+ *   Texas, United States of America".
+ * - CAPITAL: a state-capitals table (code, below) names the
+ *   capital; when the capital is one of the vendored places,
+ *   a Zoom-to-capital button centres the view on it at LOCAL
+ *   tier. Capitals outside the vendored places are named
+ *   without a button — their positions are never invented.
+ * - AREA SELECTOR: at COUNTRY tier or deeper (and in Explore)
+ *   a chip selector — TRAFFIC · BUSINESS · CITY · TOWN ·
+ *   LIVE CAMS · PICS · STREET IMAGERY · SOCIAL. CITY/TOWN are
+ *   local lenses over the vendored places (nearest first,
+ *   real distances); the places data carries no size field,
+ *   so both show the same nearest-places list and say so.
+ *   The rest are provider categories in their honest
+ *   NOT_CONNECTED state, same discipline as the Media Selector.
+ * - EXPLORE: STAR walks the map with the owner — the view
+ *   centres on the place at LOCAL tier, STAR's guide card
+ *   names the real place under the view, and a tap arrow pad
+ *   (or the arrow keys) walks the view in third-of-screen
+ *   steps. Presentation only: the guide line is computed from
+ *   the vendored data after every step, never narrated.
+ *   Vehicle morphing (car/boat/plane/drone) is future owner
+ *   direction — nothing for it is built here.
  */
 (function (global) {
   "use strict";
@@ -141,6 +167,55 @@
     "LIVE VIDEO", "PHOTOS", "STREET IMAGERY", "TIMELAPSES",
     "SOCIAL / PUBLIC VIDEO", "BUSINESS / TOURISM", "OWNER CAMERAS"
   ];
+
+  // US state capitals (Globe Explore Build). Keys are the
+  // vendored state names EXACTLY as they appear in
+  // js/data/world-map.js (50 states + District of Columbia +
+  // Puerto Rico). This table names capitals only — coordinates
+  // are NEVER stored here; a capital's position is resolved at
+  // runtime from the vendored places (findVendoredCity below),
+  // and a capital that is not a vendored place gets no zoom
+  // button. The vendored places are world capitals and major
+  // metros, so most state capitals honestly do not resolve.
+  var STATE_CAPITALS = {
+    "Alabama": "Montgomery", "Alaska": "Juneau", "Arizona": "Phoenix",
+    "Arkansas": "Little Rock", "California": "Sacramento", "Colorado": "Denver",
+    "Connecticut": "Hartford", "Delaware": "Dover",
+    "District of Columbia": "Washington", "Florida": "Tallahassee",
+    "Georgia": "Atlanta", "Hawaii": "Honolulu", "Idaho": "Boise",
+    "Illinois": "Springfield", "Indiana": "Indianapolis", "Iowa": "Des Moines",
+    "Kansas": "Topeka", "Kentucky": "Frankfort", "Louisiana": "Baton Rouge",
+    "Maine": "Augusta", "Maryland": "Annapolis", "Massachusetts": "Boston",
+    "Michigan": "Lansing", "Minnesota": "Saint Paul", "Mississippi": "Jackson",
+    "Missouri": "Jefferson City", "Montana": "Helena", "Nebraska": "Lincoln",
+    "Nevada": "Carson City", "New Hampshire": "Concord", "New Jersey": "Trenton",
+    "New Mexico": "Santa Fe", "New York": "Albany", "North Carolina": "Raleigh",
+    "North Dakota": "Bismarck", "Ohio": "Columbus", "Oklahoma": "Oklahoma City",
+    "Oregon": "Salem", "Pennsylvania": "Harrisburg", "Puerto Rico": "San Juan",
+    "Rhode Island": "Providence", "South Carolina": "Columbia",
+    "South Dakota": "Pierre", "Tennessee": "Nashville", "Texas": "Austin",
+    "Utah": "Salt Lake City", "Vermont": "Montpelier", "Virginia": "Richmond",
+    "Washington": "Olympia", "West Virginia": "Charleston",
+    "Wisconsin": "Madison", "Wyoming": "Cheyenne"
+  };
+
+  // Area Selector categories (Globe Explore Build). CITY and
+  // TOWN are local lenses over the vendored places; the others
+  // are provider categories. AREA_MEDIA_MAP names the Media
+  // Selector category each media chip mirrors, so the chip
+  // renders that category's exact row.
+  var AREA_CATEGORIES = [
+    "TRAFFIC", "BUSINESS", "CITY", "TOWN",
+    "LIVE CAMS", "PICS", "STREET IMAGERY", "SOCIAL"
+  ];
+  var AREA_MEDIA_MAP = {
+    "LIVE CAMS": "LIVE CAMS", "PICS": "PHOTOS",
+    "STREET IMAGERY": "STREET IMAGERY", "SOCIAL": "SOCIAL / PUBLIC VIDEO"
+  };
+
+  // Explore / zoom-to-capital land at LOCAL tier (engine tiers:
+  // LOCAL starts at scale 20, max is 40).
+  var EXPLORE_SCALE = 24;
 
   // One document-level fullscreenchange listener for the whole module
   // (render() can run more than once; never attach it twice).
@@ -465,15 +540,25 @@
     function renderContext() {
       liveContextBody.innerHTML = "";
       var c = liveState.context;
+      if (exploreAreaBtn) exploreAreaBtn.disabled = !c;
       if (!c) {
         liveContextBody.textContent = "No area selected yet — tap or click the map to set a location context.";
+        updateSelectorVisibility();
         return;
       }
+      // Exact place (Globe Explore Build): city, STATE, country —
+      // the state comes from the engine's stateAt over the
+      // vendored state rings (the city's own point first, the
+      // tap point as fallback) and is shown only when resolved.
+      var stateName = c.city ? (c.city.state || c.state || null) : (c.state || null);
       var title;
       if (c.city) {
-        title = c.city.name + (c.city.country ? ", " + c.city.country : "");
+        var parts = [c.city.name];
+        if (stateName) parts.push(stateName);
+        if (c.city.country) parts.push(c.city.country);
+        title = parts.join(", ");
       } else if (c.country) {
-        title = c.country + " — unnamed area";
+        title = (stateName ? stateName + ", " : "") + c.country + " — unnamed area";
       } else {
         title = "Open ocean — unnamed area";
       }
@@ -487,8 +572,31 @@
             ? "Land area — no named place in the local map data at this point; the country above comes from the coarse outlines, not from a place lookup."
             : "Open ocean — no land outline in the local map data contains this point."));
       }
+      // Capital of the state: named from the capitals table;
+      // the Zoom button exists only when the capital resolves
+      // to a vendored place — otherwise the line says why not
+      // and no position is invented.
+      var actionRow = U.el("div", { class: "globe-controls globe-live-actions" }, []);
+      if (stateName && STATE_CAPITALS[stateName]) {
+        var cap = capitalForState(stateName);
+        var capLine = U.el("div", { class: "api-meta globe-live-capital" }, "Capital: " + cap.name);
+        if (cap.city) {
+          var capBtn = U.el("button", { class: "btn", type: "button" }, "Zoom to capital");
+          capBtn.addEventListener("click", function () { zoomToCapital(stateName); });
+          actionRow.appendChild(capBtn);
+        } else {
+          capLine.textContent = "Capital: " + cap.name +
+            " — not one of the local places, so no zoom target is offered; its position is not invented.";
+        }
+        liveContextBody.appendChild(capLine);
+      }
+      var exploreCtxBtn = U.el("button", { class: "btn btn-primary", type: "button" }, "Explore this area");
+      exploreCtxBtn.addEventListener("click", function () { enterExplore(); });
+      actionRow.appendChild(exploreCtxBtn);
+      liveContextBody.appendChild(actionRow);
       liveContextBody.appendChild(U.el("div", { class: "api-meta" },
         "Local map data (Natural Earth, public domain) — outlines are coarse (110m); no street-level detail."));
+      updateSelectorVisibility();
     }
 
     function setContextFromPick(pick) {
@@ -611,12 +719,404 @@
       ]));
     });
 
+    // ---- Globe Explore Build: places, capitals, selector, walk ----
+    // Everything below reads the vendored data and the engine's
+    // real view only. Distances are computed from the real
+    // coordinates; provider categories stay NOT_CONNECTED.
+
+    // Resolve a place name to its vendored record. Exact match
+    // first; vendored names sometimes carry a qualifier after a
+    // comma ("Washington,  D.C."), so the head name matches too.
+    function findVendoredCity(name) {
+      var data = global.WorldMapData;
+      if (!data || !Array.isArray(data.cities) || !name) return null;
+      var i;
+      for (i = 0; i < data.cities.length; i++) {
+        if (data.cities[i].n === name) return data.cities[i];
+      }
+      var want = String(name).toLowerCase();
+      for (i = 0; i < data.cities.length; i++) {
+        var head = String(data.cities[i].n).split(",")[0].replace(/\s+/g, " ").trim().toLowerCase();
+        if (head === want) return data.cities[i];
+      }
+      return null;
+    }
+
+    function capitalForState(stateName) {
+      var name = STATE_CAPITALS[stateName] || null;
+      return { name: name, city: name ? findVendoredCity(name) : null };
+    }
+
+    function distanceKm(lon1, lat1, lon2, lat2) {
+      var R = 6371;
+      var dLat = (lat2 - lat1) * Math.PI / 180;
+      var dLon = (lon2 - lon1) * Math.PI / 180;
+      var s1 = Math.sin(dLat / 2), s2 = Math.sin(dLon / 2);
+      var a = s1 * s1 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * s2 * s2;
+      return 2 * R * Math.asin(Math.sqrt(a));
+    }
+
+    // The vendored places nearest a point, nearest first, with
+    // real computed distances. The data carries no size field —
+    // this list is the whole CITY/TOWN lens (see areaResultNode).
+    function nearestPlaces(lon, lat, limit) {
+      var data = global.WorldMapData;
+      if (!data || !Array.isArray(data.cities)) return [];
+      var out = [];
+      for (var i = 0; i < data.cities.length; i++) {
+        var c = data.cities[i];
+        out.push({ name: c.n, at: [c.at[0], c.at[1]], km: distanceKm(lon, lat, c.at[0], c.at[1]) });
+      }
+      out.sort(function (a, b) { return a.km - b.km; });
+      return out.slice(0, limit || 8);
+    }
+
+    // A truthful one-line description of a point: the nearest
+    // vendored place when close, the state/country from the
+    // outlines, and an honest between-places / ocean reading
+    // otherwise. Drives the STAR guide line and the selector's
+    // area label — computed fresh after every step.
+    function descriptorText(lon, lat) {
+      var geo = null;
+      try { if (globeEngine && typeof globeEngine.describeAt === "function") geo = globeEngine.describeAt(lon, lat); } catch (e) {}
+      var near = nearestPlaces(lon, lat, 1);
+      var n0 = near.length ? near[0] : null;
+      var state = geo ? geo.state : null;
+      var country = geo ? geo.country : null;
+      var region = state && country ? state + ", " + country : (country || null);
+      if (n0 && n0.km <= 30) {
+        return n0.name + (region ? ", " + region : "");
+      }
+      if (country) {
+        return "open country" + (region ? " in " + region : "") + " — between named places" +
+          (n0 ? " (nearest: " + n0.name + ", " + Math.round(n0.km) + " km)" : "");
+      }
+      return "open ocean at " + fmtCoord(lat, "N", "S") + ", " + fmtCoord(lon, "E", "W") +
+        (n0 ? " (nearest named place: " + n0.name + ", " + Math.round(n0.km) + " km)" : "");
+    }
+
+    // ---- Area Selector ---------------------------------------------
+    var currentTier = "WORLD";
+    var activeAreaCat = null;
+    var chipRows = [];
+    var selectorArea = U.el("div", { class: "api-meta globe-selector__area" }, "");
+    var selectorResult = U.el("div", { class: "globe-selector__result" }, []);
+    var exploreResult = U.el("div", { class: "globe-explore__result" }, []);
+
+    function buildChipRow() {
+      var row = U.el("div", { class: "globe-selector__chips", role: "group", "aria-label": "Area selector" }, []);
+      AREA_CATEGORIES.forEach(function (cat) {
+        var b = U.el("button", { class: "globe-chip", type: "button", "aria-pressed": "false" }, cat);
+        b.setAttribute("data-area-cat", cat);
+        b.addEventListener("click", function () { selectAreaCategory(cat); });
+        row.appendChild(b);
+      });
+      chipRows.push(row);
+      return row;
+    }
+
+    // The point the selector describes: the view centre while
+    // exploring, the location context otherwise.
+    function selectorAnchor() {
+      if (walk.active && globeEngine) {
+        try { var v = globeEngine.getView(); return { lon: v.lon, lat: v.lat }; } catch (e) {}
+      }
+      var c = liveState.context;
+      if (!c) return null;
+      if (c.city) return { lon: c.city.at[0], lat: c.city.at[1] };
+      return { lon: c.lon, lat: c.lat };
+    }
+
+    function mediaRowFor(cat) {
+      return U.el("div", { class: "globe-live-media-row" }, [
+        U.el("span", { class: "globe-live-media-row__name" }, AREA_MEDIA_MAP[cat]),
+        U.el("span", { class: badgeClassForState("NOT_CONNECTED") }, "NOT_CONNECTED"),
+        U.el("span", { class: "api-meta" }, "no provider connected yet")
+      ]);
+    }
+
+    // One result node per category, built fresh from real state
+    // every time it renders (both hosts get their own node).
+    function areaResultNode(cat) {
+      var anchor = selectorAnchor();
+      if (!anchor) {
+        return U.el("div", { class: "api-meta" }, "Choose an area on the map first.");
+      }
+      if (cat === "CITY" || cat === "TOWN") {
+        // Local lens over the vendored places. The data has no
+        // population/size field, so CITY and TOWN cannot be
+        // honestly split — both show this same list and say so.
+        var card = U.el("div", { class: "globe-live-card" }, []);
+        card.appendChild(U.el("div", { class: "globe-live-card__head" }, [
+          U.el("span", { class: "globe-live-card__title" }, "Places near here")
+        ]));
+        card.appendChild(U.el("div", { class: "api-meta" },
+          "Nearest places in the local map data — distances computed from the real coordinates."));
+        var list = U.el("ul", { class: "price-offer-list" });
+        nearestPlaces(anchor.lon, anchor.lat, 8).forEach(function (p) {
+          var suffix = "";
+          try {
+            if (globeEngine && typeof globeEngine.describeAt === "function") {
+              var g = globeEngine.describeAt(p.at[0], p.at[1]);
+              var reg = g.state && g.country ? g.state + ", " + g.country : g.country;
+              if (reg) suffix = " · " + reg;
+            }
+          } catch (e) {}
+          list.appendChild(U.el("li", {}, p.name + " — " + Math.round(p.km) + " km" + suffix));
+        });
+        card.appendChild(list);
+        card.appendChild(U.el("div", { class: "api-meta" },
+          "The local places data does not rank places by size, so CITY and TOWN show this same nearest-places list — no size distinction is invented."));
+        return card;
+      }
+      if (cat === "TRAFFIC" || cat === "BUSINESS") {
+        return resultCard(cat.charAt(0) + cat.slice(1).toLowerCase() + " — this area", "NOT_CONNECTED", [
+          "No " + cat.toLowerCase() + " provider is connected yet — no results exist for this area and none are invented, and result counts are never hard-coded."
+        ], null);
+      }
+      if (AREA_MEDIA_MAP[cat]) {
+        var wrap = U.el("div", {}, []);
+        wrap.appendChild(U.el("div", { class: "api-meta" },
+          "Same honest state as the Media selector — for this area too:"));
+        wrap.appendChild(mediaRowFor(cat));
+        return wrap;
+      }
+      return U.el("div", { class: "api-meta" }, "");
+    }
+
+    function renderAreaResults() {
+      if (!activeAreaCat) return;
+      selectorResult.innerHTML = "";
+      selectorResult.appendChild(areaResultNode(activeAreaCat));
+      exploreResult.innerHTML = "";
+      exploreResult.appendChild(areaResultNode(activeAreaCat));
+    }
+
+    function selectAreaCategory(cat) {
+      activeAreaCat = cat;
+      chipRows.forEach(function (row) {
+        row.querySelectorAll(".globe-chip").forEach(function (b) {
+          var on = b.getAttribute("data-area-cat") === cat;
+          if (on) b.classList.add("globe-chip--active"); else b.classList.remove("globe-chip--active");
+          b.setAttribute("aria-pressed", on ? "true" : "false");
+        });
+      });
+      renderAreaResults();
+    }
+
+    function refreshSelectorArea() {
+      var a = selectorAnchor();
+      selectorArea.textContent = a ? "Area: " + descriptorText(a.lon, a.lat) : "";
+    }
+
+    // The selector presents when a context exists AND the view
+    // is at COUNTRY tier or deeper — or whenever Explore is
+    // open (the owner's "selectors pop up" while exploring).
+    function updateSelectorVisibility() {
+      var show = !!liveState.context &&
+        (walk.active || currentTier === "COUNTRY" || currentTier === "LOCAL");
+      if (show) selectorSection.classList.remove("globe-selector--hidden");
+      else selectorSection.classList.add("globe-selector--hidden");
+      if (show) refreshSelectorArea();
+    }
+
+    var selectorSection = U.el("div", { class: "globe-selector globe-selector--hidden" }, [
+      U.el("h4", { class: "globe-live-media__heading" }, "Area selector"),
+      selectorArea,
+      buildChipRow(),
+      selectorResult
+    ]);
+
+    // ---- Explore: walk the place with STAR --------------------------
+    var walk = { active: false, anchor: null };
+    var exploreAreaBtn = U.el("button", { class: "btn btn-primary", type: "button" }, "Explore this area");
+    exploreAreaBtn.disabled = true;
+    exploreAreaBtn.addEventListener("click", function () { enterExplore(); });
+
+    function starFaceSrc() {
+      var exprs = global.STAR_AVATAR_EXPRESSIONS;
+      var s = exprs && typeof exprs.smile === "string" && exprs.smile ? exprs.smile : null;
+      if (!s) {
+        var idle = global.STAR_AVATAR_SRC;
+        s = typeof idle === "string" && idle ? idle : null;
+      }
+      return s;
+    }
+
+    var guideLine = U.el("div", { class: "globe-explore__speech" }, "");
+    var guideFigure = U.el("div", { class: "globe-explore__figure" }, []);
+    var faceSrc = starFaceSrc();
+    if (faceSrc) {
+      guideFigure.appendChild(U.el("img", {
+        class: "globe-explore__img", src: faceSrc, alt: "STAR, your guide"
+      }, []));
+    } else {
+      guideFigure.appendChild(U.el("span", { class: "globe-explore__glyph", "aria-hidden": "true" }, "✨"));
+    }
+    var exitExploreBtn = U.el("button", { class: "btn", type: "button" }, "Exit explore");
+    exitExploreBtn.addEventListener("click", function () { exitExplore(); });
+    var exploreBar = U.el("div", { class: "globe-explore__bar" }, [
+      guideFigure,
+      U.el("div", { class: "globe-explore__guide" }, [
+        U.el("div", { class: "globe-explore__name" }, "STAR — your guide"),
+        guideLine
+      ]),
+      exitExploreBtn
+    ]);
+
+    function arrowBtn(glyph, label, cls, dx, dy) {
+      var b = U.el("button", {
+        class: "globe-explore__arrow " + cls, type: "button", "aria-label": label
+      }, glyph);
+      b.addEventListener("click", function () { walkStep(dx, dy); });
+      return b;
+    }
+    var explorePad = U.el("div", { class: "globe-explore__pad", role: "group", "aria-label": "Walk the map" }, [
+      arrowBtn("▲", "Walk north", "globe-explore__arrow--up", 0, 1),
+      arrowBtn("◀", "Walk west", "globe-explore__arrow--left", -1, 0),
+      arrowBtn("◎", "Back to the explored place", "globe-explore__arrow--centre", 0, 0),
+      arrowBtn("▶", "Walk east", "globe-explore__arrow--right", 1, 0),
+      arrowBtn("▼", "Walk south", "globe-explore__arrow--down", 0, -1)
+    ]);
+    var exploreChipsHost = U.el("div", { class: "globe-explore__chips" }, [buildChipRow()]);
+    // Bar + selector chips + selector result stack in one top
+    // container, so they can never overlap each other at any
+    // width; the arrow pad rides the right-centre, clear of
+    // the STAR launcher and the Presence card.
+    var exploreTop = U.el("div", { class: "globe-explore__top" }, [
+      exploreBar, exploreChipsHost, exploreResult
+    ]);
+    var exploreOverlay = U.el("div", {
+      class: "globe-explore globe-explore--hidden", "aria-label": "Explore this area with STAR"
+    }, [exploreTop, explorePad]);
+
+    function updateGuide() {
+      if (!globeEngine) return;
+      var v = null;
+      try { v = globeEngine.getView(); } catch (e) {}
+      if (!v) return;
+      guideLine.textContent = "Exploring " + descriptorText(v.lon, v.lat) +
+        " — tap the arrows to walk the map.";
+    }
+
+    var bobTimer = null;
+    function bobStar() {
+      guideFigure.classList.add("globe-explore__figure--walking");
+      if (bobTimer) clearTimeout(bobTimer);
+      bobTimer = setTimeout(function () {
+        guideFigure.classList.remove("globe-explore__figure--walking");
+      }, 480);
+    }
+
+    function visibleSpanDeg() {
+      var wpx = 800, hpx = 600;
+      try {
+        if (globeCanvas) {
+          wpx = globeCanvas.clientWidth || wpx;
+          hpx = globeCanvas.clientHeight || hpx;
+        }
+      } catch (e) {}
+      var a = globeEngine.unproject(0, hpx / 2);
+      var b = globeEngine.unproject(wpx, hpx / 2);
+      var c = globeEngine.unproject(wpx / 2, 0);
+      var d = globeEngine.unproject(wpx / 2, hpx);
+      var slon = Math.abs(b.lon - a.lon);
+      if (slon > 180) slon = 360 - slon;
+      return { lon: slon, lat: Math.abs(c.lat - d.lat) };
+    }
+
+    // One walk step: a third of the visible span in that
+    // direction, applied directly through the engine's view
+    // API (no tweening, like every other view change here).
+    function walkStep(dx, dy) {
+      if (!walk.active || !globeEngine) return;
+      try {
+        if (dx === 0 && dy === 0) {
+          var v0 = globeEngine.getView();
+          globeEngine.setView({ lon: walk.anchor.lon, lat: walk.anchor.lat, scale: v0.scale });
+        } else {
+          var span = visibleSpanDeg();
+          var v = globeEngine.getView();
+          globeEngine.setView({
+            lon: v.lon + dx * span.lon / 3,
+            lat: v.lat + dy * span.lat / 3
+          });
+        }
+      } catch (e) {}
+      bobStar();
+      updateGuide();
+      refreshSelectorArea();
+      renderAreaResults();
+      syncViewUI();
+    }
+
+    function exploreKeys(e) {
+      if (!walk.active) return;
+      var t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT" || t.isContentEditable)) return;
+      var dx = 0, dy = 0;
+      if (e.key === "ArrowUp") dy = 1;
+      else if (e.key === "ArrowDown") dy = -1;
+      else if (e.key === "ArrowLeft") dx = -1;
+      else if (e.key === "ArrowRight") dx = 1;
+      else return;
+      if (e.preventDefault) e.preventDefault();
+      walkStep(dx, dy);
+    }
+
+    function enterExplore() {
+      var c = liveState.context;
+      if (!c || !globeEngine) {
+        liveNote.textContent = "Tap or click the map to choose an area first — then Explore walks that place with STAR.";
+        return;
+      }
+      walk.anchor = c.city
+        ? { lon: c.city.at[0], lat: c.city.at[1] }
+        : { lon: c.lon, lat: c.lat };
+      walk.active = true;
+      try { globeEngine.setView({ lon: walk.anchor.lon, lat: walk.anchor.lat, scale: EXPLORE_SCALE }); } catch (e) {}
+      exploreOverlay.classList.remove("globe-explore--hidden");
+      try { document.addEventListener("keydown", exploreKeys); } catch (e) {}
+      updateGuide();
+      updateSelectorVisibility();
+      // The selector pops up with Explore, opened on the
+      // places lens so the area immediately shows real content.
+      selectAreaCategory("CITY");
+      syncViewUI();
+      liveNote.textContent = "Exploring with STAR: tap the arrows (or use the arrow keys) to walk the map. The guide line and the selector always name the real place under the view.";
+    }
+
+    function exitExplore() {
+      walk.active = false;
+      exploreOverlay.classList.add("globe-explore--hidden");
+      try { document.removeEventListener("keydown", exploreKeys); } catch (e) {}
+      updateSelectorVisibility();
+    }
+
+    // Zoom to the state capital: centre the view on the
+    // capital's real vendored position at LOCAL tier, then let
+    // the engine's own pick name the new context.
+    function zoomToCapital(stateName) {
+      var cap = capitalForState(stateName);
+      if (!cap || !cap.city || !globeEngine) return;
+      var lon = cap.city.at[0], lat = cap.city.at[1];
+      try {
+        globeEngine.setView({ lon: lon, lat: lat, scale: EXPLORE_SCALE });
+        var px = globeEngine.project(lon, lat);
+        var pick = globeEngine.pickAt(px.x, px.y);
+        if (pick) setContextFromPick(pick);
+      } catch (e) {}
+      syncViewUI();
+    }
+
     var livePanel = U.el("section", { class: "api-panel globe-live-panel", "aria-label": "Live World" }, [
       U.el("h3", {}, "Live World"),
       U.el("div", { class: "globe-live-context" }, [
         U.el("div", { class: "globe-live-context__heading" }, "Location context"),
         liveContextBody
       ]),
+      selectorSection,
       U.el("div", { class: "globe-controls globe-live-actions" }, [searchAreaBtn]),
       liveResults,
       U.el("h4", { class: "globe-live-media__heading" }, "Media selector"),
@@ -641,9 +1141,15 @@
     var topRoll = U.el("div", { class: "globe-roll globe-roll--top", "aria-label": "Globe controls" }, []);
     var bottomRoll = U.el("div", { class: "globe-roll globe-roll--bottom", "aria-label": "Live World area actions and readouts" }, []);
     bottomRoll.appendChild(truthLabel);
-    bottomRoll.appendChild(U.el("div", { class: "globe-roll__main" }, [readoutLine, searchAreaBtn, findMoreBtn]));
+    bottomRoll.appendChild(U.el("div", { class: "globe-roll__main" }, [readoutLine, searchAreaBtn, findMoreBtn, exploreAreaBtn]));
     bottomRoll.appendChild(liveNote);
     visual.appendChild(bottomRoll);
+    // Explore overlay rides ON the map, above the canvas and
+    // below the rolls (CSS z-order): the guide bar under the
+    // top roll, the arrow pad at the right-centre — clear of
+    // the STAR launcher (bottom-right) and the Presence card
+    // (bottom-left), both of which live at app level.
+    visual.appendChild(exploreOverlay);
     function rollGroup(children) {
       var g = U.el("div", { class: "globe-roll__group" }, []);
       children.forEach(function (c) { if (c) g.appendChild(c); });
@@ -685,6 +1191,13 @@
         (Math.round(v.scale * 10) / 10) + "× — real view zoom on the local map data (not satellite, not street level)";
       zoomOutBtn.disabled = v.scale <= v.minScale;
       zoomInBtn.disabled = v.scale >= v.maxScale;
+      // The Area Selector follows the view tier (COUNTRY or
+      // deeper presents it) — tracked here because every view
+      // change, however driven, funnels through this readout.
+      if (v.tier !== currentTier) {
+        currentTier = v.tier;
+        updateSelectorVisibility();
+      }
     }
 
     function refreshModeUI() {

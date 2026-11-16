@@ -446,6 +446,39 @@
       }
       return null;
     }
+    // US state lookup (Globe Explore Build, owner direction
+    // 2026-11-16: "it should be where exactly state it is"):
+    // the same unwrapped-frame containment over the vendored
+    // US states rings (Census TIGER, public domain — 50 states
+    // + District of Columbia + Puerto Rico). Returns the state
+    // name, or null outside every vendored state (non-US land,
+    // ocean, or a coastal point the coarse outlines miss —
+    // the same approximate-containment honesty as countryAt).
+    function stateAt(lon, lat) {
+      var data = global.WorldMapData;
+      if (!data || !Array.isArray(data.states)) return null;
+      for (var ci = 0; ci < data.states.length; ci++) {
+        var rings = data.states[ci].p || [];
+        var inside = false;
+        for (var r = 0; r < rings.length; r++) {
+          if (ringContains(rings[r], lon, lat)) inside = !inside;
+        }
+        if (inside) return data.states[ci].n;
+      }
+      return null;
+    }
+    // Describe a geographic point from the vendored data alone:
+    // country + US state + land flag. Used by the Explore guide
+    // so its line always names the real place under the view.
+    function describeAt(lon, lat) {
+      var country = countryAt(lon, lat);
+      return {
+        lon: lon, lat: lat,
+        country: country,
+        state: stateAt(lon, lat),
+        land: !!country
+      };
+    }
     // A tap lands on a city when its projected point is within
     // this many CSS pixels of the tap. Because the radius is in
     // pixels, the geographic threshold tightens as you zoom in —
@@ -472,7 +505,8 @@
             name: best.n,
             at: [best.at[0], best.at[1]],
             distancePx: Math.round(bestD * 10) / 10,
-            country: countryAt(best.at[0], best.at[1])
+            country: countryAt(best.at[0], best.at[1]),
+            state: stateAt(best.at[0], best.at[1])
           };
         }
       }
@@ -482,6 +516,7 @@
         lat: Math.round(lat * 10000) / 10000,
         city: city,
         country: country,
+        state: stateAt(lon, lat),
         land: !!country,
         tier: tierForScale(view.scale),
         scale: view.scale
@@ -934,6 +969,7 @@
       project: project,
       unproject: unproject,
       pickAt: pickAt,
+      describeAt: describeAt,
       setInteractionHandlers: setInteractionHandlers,
       stop: destroy
     };
