@@ -21,8 +21,9 @@
 </head>
 <body>
   <div id="app-shell">
+    <button id="skip-link" type="button">Skip to main content</button>
     <header id="top-bar">
-      <button id="menu-toggle" aria-label="Open menu">☰</button>
+      <button id="menu-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="side-nav">☰</button>
       <span id="app-title">World Globe</span>
       <div id="global-search-wrap">
         <input id="global-search-input" type="search" placeholder="Search the cockpit and the web…" aria-label="Global search" />
@@ -54,6 +55,7 @@
     <div id="accounts-panel" class="hidden" role="dialog" aria-label="Accounts panel"></div>
 
     <div id="global-search-source-menu" class="hidden" role="menu" aria-label="Search sources"></div>
+    <div id="global-search-suggestions" class="hidden" role="listbox" aria-label="Local search suggestions"></div>
     <div id="global-search-results" class="hidden" role="region" aria-label="Search results"></div>
 
     <div id="nav-scrim"></div>
@@ -77,7 +79,7 @@
 
     <main id="main-content">
       <div id="offline-indicator" role="status" aria-live="polite"></div>
-      <div id="view-root" role="main" aria-live="polite"></div>
+      <div id="view-root" role="main" aria-live="polite" tabindex="-1"></div>
     </main>
     <button id="star-launcher" type="button" aria-label="Open STAR">✨</button>
   </div>
@@ -97,6 +99,24 @@
   <script src="./js/api-client.js"></script>
   <script src="./js/db.js"></script>
   <script src="./js/backup.js"></script>
+  <!-- STAR avatar (owner-designated 2026-11-16): Daniel's portrait as
+       STAR's face — a WebP data URI in a JS data file (text-only repo).
+       Optional by design: consumers fall back to the original glyphs
+       if it is missing. Loads before every STAR consumer. -->
+  <script src="./js/data/star-avatar.js"></script>
+  <!-- Angel robot portraits (owner ruling 2026-11-16): generated
+       robot portraits for the four APPROVED Angel identities only
+       (MICHAEL, GABRIEL, RAPHAEL, URIEL) — WebP data URIs in a JS
+       data file (text-only repo). Optional by design: the Security
+       dashboard falls back to name-only presentation if missing.
+       The unverified angels (RAGUEL, SARIEL, REMIEL) are
+       deliberately absent from the file. -->
+  <script src="./js/data/angel-portraits.js"></script>
+  <!-- Tribe principal portraits (owner ruling 2026-11-16): one
+       generated face per canonical principal — WebP data URIs in a
+       JS data file (text-only repo). Optional by design: Bot
+       Operations falls back to the Tribe mark if it is missing. -->
+  <script src="./js/data/tribe-portraits.js"></script>
   <!-- Star 3.0 layers, in dependency order: state, backend, router, UI -->
   <script src="./js/star-state.js"></script>
   <script src="./js/star-backend.js"></script>
@@ -139,6 +159,21 @@
   <script src="./js/window-manager.js"></script>
   <script src="./js/participants.js"></script>
   <script src="./js/star-overlay.js"></script>
+  <!-- Presence Anywhere Build 1 (owner ruling 2026-11-16): the
+       reusable presence card — a figure + speech bubble anchored
+       to the current screen. Presentation of real state only:
+       STAR's actual chat content, or a principal's recorded state
+       labelled as a record readout. Loads before its consumers
+       (Bot Operations). -->
+  <script src="./js/presence.js"></script>
+  <!-- Bot Profiles + Big Screen Build (owner direction 2026-11-16):
+       bot-profiles.js derives every bot's profile from the real
+       records (principals / workers / tasks / crypto assignments /
+       entity pipeline); bot-presenter.js stands STAR or any bot
+       before the World Globe presenting its recorded task/chart.
+       Both are readouts of real state — no fabricated activity. -->
+  <script src="./js/bot-profiles.js"></script>
+  <script src="./js/bot-presenter.js"></script>
   <!-- API registry (must load before price-scout) and health panel -->
   <script src="./js/api-registry.js"></script>
   <!-- Universal Search Phase 1: provider registry, URL detection, tabs,
@@ -166,6 +201,7 @@
   <script src="./js/data/bot-naming-pool.js"></script>
   <script src="./js/encyclopedia-import.js"></script>
   <script src="./js/entity-candidates.js"></script>
+  <script src="./js/entity-gate.js"></script>
   <script src="./js/modules/prices.js"></script>
   <script src="./js/modules/api-health.js"></script>
   <script src="./js/modules/scouts.js"></script>
@@ -179,6 +215,10 @@
   <script src="./js/opportunity-intelligence.js"></script>
   <script src="./js/globe-intelligence.js"></script>
   <script src="./js/world-engine.js"></script>
+  <!-- Globe Map Build 2: vendored public-domain world map data
+       (Natural Earth countries/states/cities) for the flat map. -->
+  <script src="./js/data/world-map.js"></script>
+  <script src="./js/globe-engine.js"></script>
   <script src="./js/star-world.js"></script>
   <script src="./js/screens-nav.js"></script>
   <script src="./js/modules/globe.js"></script>
@@ -198,12 +238,14 @@
   <script src="./js/modules/settings.js"></script>
   <!-- Master shell (Build 1) screens -->
   <script src="./js/modules/bot-ops.js"></script>
+  <script src="./js/modules/bot-profile.js"></script>
   <script src="./js/modules/wallets.js"></script>
   <script src="./js/modules/opportunities.js"></script>
   <script src="./js/modules/positions.js"></script>
   <script src="./js/modules/operations.js"></script>
   <script src="./js/shell-bubbles.js"></script>
   <script src="./js/shell-accounts.js"></script>
+  <script src="./js/sheet-system.js"></script>
   <script src="./js/shell-chrome.js"></script>
   <script src="./js/app.js"></script>
 </body>

@@ -6,7 +6,8 @@
  * backend: there is no model, no provider, and no network call —
  * STAR stays in demo mode, and every answer says so. The responder
  * only claims questions about the cockpit's own state (status,
- * counts, recorded opportunities, alerts, assignments, wallets);
+ * counts, recorded opportunities, alerts, assignments, wallets,
+ * the entity candidate pipeline);
  * anything else returns null and the normal Star flow continues
  * (StarCommand, PriceScout, KnowledgeScout, demo backend).
  *
@@ -96,6 +97,53 @@
     return lines.join("\n");
   }
 
+  // P5: entity candidate pipeline visibility. READ-ONLY — the
+  // numbers come from EntityGate.pipelineSummary (the same single
+  // derivation the Bot Operations panel renders), computed from the
+  // real candidate records at answer time. Candidates are UNVERIFIED
+  // and unregistered; a zero pipeline answers honestly zero.
+  async function pipelineAnswer() {
+    var EG = global.EntityGate;
+    var s = null;
+    if (EG && typeof EG.pipelineSummary === "function") {
+      try { s = await EG.pipelineSummary(); } catch (e) { s = null; }
+    }
+    if (!s) {
+      return "The entity candidate pipeline could not be read — the pipeline modules are not loaded, so no pipeline state is claimed. " + FOOTER;
+    }
+    if (!s.total && !s.frozenPendingCount && !s.importedBatchCount) {
+      return "Entity candidate pipeline: 0 candidates recorded. Nothing is waiting at the owner authority gate, " +
+        "no frozen batch is pending import, and nothing is stale. Candidates are UNVERIFIED, unregistered discoveries " +
+        "until the owner freezes them into a batch and the two-phase import gate registers them; the pipeline itself " +
+        "is managed in Crypto World's PIPELINE tab. " + FOOTER;
+    }
+    var staleDays = (global.EntityCandidates && global.EntityCandidates.STALE_DAYS) || 90;
+    var lines = ["Entity candidate pipeline: " + s.total + " candidate record(s) — all UNVERIFIED and unregistered until the owner gate and the two-phase import gate say otherwise."];
+    var stageParts = [];
+    (s.stageOrder || []).forEach(function (st) {
+      var n = s.counts ? (s.counts[st] || 0) : 0;
+      if (n > 0 && st !== "REJECTED" && st !== "DUPLICATE") stageParts.push(st + " " + n);
+    });
+    if (stageParts.length) lines.push("• By stage: " + stageParts.join(", ") + ".");
+    lines.push("• Waiting at the owner authority gate (PREPARED): " + s.gateQueueCount +
+      ". Frozen batches pending import: " + s.frozenPendingCount +
+      (s.frozenPendingCount ? " (" + s.frozenPendingBatches.join(", ") + ")" : "") +
+      ". Batches already imported through the gate: " + s.importedBatchCount + ".");
+    lines.push("• Stale candidates (still in a working stage, unreviewed for over " + staleDays + " days): " + s.staleCount + ".");
+    lines.push("• Terminal history: " + s.terminalCount + " (" + s.rejectedCount + " rejected, " + s.duplicateCount +
+      " duplicate) — retained as dedupe memory, not pipeline-active.");
+    if (s.decisions && s.decisions.length) {
+      var d = s.decisions[0];
+      lines.push("• Most recent gate decision: " + d.name + " — " + d.from + " → " + d.to + " by " + d.actor +
+        (d.at ? " (" + String(d.at).slice(0, 10) + ")" : "") + ".");
+    } else {
+      lines.push("• No gate decisions have been recorded yet.");
+    }
+    lines.push("The pipeline is managed in Crypto World's PIPELINE tab; this answer only reports it.");
+    lines.push(FOOTER);
+    return lines.join("\n");
+  }
+
   function opportunitiesAnswer() {
     var OI = global.OpportunityIntelligence;
     if (!OI || typeof OI.listOpportunities !== "function") {
@@ -167,7 +215,7 @@
   function helpAnswer() {
     return "In demo mode I answer from the cockpit's real records — no AI backend is connected. Ask me: " +
       "“cockpit status” (the five Globe layers + World Engine graph), “how many records / majors / strategies” (encyclopedia + entity counts), " +
-      "“opportunities” (recorded pipeline), “alerts” or “security status”, “bots / assignments” (workforce records), or “wallets” (connection + execution state). " +
+      "“opportunities” (recorded pipeline), “entity candidates” or “entity pipeline” (candidate stages, owner gate queue, frozen batches), “alerts” or “security status”, “bots / assignments” (workforce records), or “wallets” (connection + execution state). " +
       "Prices still go to the Price Scouts and news/GitHub activity to the Knowledge Scouts. Anything that would change something outside this device needs your approval and is not executed here. " + FOOTER;
   }
 
@@ -180,6 +228,14 @@
       if (/\b(what can you (answer|tell|do)|what do you know|your knowledge)\b/.test(t)) return helpAnswer();
       if (/\b(cockpit status|globe status|layer status|world engine status|system status)\b/.test(t) ||
           (/^\s*(status|status\?)\s*$/.test(t))) return await statusAnswer();
+      // P5: the entity candidate pipeline route sits BEFORE the
+      // generic counts route — "how many entity candidates…" would
+      // otherwise match countsAnswer on "entit". The trigger stays
+      // narrow: it needs a candidate / entity-pipeline / frozen-batch
+      // token, so encyclopedia and opportunity questions keep their
+      // existing routes.
+      if (/\bcandidate/.test(t) || /\bentity pipeline\b/.test(t) || /\bfrozen batch/.test(t) ||
+          (/\bpipeline\b/.test(t) && /\b(entit|gate|frozen|discover)/.test(t))) return await pipelineAnswer();
       if (/\b(how many|count|counts)\b/.test(t) && /\b(major|type|strateg|record|asset|network|protocol|entit|encyclopedia)/.test(t)) return await countsAnswer();
       if (/\bencyclopedia\b/.test(t) && /\b(status|count|records|hold|holds|contain|contains)\b/.test(t)) return await countsAnswer();
       if (/\bopportunit/.test(t)) return opportunitiesAnswer();

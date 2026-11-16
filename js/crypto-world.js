@@ -165,8 +165,12 @@
       // point and can never inflate canonical counts or the graph.
       // Candidate-aware code reads the store directly and filters by
       // recordKind itself.
+      // P4 adds the second bookkeeping kind to the same exclusion:
+      // FROZEN_ENTITY_BATCH artifacts (js/entity-gate.js) are the
+      // gate's frozen-batch records — reviewable provenance, not
+      // canonical knowledge — and are excluded at the same point.
       return (records || []).filter(function (r) {
-        return !r || r.recordKind !== "ENTITY_CANDIDATE";
+        return !r || (r.recordKind !== "ENTITY_CANDIDATE" && r.recordKind !== "FROZEN_ENTITY_BATCH");
       });
     }).catch(function () { return []; });
   }

@@ -145,7 +145,29 @@
   function entityBatchEnabled(batch) {
     if (!batch) return false;
     var key = typeof batch === "string" ? batch : batch.batch;
-    return ENTITY_BATCH_ENABLED[key] === true;
+    return ENTITY_BATCH_ENABLED[key] === true || RUNTIME_FROZEN_BATCH_ENABLED[key] === true;
+  }
+
+  // Owner-frozen candidate batches (P4, additive, Nov 16, 2026). The
+  // static per-batch hold above governs the hand-authored data files.
+  // A batch produced by the Entity Authority Gate (js/entity-gate.js)
+  // carries its authorization differently: the owner's FREEZE act is
+  // recorded on the batch object itself (frozenBy "OWNER:<ref>" plus a
+  // frozenAt timestamp, persisted in the frozen-batch artifact). Such
+  // a batch becomes importable only when this function validates that
+  // provenance and registers the batch id for THIS session — the
+  // default stays disabled, and a batch without valid owner freeze
+  // provenance is refused. The two-phase gate itself is unchanged:
+  // enabling only lifts the hold; validation, zero-write-on-failure,
+  // and registration all run exactly as for Batch 1/2.
+  var RUNTIME_FROZEN_BATCH_ENABLED = {};
+  function enableOwnerFrozenBatch(batch) {
+    if (!batch || batch.kind !== "entity") return false;
+    if (typeof batch.batch !== "string" || !/^entity-batch-\d+$/.test(batch.batch)) return false;
+    if (typeof batch.frozenBy !== "string" || batch.frozenBy.indexOf("OWNER:") !== 0) return false;
+    if (!batch.frozenAt || isNaN(Date.parse(batch.frozenAt))) return false;
+    RUNTIME_FROZEN_BATCH_ENABLED[batch.batch] = true;
+    return true;
   }
 
   // ---- Single-flight guard (Fix-up #3, defect B) ----
@@ -1071,6 +1093,7 @@
     validateEntityBatch: validateEntityBatch,
     ensureEntityRegistrations: ensureEntityRegistrations,
     syncEntityMeta: syncEntityMeta,
-    entityImportEnabled: function (batch) { return entityBatchEnabled(batch || "entity-batch-1"); }
+    entityImportEnabled: function (batch) { return entityBatchEnabled(batch || "entity-batch-1"); },
+    enableOwnerFrozenBatch: enableOwnerFrozenBatch
   };
 })(window);

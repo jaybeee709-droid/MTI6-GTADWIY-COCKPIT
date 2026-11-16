@@ -244,6 +244,75 @@
     return { line: line, opened: !!(global.StarOverlay && typeof global.StarOverlay.open === "function"), filled: filled };
   }
 
+  // §46 (P1.3) LOCAL suggestions. Pure builder: every input is data
+  // already on this device (route names, encyclopedia matches from
+  // the local store, saved-knowledge matches, recent local history).
+  // Nothing is transmitted per keystroke — this function performs no
+  // fetch and no storage write; the UI glue only ever feeds it local
+  // sources. Every suggestion carries its source label so the user
+  // can see where it came from.
+  var SUGGESTION_SOURCE_LABELS = {
+    route: "ROUTE — THIS APP",
+    encyclopedia: "ENCYCLOPEDIA",
+    knowledge: "SAVED KNOWLEDGE",
+    history: "RECENT HISTORY — LOCAL ONLY"
+  };
+  function buildSuggestions(text, sources) {
+    var q = String(text || "").trim().toLowerCase();
+    if (q.length < 2) return [];
+    var s = sources || {};
+    var out = [];
+    var routeCount = 0;
+    (s.routes || []).forEach(function (r) {
+      if (routeCount >= 3) return;
+      var name = String(r || "");
+      if (name && name.toLowerCase().indexOf(q) !== -1) {
+        routeCount++;
+        out.push({ kind: "route", label: "#/" + name,
+          detail: "Go to the " + name + " screen",
+          sourceLabel: SUGGESTION_SOURCE_LABELS.route, route: name, query: "" });
+      }
+    });
+    (s.encyclopedia || []).slice(0, 3).forEach(function (e) {
+      if (!e || !e.title) return;
+      out.push({ kind: "encyclopedia", label: e.title,
+        detail: e.level || e.registry || "Encyclopedia entry",
+        sourceLabel: SUGGESTION_SOURCE_LABELS.encyclopedia,
+        route: "", query: e.title });
+    });
+    (s.knowledge || []).slice(0, 2).forEach(function (k) {
+      if (!k || !k.topic) return;
+      out.push({ kind: "knowledge", label: k.topic, detail: "Saved knowledge",
+        sourceLabel: SUGGESTION_SOURCE_LABELS.knowledge, route: "", query: k.topic });
+    });
+    var histCount = 0;
+    (s.history || []).forEach(function (h) {
+      if (histCount >= 3 || !h || !h.query) return;
+      if (String(h.query).toLowerCase().indexOf(q) === -1) return;
+      histCount++;
+      out.push({ kind: "history", label: h.query,
+        detail: "You searched this on this device",
+        sourceLabel: SUGGESTION_SOURCE_LABELS.history, route: "", query: h.query });
+    });
+    return out.slice(0, 8);
+  }
+
+  // §50 (P1.4) open-method choices for a result. Pure descriptor —
+  // the honest labels live here so every surface offers the same
+  // three methods with the same wording. MTI6 is a workspace and a
+  // launcher, not a browser: no method embeds the page.
+  function openMethodChoices() {
+    var tempLabel = (global.SearchTabs && global.SearchTabs.TEMPORARY_LABEL) || "MTI6 TEMPORARY SESSION";
+    return [
+      { id: "external", label: "External tab (default)",
+        note: "Opens in your browser with noopener/noreferrer. MTI6 does not embed pages." },
+      { id: "tab", label: "New MTI6 search tab",
+        note: "Keeps the address as a tab in this workspace; the page itself still opens externally when you choose." },
+      { id: "temporary", label: "Temporary session",
+        note: tempLabel + " — keeps no search history in MTI6. It is not Tor Browser and not private/incognito mode." }
+    ];
+  }
+
   // Bot source picker. Pure function, tested separately.
   function pickSource(query, selected) {
     var q = String(query || "").trim();
@@ -446,8 +515,13 @@
       peerList(global.ProtocolIntelligence, ["listProtocols", "getAllProtocols"],
         ["PROTOCOLS", "protocols"]).forEach(function (p) {
         if (!p) return;
-        push("protocol", [p.name, p.id, p.category],
-          cryptoResult("protocol", p.id, p.name || p.id,
+        // ProtocolIntelligence records carry their canonical id as
+        // protocolId (the same id the store record uses); older shapes
+        // used id. Read both so the registry-derived entry carries the
+        // canonical id and the dedupe below can recognise its twin.
+        var pid = p.protocolId || p.id;
+        push("protocol", [p.name, pid, p.category],
+          cryptoResult("protocol", pid, p.name || pid,
             "Protocol" + (p.category ? " · " + p.category : ""), "#/crypto-world",
             "ProtocolIntelligence", p.verificationStatus));
       });
@@ -497,6 +571,55 @@
             "#/opportunities", "OpportunityIntelligence", op.verificationStatus));
       });
 
+      // Reconciliation (Universal Search Phase 1 completion): the
+      // same canonical entity can arrive twice in one entity group —
+      // once as the Crypto World STORE record and once as a
+      // registry-derived entry (NetworkIntelligence / AssetIntelligence
+      // / ProtocolIntelligence / PositionIntelligence, whose records
+      // the import gate derived FROM the canonical store records).
+      // Collapse each group by canonical id so an entity appears once:
+      // the store record is authoritative for identity and wins; a
+      // dropped twin's subtitle is adopted only when it strictly
+      // extends the kept line's subtitle (it may carry the category /
+      // vm the store record's own fields do not spell out). Entries
+      // without a usable id, and genuinely distinct entities (the
+      // three dYdX records live in different groups with different
+      // ids), are never collapsed.
+      function dedupeEntityKind(list) {
+        var byId = {};
+        var outList = [];
+        (list || []).forEach(function (r) {
+          var id = (r && typeof r.id === "string" && r.id) ? r.id : null;
+          if (!id) { outList.push(r); return; }
+          var kept = byId[id];
+          if (!kept) { byId[id] = r; outList.push(r); return; }
+          var storeEntry = kept.source === "CryptoWorld" ? kept
+            : (r.source === "CryptoWorld" ? r : null);
+          var other = r;
+          if (storeEntry && storeEntry !== kept) {
+            var idx = outList.indexOf(kept);
+            if (idx !== -1) outList[idx] = storeEntry;
+            other = kept;
+            kept = storeEntry;
+            byId[id] = kept;
+          }
+          if (other.subtitle && kept.subtitle &&
+              other.subtitle.length > kept.subtitle.length &&
+              other.subtitle.indexOf(kept.subtitle) === 0) {
+            kept.subtitle = other.subtitle;
+          } else if (other.subtitle && !kept.subtitle) {
+            kept.subtitle = other.subtitle;
+          }
+          if (typeof other.score === "number" && other.score > (kept.score || 0)) {
+            kept.score = other.score;
+          }
+        });
+        return outList;
+      }
+      ["asset", "network", "protocol", "position"].forEach(function (k) {
+        groups[k] = dedupeEntityKind(groups[k]);
+      });
+
       var out = [];
       CRYPTO_SOURCE_ORDER.forEach(function (kind) {
         cryptoSortScored(groups[kind]);
@@ -542,6 +665,7 @@
     var webProviderSelect = document.getElementById("global-search-web-provider");
     var sourceBtn = document.getElementById("global-search-source-btn");
     var sourceMenu = document.getElementById("global-search-source-menu");
+    var suggestionsEl = document.getElementById("global-search-suggestions");
     // Workspace state: tabs/sessions/history live in the sibling
     // modules when loaded; these locals only track which tab/session
     // this bar is currently working in.
@@ -562,6 +686,7 @@
     function noteSave(res) { if (global.GlobalSearch) global.GlobalSearch.lastSaveResult = res; }
     function noteStar(res) { if (global.GlobalSearch) global.GlobalSearch.lastStarSend = res; }
     function noteExport(json) { if (global.GlobalSearch) global.GlobalSearch.lastExportJson = json; }
+    function noteOpen(res) { if (global.GlobalSearch) global.GlobalSearch.lastOpenMethod = res; }
 
     function show(html) { results.innerHTML = html; results.classList.remove("hidden"); }
     function hide() { results.classList.add("hidden"); results.innerHTML = ""; }
@@ -594,6 +719,155 @@
         ' <button type="button" class="btn btn-ghost btn-sm search-star-btn" data-star-title="' + esc(title) +
         '" data-star-url="' + esc(url || "") + '" data-star-origin="' + esc(origin || "MANUAL SEARCH") + '">Send to STAR</button>';
     }
+    // §18 (P1.2) ONE uniform result card for every source: title,
+    // domain (external results), snippet, type, origin and a
+    // verification chip on EVERY card; a date appears ONLY when the
+    // source actually provides one. Actions: the title link opens
+    // (internally or externally), plus Save / Send to STAR, plus the
+    // §50 open-method chooser for external results. o: { title, url,
+    // internal, type, snippet, origin, verification, date, domain,
+    // text }.
+    function domainOf(url) {
+      var m = /^[a-z][a-z0-9+.-]*:\/\/([^\/:?#]+)/i.exec(String(url || ""));
+      return m ? m[1] : "";
+    }
+    function resultCard(o) {
+      var titleHtml;
+      if (o.url && o.internal) {
+        titleHtml = '<a href="' + esc(o.url) + '" class="global-result-link search-card-title" data-hide="1">' + esc(o.title) + "</a>";
+      } else if (o.url) {
+        titleHtml = '<a href="' + esc(o.url) + '" class="search-card-title" target="_blank" rel="noopener noreferrer">' + esc(o.title) + "</a>";
+      } else {
+        titleHtml = '<span class="search-card-title">' + esc(o.title) + "</span>";
+      }
+      var domain = o.domain || (o.internal ? "" : domainOf(o.url));
+      return '<li class="search-card" data-search-card="1">' +
+        '<div class="search-card-head">' + titleHtml + "</div>" +
+        '<div class="search-card-meta">' +
+          '<span class="search-card-type">' + esc(o.type || "Result") + "</span>" +
+          (domain ? ' <span class="search-card-domain">' + esc(domain) + "</span>" : "") +
+          ' <span class="search-card-origin">ORIGIN: ' + esc(o.origin || "MANUAL SEARCH") + "</span>" +
+          ' <span class="search-card-verification" data-verification="' + esc(o.verification || "UNVERIFIED") + '">' + esc(o.verification || "UNVERIFIED") + "</span>" +
+          (o.date ? ' <span class="search-card-date">' + esc(o.date) + "</span>" : "") +
+        "</div>" +
+        '<div class="search-card-snippet">' + esc(o.snippet || "") + "</div>" +
+        '<div class="search-card-actions">' +
+          acts(o.title, o.url || "", o.origin || "MANUAL SEARCH", o.text !== undefined ? o.text : (o.snippet || o.title)) +
+          (o.url && !o.internal ? openActs(o.url, o.title) : "") +
+        "</div></li>";
+    }
+    // §50 (P1.4): the "Open ▾" button on external cards + the chooser
+    // row it toggles. The methods and their honest labels come from
+    // openMethodChoices() so no surface can invent different wording.
+    function openActs(url, title) {
+      return ' <button type="button" class="btn btn-ghost btn-sm search-open-btn" data-open-menu="1" data-open-url="' + esc(url || "") + '" data-open-title="' + esc(title || "") + '">Open ▾</button>';
+    }
+    function openChooserHtml(url, title) {
+      var methods = openMethodChoices();
+      return '<div class="search-open-chooser" role="group" aria-label="Choose how to open">' +
+        '<span class="api-meta">Open this result:</span> ' + methods.map(function (m) {
+          return '<button type="button" class="btn btn-ghost btn-sm" data-open-method="' + m.id + '" data-open-url="' + esc(url) + '" data-open-title="' + esc(title || "") + '">' + esc(m.label) + "</button>";
+        }).join(" ") +
+        '<div class="api-meta">' + esc(methods[0].note) + " " + esc(methods[2].note) + "</div></div>";
+    }
+    function openedTabHtml(url, title, temporary) {
+      return "<h3>" + esc(title || url) + "</h3>" +
+        '<div class="api-meta">' + (temporary ? "MTI6 TEMPORARY SESSION — " : "") +
+        "This address is kept as a search tab in this workspace. MTI6 is a workspace and a launcher, not a browser: the page is not embedded and was not fetched here.</div>" +
+        '<ul class="price-offer-list"><li><a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">Open externally</a>' +
+        acts(title || url, url, "MANUAL SEARCH", title || url) + "</li></ul>";
+    }
+    function openWithMethod(method, url, title) {
+      var res = { method: method, url: String(url || ""), ok: false, note: "" };
+      if (!/^https?:\/\//i.test(res.url)) {
+        res.note = "Only web addresses (http/https) can be opened.";
+        noteOpen(res);
+        return res;
+      }
+      if (method === "external") {
+        var opened = false;
+        try {
+          if (typeof global.open === "function") opened = !!global.open(res.url, "_blank", "noopener,noreferrer");
+        } catch (e) {}
+        res.ok = true;
+        res.note = opened
+          ? "Opened in an external browser tab."
+          : "External open requested — if no tab appeared, your browser may have blocked the popup; the result link itself also opens externally.";
+        noteOpen(res);
+        return res;
+      }
+      var T = global.SearchTabs;
+      if (!T || typeof T.newTab !== "function") {
+        res.note = "Search tabs did not load — use the external tab instead.";
+        noteOpen(res);
+        return res;
+      }
+      try {
+        if (method === "temporary" && !currentSessionTemporary()) {
+          previousSessionId = currentSessionId;
+          var s = null;
+          if (typeof T.createSession === "function") s = T.createSession(T.TEMPORARY_LABEL || "MTI6 TEMPORARY SESSION", { temporary: true });
+          if (s && (s.sessionId || s.id)) currentSessionId = s.sessionId || s.id;
+          else if (typeof s === "string") currentSessionId = s;
+          if (typeof T.setTemporary === "function" && currentSessionId) T.setTemporary(currentSessionId, true);
+        }
+        var nt = T.newTab({ navigationType: "url", currentUrl: res.url,
+          title: title || res.url, source: "page", sessionId: currentSessionId });
+        if (nt && tabIdOf(nt)) activeTabId = tabIdOf(nt);
+        res.ok = !!nt;
+        res.note = nt
+          ? (method === "temporary"
+              ? "Kept as a tab in a MTI6 TEMPORARY SESSION — no history is recorded for it, and the page itself still opens externally when you choose."
+              : "Kept as a tab in this workspace. MTI6 does not embed pages — open it externally when you are ready.")
+          : "Could not open a new tab (tab limit reached?).";
+        noteOpen(res);
+        if (nt) finish(openedTabHtml(res.url, title, method === "temporary"));
+        return res;
+      } catch (e) {
+        res.note = "Open failed: " + e.message;
+        noteOpen(res);
+        return res;
+      }
+    }
+    // §46 (P1.3) suggestion glue: gathers ONLY local sources (routes,
+    // saved knowledge, recent local history, and the encyclopedia via
+    // the local store through encyclopediaItems below). No fetch is
+    // ever made for a suggestion. Rendered rows carry their source
+    // label; the panel header says plainly that suggestions are
+    // computed on this device.
+    var suggestTimer = null;
+    function hideSuggestions() {
+      if (suggestionsEl) { suggestionsEl.classList.add("hidden"); suggestionsEl.innerHTML = ""; }
+    }
+    function renderSuggestions(list) {
+      if (!suggestionsEl) return;
+      if (!list || !list.length) { hideSuggestions(); return; }
+      suggestionsEl.innerHTML = '<div class="search-suggestions-head">Suggestions — computed on this device only. Nothing is sent anywhere while you type.</div>' +
+        list.map(function (sg) {
+          return '<button type="button" class="search-suggestion" role="option" data-suggest-kind="' + esc(sg.kind) +
+            '" data-suggest-query="' + esc(sg.query || "") + '" data-suggest-route="' + esc(sg.route || "") + '">' +
+            '<span class="search-suggestion-label">' + esc(sg.label) + "</span> " +
+            '<span class="search-suggestion-detail">' + esc(sg.detail || "") + "</span> " +
+            '<span class="search-suggestion-source">' + esc(sg.sourceLabel) + " · LOCAL</span></button>";
+        }).join("");
+      suggestionsEl.classList.remove("hidden");
+    }
+    function updateSuggestions() {
+      var text = input.value.trim();
+      if (text.length < 2) { hideSuggestions(); return; }
+      var knowledge = [];
+      try { knowledge = global.KnowledgeScout ? global.KnowledgeScout.searchKnowledge(text) : []; } catch (e) { knowledge = []; }
+      var history = [];
+      try { history = global.SearchHistory ? (global.SearchHistory.list() || []) : []; } catch (e) { history = []; }
+      var sources = { routes: KNOWN_ROUTES, knowledge: knowledge, history: history, encyclopedia: [] };
+      renderSuggestions(buildSuggestions(text, sources));
+      encyclopediaItems(text).then(function (items) {
+        if (input.value.trim() !== text) return; // typed on — stale
+        if (!items) return;
+        sources.encyclopedia = items;
+        renderSuggestions(buildSuggestions(text, sources));
+      }).catch(function () {});
+    }
     function footer() {
       return "<div class=\"search-workspace-footer\"><div id=\"global-search-save-status\" class=\"api-meta\" aria-live=\"polite\"></div>" +
         "<div class=\"search-freshness\">UNVERIFIED where applicable — saved knowledge and web results are not automatically verified truth. News is not automatically verified truth.</div>" +
@@ -613,7 +887,12 @@
     // buildSearchUrl (template + encoding only), never from a guess.
     function engineLinks(query) {
       var providers = webProviders();
-      var def = lastProvider || defaultWebProvider();
+      // The stored default is read fresh (not the init-time copy):
+      // the bar's own provider select and Settings → Search & Privacy
+      // both persist to the same registry key, so whichever surface
+      // changed it last is what orders these links — one default,
+      // never two competing ones.
+      var def = defaultWebProvider();
       var ordered = providers.slice().sort(function (a, b) {
         if (a.providerId === def) return -1;
         if (b.providerId === def) return 1;
@@ -898,7 +1177,11 @@
         showHistoryPanel(); return;
       }
       if (action === "clear-session" && H && typeof H.clearSession === "function") {
-        try { H.clearSession(currentSessionId); } catch (e) {}
+        // The default session's entries are recorded under "" (the
+        // record path stores a non-string sessionId as ""), so a null
+        // currentSessionId must clear "" — passing null made this
+        // button a silent no-op for the default session.
+        try { H.clearSession(currentSessionId || ""); } catch (e) {}
         showHistoryPanel(); return;
       }
       if (action === "clear-all" && H && typeof H.clearAll === "function") {
@@ -1052,6 +1335,25 @@
           setSaveStatus("Sent to STAR as a reference — you still send it yourself in STAR.");
           return;
         }
+        var openMenu = attrOf(t, "data-open-menu");
+        if (openMenu !== null && openMenu !== undefined) {
+          var card = t;
+          while (card && card.tagName !== "LI" && card.parentNode) card = card.parentNode;
+          if (card && typeof card.querySelector === "function") {
+            var existing = card.querySelector(".search-open-chooser");
+            if (existing) { existing.remove(); return; }
+            var holder = document.createElement("div");
+            holder.innerHTML = openChooserHtml(attrOf(t, "data-open-url") || "", attrOf(t, "data-open-title") || "");
+            if (holder.firstChild) card.appendChild(holder.firstChild);
+          }
+          return;
+        }
+        var openMethod = attrOf(t, "data-open-method");
+        if (openMethod) {
+          var openRes = openWithMethod(openMethod, attrOf(t, "data-open-url") || "", attrOf(t, "data-open-title") || "");
+          if (openRes.method === "external") setSaveStatus(openRes.note);
+          return;
+        }
         var tabAction = attrOf(t, "data-tab-action");
         if (tabAction) { doTabAction(tabAction, t); return; }
         var histAction = attrOf(t, "data-history-action");
@@ -1068,6 +1370,36 @@
       }
     }
     if (results && typeof results.addEventListener === "function") results.addEventListener("click", resultsClick);
+    // Suggestions live outside the results panel; same delegation
+    // pattern. A route suggestion navigates; any other suggestion
+    // fills the bar and runs that search as plain text.
+    if (suggestionsEl && typeof suggestionsEl.addEventListener === "function") {
+      suggestionsEl.addEventListener("click", function (ev) {
+        var t = ev && ev.target ? ev.target : null;
+        var guard = 0;
+        while (t && guard++ < 4) {
+          var kind = attrOf(t, "data-suggest-kind");
+          if (kind) {
+            var route = attrOf(t, "data-suggest-route");
+            var sq = attrOf(t, "data-suggest-query");
+            hideSuggestions();
+            if (kind === "route" && route) {
+              try { location.hash = "#/" + route; } catch (e) {}
+              return;
+            }
+            if (sq) { input.value = sq; plainTextOverride = true; run(); }
+            return;
+          }
+          t = t.parentNode || null;
+        }
+      });
+    }
+    if (typeof input.addEventListener === "function") {
+      input.addEventListener("input", function () {
+        if (suggestTimer) clearTimeout(suggestTimer);
+        suggestTimer = setTimeout(updateSuggestions, 120);
+      });
+    }
     // The source menu is a sibling of the results panel, not inside
     // it, so its data-source-pick buttons never bubbled to
     // resultsClick and menu clicks were dead while the combobox
@@ -1100,7 +1432,32 @@
     toggleWebProvider();
     renderSourceMenu();
 
+    // Encyclopedia results, best-effort. Resolves to an array of
+    // {id, title, level, verificationStatus}, or null when the data did
+    // not load at all. Prefers the EncyclopediaBridge; falls back to a
+    // direct CryptoWorld store search when the bridge is not loaded.
+    // Lives at init level (not inside run) because the local
+    // suggestions layer reads the same local source.
+    function encyclopediaItems(q) {
+      if (global.EncyclopediaBridge && typeof global.EncyclopediaBridge.searchEncyclopedia === "function") {
+        try {
+          var r = global.EncyclopediaBridge.searchEncyclopedia(q);
+          if (r && typeof r.then === "function") return r.then(function (items) { return items || []; }).catch(function () { return null; });
+          return Promise.resolve(r || []);
+        } catch (e) { return Promise.resolve(null); }
+      }
+      if (global.CryptoWorld && typeof global.CryptoWorld.getAllRecords === "function" && typeof global.CryptoWorld.searchEntries === "function") {
+        return global.CryptoWorld.getAllRecords().then(function (records) {
+          return global.CryptoWorld.searchEntries(records || [], q).slice(0, 10).map(function (rec) {
+            return { id: rec.id, title: rec.title, level: rec.level, registry: rec.registry, verificationStatus: rec.verificationStatus };
+          });
+        }).catch(function () { return null; });
+      }
+      return Promise.resolve(null);
+    }
+
     function run() {
+      hideSuggestions();
       var raw = input.value.trim();
       if (!raw) { hide(); return; }
       // §45: an optional leading prefix overrides the source select
@@ -1118,11 +1475,18 @@
       if (cls.kind === "onion") {
         lastQuery = query; lastSource = "page";
         openTabForSearch(ONION_LABEL, "page");
-        finish("<h3>" + esc(ONION_LABEL) + "</h3><div class=\"api-meta\">" + esc(TOR_REQUIRED) +
-          " — this address was NOT fetched and was NOT sent to any search provider. Open it in Tor Browser yourself.</div>" +
+        // §33-§35 (P1.5): the onion handoff card. The address is
+        // classified only — never fetched, never sent to a provider,
+        // never opened by MTI6. The only exits are the owner's own:
+        // copy the address for Tor Browser, or save it as an
+        // UNVERIFIED reference. No Tor opening is claimed.
+        finish('<div class="search-onion-card" data-onion-card="1">' +
+          "<h3>" + esc(ONION_LABEL) + ' <span class="search-card-verification" data-verification="UNVERIFIED">UNVERIFIED</span></h3>' +
+          '<div class="api-meta"><strong>' + esc(TOR_REQUIRED) + "</strong> — this address was NOT fetched and was NOT sent to any search provider.</div>" +
           '<div class="api-meta">Address: <span id="global-search-onion-address">' + esc(query) + "</span></div>" +
+          '<div class="api-meta">Tor handoff: copy the address and open it in Tor Browser yourself. MTI6 does not open Tor, does not route through Tor, and did not fetch this address.</div>' +
           '<div><button type="button" class="btn btn-ghost btn-sm" id="global-search-copy-onion">COPY ADDRESS</button> ' +
-          '<button type="button" class="btn btn-ghost btn-sm" id="global-search-save-onion">SAVE AS UNVERIFIED REFERENCE</button></div>');
+          '<button type="button" class="btn btn-ghost btn-sm" id="global-search-save-onion">SAVE AS UNVERIFIED REFERENCE</button></div></div>');
         return;
       }
       if (cls.kind === "internal-route" || (cls.kind === "deep-link" && cls.route)) {
@@ -1187,31 +1551,12 @@
       show("<div class=\"api-meta\">Searching for “" + esc(query) + "”… Bot picked: " + esc(picked.mode) + " — " + esc(picked.reason) + "</div>");
       var head = "<div class=\"api-meta\">Bot picked: " + esc(picked.mode) + " — " + esc(picked.reason) + "</div>";
 
-      // Encyclopedia results, best-effort. Resolves to an array of
-      // {id, title, level, verificationStatus}, or null when the data did
-      // not load at all. Prefers the EncyclopediaBridge; falls back to a
-      // direct CryptoWorld store search when the bridge is not loaded.
-      function encyclopediaItems(q) {
-        if (global.EncyclopediaBridge && typeof global.EncyclopediaBridge.searchEncyclopedia === "function") {
-          try {
-            var r = global.EncyclopediaBridge.searchEncyclopedia(q);
-            if (r && typeof r.then === "function") return r.then(function (items) { return items || []; }).catch(function () { return null; });
-            return Promise.resolve(r || []);
-          } catch (e) { return Promise.resolve(null); }
-        }
-        if (global.CryptoWorld && typeof global.CryptoWorld.getAllRecords === "function" && typeof global.CryptoWorld.searchEntries === "function") {
-          return global.CryptoWorld.getAllRecords().then(function (records) {
-            return global.CryptoWorld.searchEntries(records || [], q).slice(0, 10).map(function (rec) {
-              return { id: rec.id, title: rec.title, level: rec.level, registry: rec.registry, verificationStatus: rec.verificationStatus };
-            });
-          }).catch(function () { return null; });
-        }
-        return Promise.resolve(null);
-      }
       function encyclopediaSection(items) {
         return section("Encyclopedia", items, function (it) {
-          var href = it.id ? "#/encyclopedia/" + esc(it.id) : "#/encyclopedia";
-          return '<li><a href="' + href + '" class="global-result-link" data-hide="1">' + esc(it.title) + '</a> · ' + esc(it.level || "") + ' · ' + esc(it.verificationStatus || "UNVERIFIED") + acts(it.title, href, "ENCYCLOPEDIA", it.title) + '</li>';
+          var href = it.id ? "#/encyclopedia/" + it.id : "#/encyclopedia";
+          return resultCard({ title: it.title, url: href, internal: true,
+            type: it.level || "Encyclopedia entry", origin: "ENCYCLOPEDIA",
+            verification: it.verificationStatus || "UNVERIFIED", text: it.title });
         }, { origin: "ENCYCLOPEDIA" });
       }
       // Crypto World section (spec C10): normalized results with kind,
@@ -1228,13 +1573,25 @@
           if ((it.kind === "major-activity" || it.kind === "type" || it.kind === "strategy") && it.id) {
             href = "#/encyclopedia/" + it.id;
           }
-          return '<li><a href="' + esc(href) + '" class="global-result-link" data-hide="1">' + esc(it.title) + '</a> · ' + esc(it.kind) + (it.subtitle ? ' · ' + esc(it.subtitle) : '') + ' · ' + esc(it.verificationStatus || "UNKNOWN") + acts(it.title, href, "ENCYCLOPEDIA", it.subtitle || it.title) + '</li>';
+          return resultCard({ title: it.title, url: href, internal: true,
+            type: it.kind, snippet: it.subtitle || "", origin: "ENCYCLOPEDIA",
+            verification: it.verificationStatus || "UNKNOWN", text: it.subtitle || it.title });
         }, { origin: "ENCYCLOPEDIA" });
       }
       function dedupeEnc(items, cryptoItems) {
         var seen = {};
         (cryptoItems || []).forEach(function (c) { seen[c.id] = true; });
         return (items || []).filter(function (it) { return !seen[it.id]; });
+      }
+      // The crypto price result as a uniform card: the price is live
+      // API data (status/source in the snippet), never verified truth.
+      function cryptoPriceSection(r) {
+        return section("Crypto price", [r], function (pr) {
+          return resultCard({ title: (pr.name || pr.symbol) + ": $" + Number(pr.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+            url: "", type: "Crypto price", snippet: pr.status + " from " + (pr.source || "—"),
+            origin: "API SEARCH", verification: "UNVERIFIED",
+            text: (pr.name || pr.symbol) + " price (" + pr.status + ", " + (pr.source || "—") + ")" });
+        }, { origin: "API SEARCH", external: true });
       }
 
       // "This app" searches the local app: vault notes, tasks,
@@ -1249,7 +1606,8 @@
         Promise.all([searchAppData(query, lower), encyclopediaItems(query), searchCryptoWorld(query)]).then(function (parts) {
           var items = parts[0], encItems = parts[1], cryptoItems = parts[2] || [];
           var body = section("In this app", items, function (it) {
-            return '<li><a href="#/' + it.route + '" class="global-result-link" data-hide="1">' + esc(it.title) + '</a> · ' + esc(it.kind) + acts(it.title, "#/" + it.route, "MANUAL SEARCH", it.title) + '</li>';
+            return resultCard({ title: it.title, url: "#/" + it.route, internal: true,
+              type: it.kind, origin: "MANUAL SEARCH", verification: "LOCAL DATA", text: it.title });
           }, { origin: "MANUAL SEARCH" });
           if (encItems === null) {
             body += '<div class="api-meta">Encyclopedia data did not load.</div>';
@@ -1264,7 +1622,7 @@
         if (!global.PriceScout) { finish(head + "<div class=\"api-meta\">Price Scouts did not load.</div>"); return; }
         global.PriceScout.getCrypto(query.replace(/\s+price$/i, ""), {}).then(function (r) {
           if (!r || r.price === null) { finish(head + "<div class=\"api-meta\">No live price for that ticker right now.</div>"); return; }
-          finish(head + "<h3>Crypto price</h3><ul class=\"price-offer-list\"><li>" + esc(r.name || r.symbol) + ": $" + Number(r.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " · " + esc(r.status) + " from " + esc(r.source || "—") + "</li></ul>");
+          finish(head + cryptoPriceSection(r));
         }).catch(function () { finish(head + "<div class=\"api-meta\">Could not load that price right now.</div>"); });
         return;
       }
@@ -1273,7 +1631,9 @@
         global.KnowledgeScout.getGitHubActivity("jaybeee709-droid", "MTI6-GTADWIY-COCKPIT").then(function (r) {
           if (r.status === "error") { finish(head + "<div class=\"api-meta\">" + esc(r.note) + "</div>"); return; }
           finish(head + section("GitHub activity — cockpit repo", r.items, function (it) {
-            return "<li>" + esc(it.label) + (it.actor ? " · " + esc(it.actor) : "") + acts(it.label, "", "API SEARCH", it.label) + "</li>";
+            return resultCard({ title: it.label, url: "", type: "GitHub activity",
+              snippet: it.actor ? "Actor: " + it.actor : "", origin: "API SEARCH",
+              verification: "UNVERIFIED", text: it.label });
           }, { origin: "API SEARCH", external: true }));
         });
         return;
@@ -1285,7 +1645,8 @@
           var words = lower.split(/\s+/).filter(function (w) { return w.length > 3 && ["news", "headlines", "stories"].indexOf(w) === -1; });
           var items = r.items.filter(function (it) { return !words.length || words.some(function (w) { return it.title.toLowerCase().indexOf(w) !== -1; }); });
           finish(head + section("News", items.length ? items : r.items, function (it) {
-            return "<li><a href=\"" + esc(it.url) + "\" target=\"_blank\" rel=\"noopener noreferrer\">" + esc(it.title) + "</a>" + acts(it.title, it.url, "API SEARCH", it.title) + "</li>";
+            return resultCard({ title: it.title, url: it.url || "", type: "News",
+              origin: "API SEARCH", verification: "UNVERIFIED", text: it.title });
           }, { origin: "API SEARCH", external: true }));
         });
         return;
@@ -1297,7 +1658,7 @@
         // is truthy even when the section is empty, so the old `||`
         // fallback could never fire.
         finish(head + (section("Saved bot knowledge", hits, function (e) {
-          return "<li>“" + esc(e.topic) + "” · " + esc(e.source) + " · saved " + esc(String(e.fetchedAt || "").slice(0, 10)) + acts(e.topic, e.url || "", "SAVED KNOWLEDGE", e.text || "") + "</li>";
+          return resultCard({ title: e.topic, url: e.url || "", type: "Saved knowledge", snippet: "Source: " + (e.source || ""), date: String(e.fetchedAt || "").slice(0, 10) || null, origin: "SAVED KNOWLEDGE", verification: "UNVERIFIED", text: e.text || "" });
         }, { origin: "SAVED KNOWLEDGE" }) || "<div class=\"api-meta\">No saved bot knowledge matched. Scrape and save a page on this topic in the Scouts panel first.</div>"));
         return;
       }
@@ -1327,9 +1688,9 @@
       if (picked.mode === "web") {
         searchWeb(query).then(function (web) {
           finish(head + section("Wikipedia", web.wiki, function (w) {
-            return "<li><a href=\"" + esc(w.url) + "\" target=\"_blank\" rel=\"noopener noreferrer\">" + esc(w.title) + "</a> — " + esc(w.snippet) + acts(w.title, w.url, "API SEARCH", w.snippet) + "</li>";
+            return resultCard({ title: w.title, url: w.url, type: "Wikipedia article", snippet: w.snippet, origin: "API SEARCH", verification: "UNVERIFIED", text: w.snippet });
           }, { origin: "API SEARCH", external: true }) + section("Hacker News", web.hn, function (h) {
-            return "<li><a href=\"" + esc(h.url) + "\" target=\"_blank\" rel=\"noopener noreferrer\">" + esc(h.title) + "</a>" + acts(h.title, h.url, "API SEARCH", h.title) + "</li>";
+            return resultCard({ title: h.title, url: h.url, type: "Hacker News story", origin: "API SEARCH", verification: "UNVERIFIED", text: h.title });
           }, { origin: "API SEARCH", external: true }) + engineLinks(query));
         });
         return;
@@ -1349,19 +1710,20 @@
         var appItems = parts[0], web = parts[1], price = parts[2], encItems = parts[3], cryptoItems = parts[4] || [];
         var html = head;
         html += section("In this app", appItems, function (it) {
-          return '<li><a href="#/' + it.route + '" class="global-result-link" data-hide="1">' + esc(it.title) + '</a> · ' + esc(it.kind) + acts(it.title, "#/" + it.route, "MANUAL SEARCH", it.title) + '</li>';
+          return resultCard({ title: it.title, url: "#/" + it.route, internal: true,
+            type: it.kind, origin: "MANUAL SEARCH", verification: "LOCAL DATA", text: it.title });
         }, { origin: "MANUAL SEARCH" });
         if (price && price.price !== null) {
-          html += "<h3>Crypto price</h3><ul class=\"price-offer-list\"><li>" + esc(price.name || price.symbol) + ": $" + Number(price.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " · " + esc(price.status) + " from " + esc(price.source || "—") + "</li></ul>";
+          html += cryptoPriceSection(price);
         }
         html += section("Saved bot knowledge", know, function (e) {
-          return "<li>“" + esc(e.topic) + "” · " + esc(e.source) + " · saved " + esc(String(e.fetchedAt || "").slice(0, 10)) + acts(e.topic, e.url || "", "SAVED KNOWLEDGE", e.text || "") + "</li>";
+          return resultCard({ title: e.topic, url: e.url || "", type: "Saved knowledge", snippet: "Source: " + (e.source || ""), date: String(e.fetchedAt || "").slice(0, 10) || null, origin: "SAVED KNOWLEDGE", verification: "UNVERIFIED", text: e.text || "" });
         }, { origin: "SAVED KNOWLEDGE" });
         html += section("Wikipedia", web.wiki, function (w) {
-          return "<li><a href=\"" + esc(w.url) + "\" target=\"_blank\" rel=\"noopener noreferrer\">" + esc(w.title) + "</a> — " + esc(w.snippet) + acts(w.title, w.url, "API SEARCH", w.snippet) + "</li>";
+          return resultCard({ title: w.title, url: w.url, type: "Wikipedia article", snippet: w.snippet, origin: "API SEARCH", verification: "UNVERIFIED", text: w.snippet });
         }, { origin: "API SEARCH", external: true });
         html += section("Hacker News", web.hn, function (h) {
-          return "<li><a href=\"" + esc(h.url) + "\" target=\"_blank\" rel=\"noopener noreferrer\">" + esc(h.title) + "</a>" + acts(h.title, h.url, "API SEARCH", h.title) + "</li>";
+          return resultCard({ title: h.title, url: h.url, type: "Hacker News story", origin: "API SEARCH", verification: "UNVERIFIED", text: h.title });
         }, { origin: "API SEARCH", external: true });
         if (encItems && encItems.length) html += encyclopediaSection(dedupeEnc(encItems, cryptoItems));
         if (cryptoItems.length) html += cryptoSection(cryptoItems);
@@ -1377,7 +1739,10 @@
     }
 
     btn.addEventListener("click", run);
-    input.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); run(); } });
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); run(); }
+      if (e.key === "Escape") { hideSuggestions(); }
+    });
     // Stage 2 fix-up (Nov 14, 2026, Defect 1): the results panel must
     // close on route change. Result links and the footer link hide it
     // via [data-hide], but sidebar / quick-nav / STAR navigation changes
@@ -1395,6 +1760,9 @@
       run();
       try { window.scrollTo(0, 0); } catch (e) {}
     };
+    // §50 (P1.4): the open-method performer, exposed for the same
+    // reason as runSearch — it owns this bar's tab/session state.
+    global.GlobalSearch.openWithMethod = openWithMethod;
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
@@ -1406,6 +1774,10 @@
     walletWarningFor: walletWarningFor, sourceStateFor: sourceStateFor,
     webProviders: webProviders, defaultWebProvider: defaultWebProvider, buildWebSearchUrl: buildWebSearchUrl,
     saveResult: saveResult, sendToStar: sendToStar,
+    // Phase 1 completion (P1.3/P1.4): local suggestions builder and
+    // the open-method descriptors. openWithMethod itself is attached
+    // by init (it owns the bar's session state), like runSearch.
+    buildSuggestions: buildSuggestions, openMethodChoices: openMethodChoices,
     ONION_LABEL: ONION_LABEL, TOR_REQUIRED: TOR_REQUIRED,
-    lastSaveResult: null, lastStarSend: null, lastExportJson: null };
+    lastSaveResult: null, lastStarSend: null, lastExportJson: null, lastOpenMethod: null };
 })(window);

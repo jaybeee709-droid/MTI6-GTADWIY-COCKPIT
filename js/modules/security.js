@@ -139,6 +139,59 @@
     ]);
   }
 
+  // Angel robot portraits (Angel Robots package, owner ruling
+  // 2026-11-16: "the angels would be straight up robots like those
+  // pics"): each APPROVED identity shows its generated robot
+  // portrait from js/data/angel-portraits.js (window.ANGEL_PORTRAITS,
+  // keyed by canonical identity id) beside its name. The data file
+  // is OPTIONAL: a missing file, a missing entry, or an image that
+  // fails to load leaves the name-only presentation exactly as
+  // before. The portrait lookup runs ONLY over listApproved() —
+  // REQUIRES_VERIFICATION identities (RAGUEL, SARIEL, REMIEL) are
+  // listed name-only below and never get a portrait or an image.
+  function angelPortraitNode(identity) {
+    var portraits = global.ANGEL_PORTRAITS;
+    var src = portraits && typeof portraits[identity.id] === "string" && portraits[identity.id]
+      ? portraits[identity.id] : null;
+    if (!src) return null;
+    var img = U.el("img", {
+      class: "angel-portrait-img",
+      src: src,
+      alt: "",
+      onerror: function () {
+        var frame = img.parentNode;
+        if (frame && frame.parentNode) frame.parentNode.removeChild(frame);
+      }
+    });
+    return U.el("div", { class: "angel-portrait-medallion", "aria-hidden": "true" }, [img]);
+  }
+
+  function angelIdentitiesCard(ident) {
+    if (!ident || typeof ident.listApproved !== "function" ||
+        typeof ident.listPendingVerification !== "function") return null;
+    var approved, pending;
+    try {
+      approved = ident.listApproved();
+      pending = ident.listPendingVerification();
+    } catch (e) { return null; }
+    var kids = [U.el("h3", {}, "Angel identities")];
+    approved.forEach(function (identity) {
+      var rowKids = [];
+      var medallion = angelPortraitNode(identity);
+      if (medallion) rowKids.push(medallion);
+      rowKids.push(U.el("div", {}, [
+        U.el("div", {}, angelText(identity.displayName, identity.id)),
+        U.el("div", { class: "api-meta" }, angelText(identity.sourceReference, "") + " · " + angelText(identity.sourceTier, "") + " · APPROVED")
+      ]));
+      kids.push(U.el("div", { class: "angel-identity-row" }, rowKids));
+    });
+    if (pending && pending.length) {
+      kids.push(U.el("div", { class: "api-meta" }, "Pending verification — no portrait, not assignable to live work until approved: " +
+        pending.map(function (i) { return i.displayName; }).join(", ")));
+    }
+    return U.el("div", { class: "mti6-card" }, kids);
+  }
+
   // Stage 1 metric markup (§24): label + value use the shared
   // .mti6-metric__label / __value classes (unclassed inner divs
   // would render at default size, outside the metric system).
@@ -234,6 +287,10 @@
       U.el("div", { class: "api-meta" }, "Alert class: " + angelText(alert.alertClass, "Unclassified") + " · Affected subsystem: " + angelText(alert.affectedSystem, "UNKNOWN") + " · Source: " + angelText(alert.source, "UNKNOWN")),
       U.el("div", { class: "api-meta" }, "Verification state: " + angelText(alert.state, "UNKNOWN") + " · Started: " + U.fmtDateTime(alert.detectedAt) + " · Current status: " + angelText(alert.state, "UNKNOWN") + " · Last updated: " + U.fmtDateTime(alert.lastUpdated)),
       U.el("div", { class: "api-meta" }, "Assigned Angel: " + angelLabel(alert.assignedAngelId)),
+      alert.area && isFinite(alert.area.lat) && isFinite(alert.area.lon)
+        ? U.el("div", { class: "api-meta" }, "Area: " + angelText(alert.area.label, "Owner-picked area") +
+            " (" + alert.area.lat + ", " + alert.area.lon + ") — when this alert is verified-and-active, the World Globe glows red at this real point; area-less alerts keep the global presentation.")
+        : U.el("div", { class: "api-meta" }, "Area: none recorded — this alert carries no geography."),
       U.el("div", { class: "api-meta" }, "Mitigation: " + mitigation),
       resolution ? U.el("div", { class: "api-meta" }, "Resolution: " + resolution) : null,
       U.el("div", { class: "api-meta" }, "STAR notification: " + starNote),
@@ -293,6 +350,36 @@
     var evRefIn = textIn("Evidence reference — what you saw and where (required)");
     var sourceIn = textIn("Provenance / source");
     sourceIn.value = "owner-entered";
+    // Optional geographic area (World Lens package, owner
+    // direction 2026-11-16: "the area lights up red where there
+    // are alerts"). The owner either pulls the World Globe's last
+    // location context (real pickAt coordinates, published by the
+    // Globe module as MTI6GlobeContext) or types coordinates,
+    // which are range-validated here and again in createAlert.
+    // No area is ever guessed: both coordinate fields empty =
+    // an area-less alert, exactly as before.
+    var areaLabelIn = textIn("Area label, e.g. Houston, Texas (optional)");
+    var areaLatIn = textIn("Latitude, -90 to 90 (optional)");
+    var areaLonIn = textIn("Longitude, -180 to 180 (optional)");
+    var areaStatus = U.el("div", { class: "api-meta" }, "");
+    var useGlobeCtxBtn = U.el("button", { class: "btn", type: "button" }, "Use current Globe context");
+    useGlobeCtxBtn.addEventListener("click", function () {
+      var ctx = null;
+      try {
+        if (global.MTI6GlobeContext && typeof global.MTI6GlobeContext.getLocationContext === "function") {
+          ctx = global.MTI6GlobeContext.getLocationContext();
+        }
+      } catch (e) { ctx = null; }
+      if (!ctx || !isFinite(ctx.lat) || !isFinite(ctx.lon)) {
+        areaStatus.textContent = "No Globe location context yet — tap a place on the World Globe first, or type the coordinates yourself.";
+        return;
+      }
+      areaLatIn.value = String(ctx.lat);
+      areaLonIn.value = String(ctx.lon);
+      if (ctx.label) areaLabelIn.value = ctx.label;
+      areaStatus.textContent = "Area taken from the Globe context: " + (ctx.label || "picked point") +
+        " (" + ctx.lat + ", " + ctx.lon + ").";
+    });
     var status = U.el("div", { class: "api-meta", style: "margin-top:10px" }, "");
     var submit = U.el("button", { class: "btn btn-secondary", type: "button" }, "Record alert at DETECTED");
     submit.addEventListener("click", function () {
@@ -312,6 +399,22 @@
         }]
       };
       if (classSel.value) input.alertClass = classSel.value;
+      // Optional area: both coordinates or neither. A half-given
+      // or out-of-range area refuses the intake here (and
+      // createAlert validates again) — never a guessed place.
+      var latRaw = areaLatIn.value.trim(), lonRaw = areaLonIn.value.trim();
+      if (latRaw !== "" || lonRaw !== "") {
+        var aLat = Number(latRaw), aLon = Number(lonRaw);
+        if (latRaw === "" || lonRaw === "" || !isFinite(aLat) || !isFinite(aLon) ||
+            aLat < -90 || aLat > 90 || aLon < -180 || aLon > 180) {
+          status.textContent = "Not recorded: the area needs BOTH a latitude (-90 to 90) and a longitude (-180 to 180), or neither.";
+          return;
+        }
+        input.area = {
+          label: areaLabelIn.value.trim() || "Owner-picked area",
+          lat: aLat, lon: aLon
+        };
+      }
       try {
         var created = sec.createAlert(input);
         status.textContent = "Recorded at DETECTED (id " + created.id + "). Refreshing…";
@@ -332,6 +435,12 @@
       field("Evidence kind", evKindIn),
       field("Evidence reference", evRefIn),
       field("Source / provenance", sourceIn),
+      field("Area label (optional)", areaLabelIn),
+      field("Area latitude (optional)", areaLatIn),
+      field("Area longitude (optional)", areaLonIn),
+      U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [useGlobeCtxBtn]),
+      areaStatus,
+      U.el("div", { class: "api-meta" }, "Area is optional. With an area, a verified-and-active alert glows red at that real point on the World Globe; without one it keeps the global alert presentation. Coordinates come from your Globe pick or your own entry — never from a marker or a guess."),
       U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [submit]),
       status
     ]);
@@ -483,6 +592,10 @@
         : "STAR notification: UNKNOWN — no alerts recorded, so no notification state exists."),
       U.el("div", { class: "api-meta" }, identLine)
     ]));
+
+    // ---- Angel identities (registry presentation + portraits) ---------
+    var identitiesCard = angelIdentitiesCard(ident);
+    if (identitiesCard) dash.appendChild(identitiesCard);
 
     // ---- Owner alert intake (Item 8) -----------------------------------
     if (typeof sec.createAlert === "function") {

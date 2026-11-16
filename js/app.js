@@ -16,6 +16,11 @@
     crypto: { label: "Crypto Market", icon: "₿" },
     "crypto-world": { label: "Crypto World", icon: "💱" },
     "bot-ops": { label: "Bot Operations", icon: "⬢" },
+    // Bot Profile (Bot Profiles + Big Screen Build): reached from
+    // the sidebar TRIBES accordion, the Bot Operations grid, and
+    // worker detail views — like tasks/projects/expenses it is a
+    // registered route that is deliberately NOT a drawer nav link.
+    "bot-profile": { label: "Bot Profile", icon: "👤" },
     wallets: { label: "Wallets", icon: "◈" },
     opportunities: { label: "Opportunities", icon: "◎" },
     earn: { label: "Earnings", icon: "💵" },
@@ -70,6 +75,123 @@
     return base;
   }
 
+  // ---- Sidebar TRIBES accordion (Bot Profiles + Big Screen Build,
+  // owner direction 2026-11-16) ----
+  // Tapping a principal's photo expands a selector under the tribe
+  // grid: the principal themself plus each worker recorded under
+  // them in the real WorkerEngine records (a worker belongs to the
+  // principal its record's parentPrincipalId names — see
+  // js/bot-profiles.js). No recorded workers -> the honest line,
+  // never an invented worker. Selecting an entry closes the drawer
+  // and opens that bot's full profile (#/bot-profile/<ref>). STAR's
+  // slot tops the section with the same behaviour; no workers are
+  // recorded under STAR, because worker records name a Tribe
+  // principal as their parent — the accordion says exactly that.
+  let navAccordionEl = null;
+  let navExpandedRef = null;
+
+  function navWorkersUnder(principalId) {
+    if (global.BotProfiles && typeof global.BotProfiles.workersUnder === "function") {
+      try { return global.BotProfiles.workersUnder(principalId) || []; } catch (e) {}
+    }
+    if (global.WorkerEngine && typeof global.WorkerEngine.listWorkers === "function") {
+      try {
+        return (global.WorkerEngine.listWorkers() || []).filter((w) =>
+          w && (w.parentPrincipalId === principalId || w.parentTribeId === principalId));
+      } catch (e) {}
+    }
+    return [];
+  }
+
+  function syncAccordionExpanded() {
+    document.querySelectorAll("#side-nav [data-accordion-ref]").forEach((n) => {
+      n.setAttribute("aria-expanded", n.dataset.accordionRef === navExpandedRef ? "true" : "false");
+    });
+  }
+
+  function navAccordionEntry(label, ref) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "nav-tribe-entry";
+    b.textContent = label;
+    b.addEventListener("click", () => {
+      location.hash = "#/bot-profile/" + ref;
+      closeMobileNav();
+    });
+    return b;
+  }
+
+  function toggleNavTribeAccordion(ref, name) {
+    if (!navAccordionEl) return;
+    if (navExpandedRef === ref) {
+      navExpandedRef = null;
+      navAccordionEl.innerHTML = "";
+      navAccordionEl.classList.add("hidden");
+      syncAccordionExpanded();
+      return;
+    }
+    navExpandedRef = ref;
+    navAccordionEl.innerHTML = "";
+    navAccordionEl.classList.remove("hidden");
+    const head = document.createElement("div");
+    head.className = "nav-tribe-accordion-head";
+    head.textContent = name;
+    navAccordionEl.appendChild(head);
+    if (ref === "star") {
+      navAccordionEl.appendChild(navAccordionEntry("Profile — STAR · Main assistant", "star"));
+      const none = document.createElement("div");
+      none.className = "nav-tribe-none";
+      none.textContent = "No workers recorded under STAR — worker records name a Tribe principal as their parent.";
+      navAccordionEl.appendChild(none);
+    } else {
+      navAccordionEl.appendChild(navAccordionEntry("Profile — " + name + " · Principal", ref));
+      const workers = navWorkersUnder(ref);
+      if (!workers.length) {
+        const none = document.createElement("div");
+        none.className = "nav-tribe-none";
+        none.textContent = "No workers recorded under " + name + " yet";
+        navAccordionEl.appendChild(none);
+      }
+      workers.forEach((w) => {
+        const wname = typeof w.canonicalName === "string" && w.canonicalName ? w.canonicalName : w.workerId;
+        navAccordionEl.appendChild(navAccordionEntry(
+          wname + " — " + (w.currentRole || "UNKNOWN") + " · " + (w.status || "UNKNOWN"), w.workerId));
+      });
+    }
+    syncAccordionExpanded();
+  }
+
+  function buildNavStarSlot() {
+    const starSlot = document.createElement("button");
+    starSlot.type = "button";
+    starSlot.className = "nav-star-slot";
+    starSlot.dataset.accordionRef = "star";
+    starSlot.setAttribute("aria-expanded", "false");
+    starSlot.setAttribute("aria-label", "STAR — show profile selector");
+    starSlot.title = "STAR — main assistant";
+    if (typeof global.STAR_AVATAR_SRC === "string" && global.STAR_AVATAR_SRC) {
+      const simg = document.createElement("img");
+      simg.className = "nav-star-slot-img";
+      simg.src = global.STAR_AVATAR_SRC;
+      simg.alt = "";
+      simg.setAttribute("aria-hidden", "true");
+      simg.addEventListener("error", () => { simg.remove(); });
+      starSlot.appendChild(simg);
+    } else {
+      const glyph = document.createElement("span");
+      glyph.className = "nav-star-slot-glyph";
+      glyph.setAttribute("aria-hidden", "true");
+      glyph.textContent = "✨";
+      starSlot.appendChild(glyph);
+    }
+    const starLabel = document.createElement("span");
+    starLabel.className = "nav-star-slot-label";
+    starLabel.textContent = "STAR";
+    starSlot.appendChild(starLabel);
+    starSlot.addEventListener("click", () => toggleNavTribeAccordion("star", "STAR"));
+    return starSlot;
+  }
+
   // Master shell drawer: TRIBES on top (12 principal slots + the real
   // connected worker count, never fabricated), then Primary, then
   // Secondary navigation. Every ROUTES entry appears in exactly one
@@ -93,7 +215,16 @@
       workersLine.className = "workers-active-line";
       workersLine.textContent = "WORKERS ACTIVE: 0 — NOT CONNECTED";
       tribes.appendChild(tribesTitle);
+      // STAR's slot tops the section (Bot Profiles + Big Screen
+      // Build). Deliberately NOT a .tribe-slot: STAR is not a Tribe
+      // principal, and the principal slot census stays exactly 12.
+      tribes.appendChild(buildNavStarSlot());
       tribes.appendChild(grid);
+      navAccordionEl = document.createElement("div");
+      navAccordionEl.className = "nav-tribe-accordion hidden";
+      navAccordionEl.id = "nav-tribe-accordion";
+      navExpandedRef = null;
+      tribes.appendChild(navAccordionEl);
       tribes.appendChild(workersLine);
       global.Tribes.getSlots().forEach((slot) => {
         const s = document.createElement("button");
@@ -102,10 +233,51 @@
         s.setAttribute("role", "listitem");
         s.title = slot.label + " — unassigned";
         s.setAttribute("aria-label", slot.label + ", unassigned Tribe principal slot");
-        s.innerHTML = '<span class="tribe-slot-num">' + String(slot.number).padStart(2, "0") + "</span>";
+        // Principal portraits (owner ruling 2026-11-16): the slot
+        // at roster position N shows that principal's generated
+        // face (js/data/tribe-portraits.js, keyed by the canonical
+        // TribePrincipals roster order) when the data file loaded.
+        // A missing file, a missing roster, or an image that fails
+        // to load keeps the numbered circle exactly as before; the
+        // slot's title / aria-label captions are unchanged either
+        // way.
+        const roster = global.TribePrincipals && Array.isArray(global.TribePrincipals.ROSTER)
+          ? global.TribePrincipals.ROSTER : null;
+        const portraits = global.TRIBE_PORTRAITS;
+        const entry = roster ? roster[slot.number - 1] : null;
+        const src = entry && portraits && typeof portraits[entry.id] === "string" && portraits[entry.id]
+          ? portraits[entry.id] : null;
+        if (src) {
+          s.classList.add("tribe-slot--portrait");
+          const img = document.createElement("img");
+          img.className = "tribe-slot-img";
+          img.src = src;
+          img.alt = "";
+          img.setAttribute("aria-hidden", "true");
+          img.addEventListener("error", () => {
+            s.classList.remove("tribe-slot--portrait");
+            s.innerHTML = '<span class="tribe-slot-num">' + String(slot.number).padStart(2, "0") + "</span>";
+          });
+          s.appendChild(img);
+        } else {
+          s.innerHTML = '<span class="tribe-slot-num">' + String(slot.number).padStart(2, "0") + "</span>";
+        }
+        // Bot Profiles + Big Screen Build: tapping the photo opens
+        // the selector accordion under the grid (the principal +
+        // each recorded worker under them). Without a roster entry
+        // there is no principal to select, so the slot keeps its
+        // original behaviour and goes to Bot Operations.
+        if (entry) {
+          s.dataset.accordionRef = entry.id;
+          s.setAttribute("aria-expanded", "false");
+        }
         s.addEventListener("click", () => {
-          location.hash = "#/bot-ops";
-          closeMobileNav();
+          if (entry) {
+            toggleNavTribeAccordion(entry.id, entry.displayName);
+          } else {
+            location.hash = "#/bot-ops";
+            closeMobileNav();
+          }
         });
         grid.appendChild(s);
       });
@@ -165,12 +337,44 @@
     }
   }
 
-  // ---- Mobile nav drawer: backdrop click, Escape key, swipe-left, link choice ----
+  // ---- Nav drawer: backdrop click, Escape key, swipe-left, link choice ----
+  // Full-Screen World Shell (owner direction 2026-11-16): the
+  // sidebar is CLOSED by default at EVERY width and opens only
+  // from the top-left ☰ as an overlay drawer — the earlier
+  // >=768px docked sidebar is superseded (see css/style.css).
+  // The ☰ button carries the state (aria-expanded / label), focus
+  // moves into the drawer on open, and closing returns focus to
+  // the ☰ when focus was inside the drawer.
+  function syncMenuToggle(open) {
+    const btn = document.getElementById("menu-toggle");
+    if (!btn) return;
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    btn.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+  }
   function closeMobileNav() {
+    const wasOpen = document.body.classList.contains("nav-open");
     document.body.classList.remove("nav-open");
+    if (!wasOpen) return;
+    syncMenuToggle(false);
+    // Return focus to the ☰ only when focus is still inside the
+    // drawer (a nav choice, Esc, the scrim) — never steal focus
+    // from wherever the user actually is (renderRoute calls this
+    // on every navigation as a safety net).
+    const drawer = document.getElementById("side-nav");
+    const btn = document.getElementById("menu-toggle");
+    if (drawer && btn && drawer.contains(document.activeElement)) {
+      try { btn.focus(); } catch (e) {}
+    }
   }
   function openMobileNav() {
     document.body.classList.add("nav-open");
+    syncMenuToggle(true);
+    const drawer = document.getElementById("side-nav");
+    if (!drawer) return;
+    const first = drawer.querySelector("select, button, [href], input");
+    if (first) {
+      try { first.focus(); } catch (e) {}
+    }
   }
 
   function wireDrawerGestures() {
@@ -219,10 +423,15 @@
     // from quick-nav, STAR, or dashboard actions went through the
     // router only — so the drawer stayed open over the new screen
     // until manually closed. Closing here is the general safety net
-    // (idempotent class removal; at >=768px the sidebar is sticky
-    // in-flow, so this is a visual no-op there).
+    // (idempotent class removal; the drawer is an overlay at every
+    // width since the Full-Screen World Shell change, 2026-11-16).
     closeMobileNav();
     const route = currentRoute();
+    // Full-Screen World Shell (owner direction 2026-11-16): the
+    // Globe route is full-bleed — css/style.css keys the edge-to-
+    // edge stage geometry off this body class; every other route
+    // keeps the normal reading layout.
+    document.body.classList.toggle("route-globe", route === "globe");
     const myGeneration = ++renderGeneration;
     const root = document.getElementById("view-root");
 

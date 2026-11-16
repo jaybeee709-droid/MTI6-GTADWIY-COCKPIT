@@ -3,7 +3,7 @@
  * All user data lives in IndexedDB on the device, never touched by this file.
  */
 
-const CACHE_VERSION = "mti6-gtadwiy-cockpit-v59";
+const CACHE_VERSION = "mti6-gtadwiy-cockpit-v90";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -55,10 +55,16 @@ const APP_SHELL = [
   "./js/data/entity-batch-1.js",
   "./js/data/entity-batch-2.js",
   "./js/data/bot-naming-pool.js",
+  "./js/data/world-map.js",
+  "./js/data/star-avatar.js",
+  "./js/data/angel-portraits.js",
+  "./js/data/tribe-portraits.js",
   "./js/encyclopedia-import.js",
   "./js/entity-candidates.js",
+  "./js/entity-gate.js",
   "./js/shell-bubbles.js",
   "./js/shell-accounts.js",
+  "./js/sheet-system.js",
   "./js/shell-chrome.js",
   "./js/app.js",
   "./js/modules/star.js",
@@ -75,6 +81,9 @@ const APP_SHELL = [
   "./js/window-manager.js",
   "./js/participants.js",
   "./js/star-overlay.js",
+  "./js/presence.js",
+  "./js/bot-profiles.js",
+  "./js/bot-presenter.js",
   "./js/modules/prices.js",
   "./js/modules/api-health.js",
   "./js/modules/scouts.js",
@@ -85,6 +94,7 @@ const APP_SHELL = [
   "./js/opportunity-intelligence.js",
   "./js/globe-intelligence.js",
   "./js/world-engine.js",
+  "./js/globe-engine.js",
   "./js/star-world.js",
   "./js/screens-nav.js",
   "./js/modules/globe.js",
@@ -103,6 +113,7 @@ const APP_SHELL = [
   "./js/modules/projects.js",
   "./js/modules/settings.js",
   "./js/modules/bot-ops.js",
+  "./js/modules/bot-profile.js",
   "./js/modules/wallets.js",
   "./js/modules/opportunities.js",
   "./js/modules/positions.js",

@@ -19,12 +19,7 @@
   --radius: 14px;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
   color-scheme: dark;
-  /* Visual Stage 1 (Nov 14, 2026): before this, --surface was undefined,
-     so every var(--surface, #fff) fell back to WHITE in both themes —
-     white cards with near-white --text-0 in dark theme (1.13:1,
-     invisible). Panels take the theme panel colour now; Analytics keeps
-     its locked black panels via the more specific .analytics-grid
-     .api-panel rules. */
+  /* Visual Stage 1: --surface defined here (was undefined before). */
   --surface: var(--bg-1);
   /* Visual Stage 1: --mti6-* canonical tokens (spec §3). Aliases over the
      existing tokens — existing names keep working; new semantic names
@@ -55,18 +50,7 @@
   --mti6-border: var(--line);
   --mti6-border-active: var(--cyan);
   --mti6-focus: var(--cyan);
-  /* ================================================================
-     RESPONSIVE SYSTEM — Phase B tokens (Master Responsive Directive,
-     owner-authorized 2026-11-15). Canonical bands (media queries use
-     the literal edges; these vars document the system):
-       A Compact Phone        320–479px    (--bp-b: 480px)
-       B Large Phone/Foldable 480–767px    (--bp-c: 768px)
-       C Tablet               768–1023px   (--bp-d: 1024px)
-       D Laptop/Desktop       1024–1439px  (--bp-e: 1440px)
-       E Large Cockpit        1440px+
-     Tokens are the single source later phases consume. Values below
-     MATCH current shell behavior unless a comment says otherwise —
-     Phase B establishes the foundation; it is not a visual rewrite. */
+  /* ================================================================ */
   --bp-b: 480px;
   --bp-c: 768px;
   --bp-d: 1024px;
@@ -103,12 +87,10 @@
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
-  /* State colors — semantics, not decoration (directive §6/§44):
-     electric blue = operational; purple = STAR at rest; red = a
-     genuine, confirmed alarm in ONE category only. */
+  /* State colors — semantics, not decoration (directive §6/§44). */
   --state-operational: var(--mti6-blue-electric);
-  --state-star-idle: var(--mti6-purple-ai);
-  --state-star-active: var(--mti6-blue-electric);
+  --state-star-idle: var(--mti6-blue-electric);
+  --state-star-active: var(--green);
   --state-alarm: var(--mti6-red-alarm);
   /* Z-index scale — values MATCH the current stacking exactly:
      topbar 50, scrim 55, drawer 60, search results 80, search menu 85,
@@ -206,14 +188,10 @@ textarea {
 
 #app-shell {
   display: flex;
-  /* Wide-screen fix (Nov 14, 2026): the shell is a row flex container,
-     so without wrapping the full-width global search bar became a tall
-     in-flow column on the left (its 44px controls hidden behind the
-     fixed top bar, its Search button stretched full-height by
-     align-items:stretch = the "wide black area + tall cyan strip" at
-     ~1919px, sidebar pushed right, content squeezed). Wrapping lets
-     the search bar take its own full-width row; sidebar + main content
-     form the row below it. */
+  /* Wide-screen fix (Nov 14, 2026): wrapping lets the full-width
+     search bar take its own row; sidebar + main content form the
+     row below it (without it the search bar became a tall in-flow
+     column on wide screens). */
   flex-wrap: wrap;
   min-height: 100vh;
 }
@@ -324,19 +302,11 @@ body.nav-open #nav-scrim {
 /* ---- Main content ---- */
 #main-content {
   flex: 1;
-  /* Visual Stage 1: a flex item defaults to min-width:auto, so a wide
-     unbreakable descendant could force this column wider than the
-     viewport (latent overflow; it would spill right, not under the
-     sidebar). min-width:0 lets the column shrink; content inside still
-     lays out normally. */
+  /* Flex min-width guard for wide descendants. */
   min-width: 0;
-  /* Was 56px to clear the fixed top bar. The top-bar clearance now
-     comes from the search bar's own row (margin-block-start: 56px on
-     #global-search-wrap, see below), so the extra 56px here would
-     double the gap. (At >=768px the Analytics-block rule setting
-     #main-content padding to 20px still applies on top of this —
-     untouched, and harmless now that main content starts below the
-     search row instead of at y=0 under the fixed top bar.) */
+  /* Was 56px to clear the fixed top bar; the clearance now comes
+     from the search bar's own row (margin-block-start: 56px on
+     #global-search-wrap, below), so 56px here would double it. */
   padding-block-start: 0;
   min-height: 100vh;
 }
@@ -981,18 +951,7 @@ body.nav-open #nav-scrim {
 
 /* ===================== Tablet / Desktop / Samsung DeX ===================== */
 @media (min-width: 768px) {
-  #side-nav {
-    transform: translateX(0);
-    position: sticky;
-    top: 56px;
-    height: calc(100vh - 56px);
-  }
-  #nav-scrim {
-    display: none !important;
-  }
-  #menu-toggle {
-    display: none;
-  }
+  /* Full-Screen World Shell (owner, 2026-11-16): docked sidebar SUPERSEDED — drawer at all bands. */
   #view-root {
     max-width: 1100px;
   }
@@ -1241,11 +1200,7 @@ body.nav-open #nav-scrim {
   color: var(--amber);
 }
 
-/* ---- Star 3.0 Command Chat (V1) ---------------------------------------
- * Mobile-first, built on the cockpit's own variables so it matches the
- * existing dark/light themes instead of introducing a new look. Touch
- * targets are 44px minimum for the Samsung Galaxy A14 (about 360px wide).
- * Desktop widens the conversation area and narrows the bubbles. */
+/* Star 3.0 Command Chat (V1). */
 .star-panel {
   background: var(--bg-1);
   border: 1px solid var(--line);
@@ -1272,6 +1227,62 @@ body.nav-open #nav-scrim {
   line-height: 1;
   flex-shrink: 0;
 }
+/* STAR's face in the panel header (owner ruling 2026-11-16): the
+   same owner portrait as the launcher, as a small round copy in
+   the identity slot. Rendered only when js/data/star-avatar.js
+   loaded; otherwise the slot keeps its 🌟 glyph. */
+.star-avatar-img {
+  display: block;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: center 20%;
+  border: 2px solid var(--state-star-idle);
+}
+/* STAR's embodied figure (Embodiment Build 1, owner direction */
+.star-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.star-top-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.star-figure {
+  flex: 0 0 auto;
+  line-height: 0;
+}
+.star-figure-img {
+  display: block;
+  height: 168px;
+  width: auto;
+  transform-origin: 50% 100%;
+  animation: star-breathe 4.6s ease-in-out infinite;
+}
+@keyframes star-breathe {
+  0%, 100% { transform: scale(1) translateY(0); }
+  50% { transform: scale(1.016) translateY(-1.5px); }
+}
+.star-panel.star-state-talking .star-figure-img {
+  animation: star-talk-bob 0.85s ease-in-out infinite;
+}
+@keyframes star-talk-bob {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  30% { transform: translateY(-3px) rotate(-0.5deg); }
+  65% { transform: translateY(-1px) rotate(0.4deg); }
+}
+@media (max-width: 767px) {
+  .star-figure-img { height: 118px; }
+}
+@media (max-width: 380px) {
+  .star-top { gap: 10px; }
+  .star-figure-img { height: 84px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .star-figure-img { animation: none; }
+}
 .star-title {
   margin: 0;
   font-size: 17px;
@@ -1284,6 +1295,11 @@ body.nav-open #nav-scrim {
   line-height: 1.4;
 }
 .star-clear-btn {
+  flex-shrink: 0;
+}
+.star-header-actions {
+  display: flex;
+  gap: 6px;
   flex-shrink: 0;
 }
 .star-status {
@@ -1380,6 +1396,65 @@ body.nav-open #nav-scrim {
   font-size: 11px;
   color: var(--text-2);
   line-height: 1.4;
+}
+/* STAR presence form (Presence Anywhere Build 1). */
+.star-presence-exchange {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  margin-block-end: 12px;
+}
+.star-panel--presence .star-presence-exchange {
+  display: flex;
+}
+.star-presence-line {
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  border-radius: 12px;
+  border-start-start-radius: 4px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.star-presence-line--user {
+  background: var(--bg-3);
+  border-color: var(--cyan-dim);
+  border-start-start-radius: 12px;
+  border-end-end-radius: 4px;
+}
+.star-presence-who {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-block-end: 2px;
+}
+.star-presence-line--user .star-presence-who {
+  color: var(--cyan);
+}
+.star-panel--presence .star-messages,
+.star-panel--presence .star-subtitle {
+  display: none;
+}
+.star-panel--presence .star-figure-img {
+  height: 132px;
+}
+/* Presence header fit (v80 preview fix): compact-dock header rows. */
+.star-panel--presence .star-header {
+  flex-wrap: wrap;
+}
+.star-panel--presence .star-identity {
+  flex: 1 1 auto;
+}
+.star-panel--presence .star-title {
+  white-space: nowrap;
+}
+.star-panel--presence .star-header-actions {
+  margin-inline-start: auto;
+}
+@media (max-width: 380px) {
+  .star-panel--presence .star-figure-img { height: 96px; }
 }
 @media (min-width: 768px) {
   .star-panel {
@@ -1563,14 +1638,16 @@ body.nav-open #nav-scrim {
 .web-text { white-space: pre-wrap; font-size: 14px; line-height: 1.6; }
 
 /* Global search bar (V1): app-shell bar, visible on every screen. */
-#global-search-wrap { display: flex; gap: 8px; padding: 10px 12px; /* Full-width row of its own (see #app-shell flex-wrap): without this the bar sat as a tall left column in the shell's row layout. margin-block-start clears the 56px fixed top bar, so the 44px controls are no longer hidden behind it and the Search button can no longer stretch to full viewport height. */ flex: 1 1 100%; margin-block-start: 56px; }
+#global-search-wrap { display: flex; gap: 8px; padding: 10px 12px; /* Full-width row of its own (see #app-shell flex-wrap). */ flex: 1 1 100%; margin-block-start: 56px; }
 #global-search-input { flex: 1; min-width: 0; height: 44px; border-radius: 10px; border: 1px solid var(--border, #ddd); padding: 0 12px; font-size: 16px; background: var(--surface, #fff); color: inherit; }
-#global-search-results { /* Stage 2 fix-up (Nov 14, 2026, Defect 1): the results panel is a true fixed overlay, NOT an in-flow flex row. As `flex: 1 1 100%` it was a full-width row starting at x=0 — the same column the sticky sidebar (260px wide, z-index 60) occupies at >=768px — with no position or z-index of its own, so live it rendered left-clipped under/behind the sidebar and its result links + Close were unclickable (click refused, element covered). Fixed + z-index 80 (above sidebar 60 / top bar 50, below update-banner 90 / modal 200 / toast 300 / wm-host 1000) puts it above the sidebar in paint order and hit-testing at every scroll position; top 120px = 56px fixed top bar + 64px search row, so it sits directly under the search bar; it no longer pushes page content down when shown. */ position: fixed; top: 120px; left: 12px; right: 12px; z-index: 80; border: 1px solid var(--border, #ddd); border-radius: 12px; padding: 12px; background: var(--surface, #fff); max-height: 70vh; overflow: auto; }
+#global-search-results { /* Stage 2 fix-up (Nov 14, 2026, Defect 1): the results panel is a true fixed overlay, NOT an in-flow flex row. */ position: fixed; top: 120px; left: 12px; right: 12px; z-index: 80; border: 1px solid var(--border, #ddd); border-radius: 12px; padding: 12px; background: var(--surface, #fff); max-height: 70vh; overflow: auto; }
 #global-search-results.hidden { display: none; }
-/* At >=768px the sidebar occupies the left 260px, so the overlay starts
-   clear of it (260 + 12 gutter), aligned with the main-content column. */
+/* Full-Screen World Shell (2026-11-16): the sidebar is a
+   closed-by-default drawer at every width, so the results
+   overlay aligns with the full-width shell — the old
+   docked-sidebar offset (left: 272px at >=768px) is removed. */
 @media (min-width: 768px) {
-  #global-search-results { left: 272px; }
+  #global-search-results { left: 12px; }
 }
 
 /* Search source toggle (V2): same 44px touch target as the bar. */
@@ -1637,13 +1714,9 @@ html, body { overflow-x: hidden; }
 
 /* ============================================================
  * MASTER SHELL — Build 1 (Nov 8, 2026)
- * World Globe home, permanent top command bar, grouped drawer with
- * TRIBES, Bot Operations shell, STAR overlay, window manager.
- * Palette: pitch/shiny black, deep navy, electric blue/cyan, royal
- * purple/violet AI accents, brushed/dark metallic silver, restrained
- * gold for selected financial accents. Alarm red is reserved for a
- * real verified critical alert state and is NOT used decoratively
- * anywhere in this section.
+ * World Globe home, top command bar, grouped drawer with TRIBES,
+ * Bot Operations shell, STAR overlay, window manager. Alarm red is
+ * reserved for a real verified critical alert state only.
  * ============================================================ */
 :root {
   --violet: #8b5cf6;
@@ -1753,6 +1826,21 @@ html, body { overflow-x: hidden; }
   border-color: var(--cyan);
   color: var(--cyan);
 }
+/* Sidebar slot portrait (owner ruling 2026-11-16): when the
+   roster-position principal's generated face is available, it
+   fills the slot circle; otherwise the slot keeps its number. */
+.tribe-slot--portrait {
+  border-style: solid;
+  border-color: var(--line);
+  overflow: hidden;
+}
+.tribe-slot-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
 .workers-active-line {
   font-size: 11px;
   letter-spacing: 0.06em;
@@ -1860,6 +1948,22 @@ html, body { overflow-x: hidden; }
   color: var(--text-1);
   margin-bottom: 8px;
 }
+/* Tribe principal portraits (owner ruling 2026-11-16): a generated
+   face from js/data/tribe-portraits.js fills the round avatar slot.
+   Rendered only when TRIBE_PORTRAITS holds an entry for that
+   principal; otherwise the slot keeps its order-number + initial
+   mark exactly as before. */
+.principal-card__avatar--portrait {
+  border-style: solid;
+  overflow: hidden;
+}
+.tribe-portrait-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 20%;
+}
 .tribe-card-label {
   font-weight: 700;
 }
@@ -1890,28 +1994,7 @@ html, body { overflow-x: hidden; }
   color: #e9e4ff;
 }
 
-/* ---- Bot Operations card contrast (Nov 14, 2026) ----
- * Root cause (pre-Stage 1): every Bot Ops card is a plain .api-panel,
- * whose background is var(--surface, #fff) — and --surface was
- * undefined, so the fallback made every card WHITE in both themes,
- * while its h3/body text inherits near-white --text-0 (#eaf2fb) in the
- * dark theme: 1.13:1, effectively invisible. Stage 1 now defines
- * --surface: var(--bg-1) in both themes, so the base panel resolves
- * dark; this scoped rule stays as the explicit Bot Ops panel treatment
- * (theme background + theme border) and the h3 colour rule.
- * Fix, Bot Ops only: scope to a #view-root that contains .botops-grid
- * (created only by js/modules/bot-ops.js, nowhere else, and wiped on
- * every navigation by root.innerHTML = ""), so no other screen's
- * headings or panels are touched — Analytics in particular keeps its
- * locked black panels and #e0f7fa headings. The panel takes the theme
- * panel colour and the heading takes the theme text colour, so both
- * themes stay correct: dark 16.99:1, light 18.01:1 (WCAG AA is 4.5:1).
- * The :not(.botops-theater) carve-out preserves Command Theater's
- * intentional pure-black panel; its h3 is still covered by the colour
- * rule below (#eaf2fb on #000 = 18.59:1).
- * Browser note: :has() needs Chrome/Edge 105+, Safari 15.4+,
- * Firefox 121+; older browsers simply keep the old rendering —
- * nothing breaks, the fix just does not apply there. */
+/* ---- Bot Operations card contrast (Nov 14, 2026) ---- */
 #view-root:has(.botops-grid) .api-panel:not(.botops-theater) {
   background: var(--bg-1);
   border-color: var(--line);
@@ -1920,18 +2003,7 @@ html, body { overflow-x: hidden; }
   color: var(--text-0);
 }
 
-/* ---- Wide-screen shell, Stage 1 follow-up (Nov 14, 2026) ----
- * Live verification of the v33 preview at 1920px showed the campaign's
- * flex-wrap fix had landed (search bar horizontal) but a ~410px solid
- * black column still sat on the left: (1920-1100)/2 = 410. Cause: the
- * Analytics-grid block's `#app-shell { max-width: 1100px; margin: 0 auto; }`
- * (inside @media (min-width:768px)) comes LATER in this file than the
- * DeX rule `@media (min-width:1200px) { #app-shell { max-width: 1600px; } }`
- * and overrides it by source order at every width >=768px. This later
- * >=1200px rule restores the full-width shell so the sidebar sits at the
- * far left and content uses the whole viewport; #view-root still caps
- * text content at 1100px. The Analytics-block rule itself is NOT touched
- * (locked), and Analytics keeps its locked panels and look. */
+/* ---- Wide-screen shell, Stage 1 follow-up (Nov 14, 2026) ---- */
 @media (min-width: 1200px) {
   #app-shell {
     max-width: none;
@@ -1939,13 +2011,10 @@ html, body { overflow-x: hidden; }
 }
 
 /* ===================== MTI6 reusable visual primitives (Stage 1) =====================
- * One shared component system (spec §110). Screens use these classes
- * instead of hand-coding a different button/card/badge per module.
- * Every status uses color PLUS a text label, never color alone (§96).
- * All colours come from --mti6-* tokens (§3); no new hex values here
- * except the translucent variant tints, which reuse the token hues.
- * Analytics is NOT restyled: its locked .analytics-grid rules keep
- * higher specificity and are untouched. */
+ * One shared component system (spec §110): screens use these
+ * classes instead of hand-coding per module. Every status uses
+ * color PLUS a text label, never color alone (§96). Colours come
+ * from --mti6-* tokens (§3). Analytics is NOT restyled. */
 
 /* ---- Screen header (§19): icon + title + description + status + actions ---- */
 .mti6-screen-header {
@@ -2234,6 +2303,22 @@ html, body { overflow-x: hidden; }
 .wm-window.wm-minimized .wm-body {
   display: none;
 }
+/* STAR presence form: compact bottom-left dock. */
+.wm-window.wm-window--presence {
+  left: calc(12px + var(--safe-left)) !important;
+  right: auto;
+  top: auto !important;
+  bottom: calc(12px + var(--safe-bottom));
+  transform: none;
+  width: min(370px, 94vw);
+  max-height: 92dvh;
+  resize: none;
+}
+.wm-window.wm-window--presence .star-channels,
+.wm-window.wm-window--presence .star-channel-controls,
+.wm-window.wm-window--presence .star-conn {
+  display: none;
+}
 @media (max-width: 640px) {
   .wm-window {
     width: 96vw;
@@ -2289,6 +2374,133 @@ html, body { overflow-x: hidden; }
 .star-conn {
   margin-top: 10px;
 }
+
+/* Presence card (Presence Anywhere Build 1): js/presence.js. */
+.presence {
+  position: fixed;
+  left: calc(12px + var(--safe-left));
+  bottom: calc(12px + var(--safe-bottom));
+  z-index: var(--z-accounts);
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  max-width: min(430px, calc(100vw - 24px));
+  animation: presence-in 0.28s ease-out;
+}
+@keyframes presence-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .presence { animation: none; }
+}
+.presence-figure {
+  flex: 0 0 auto;
+  line-height: 0;
+}
+.presence-figure-img {
+  display: block;
+  height: 148px;
+  width: auto;
+}
+.presence-figure-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  border: 1px dashed var(--text-2);
+  background: var(--bg-2);
+  color: var(--text-1);
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1;
+}
+.presence-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  border-end-start-radius: 4px;
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+}
+.presence-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.presence-name {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--cyan);
+  font-size: 13px;
+}
+.presence-close {
+  flex-shrink: 0;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+}
+.presence-label {
+  font-size: 11px;
+  color: var(--text-2);
+  margin-block: 2px 6px;
+}
+.presence-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.presence-line {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-0);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 480px) {
+  .presence-figure-img { height: 104px; }
+  .presence-figure-mark { width: 60px; height: 60px; font-size: 13px; }
+}
+
+/* Bot Profiles + Big Screen (owner, 2026-11-16). */
+.nav-star-slot{display:flex;align-items:center;gap:10px;width:calc(100% - 16px);margin:2px 8px 8px;min-height:44px;padding:6px 10px;border:1px solid var(--line);border-radius:12px;background:var(--bg-2);color:var(--text-0);cursor:pointer}
+.nav-star-slot-img{width:32px;height:32px;border-radius:50%;object-fit:cover}
+.nav-star-slot-label{font-weight:700;letter-spacing:.08em;color:var(--cyan);font-size:13px}
+.nav-tribe-accordion{margin:8px 8px 2px;border:1px solid var(--line);border-radius:12px;background:var(--bg-1);padding:8px}
+.nav-tribe-accordion.hidden{display:none}
+.nav-tribe-accordion-head{font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--text-2);padding:2px 4px 6px}
+.nav-tribe-entry{display:block;width:100%;min-height:44px;text-align:left;padding:8px 10px;margin-top:4px;border:1px solid var(--line);border-radius:10px;background:var(--bg-2);color:var(--text-0);font-size:13px;cursor:pointer}
+.nav-tribe-none{font-size:12px;color:var(--text-2);padding:6px 4px 2px}
+.bot-profile-header{display:flex;gap:16px;align-items:flex-start}
+.bot-profile-figure-img{display:block;height:168px;width:auto}
+.bot-profile-figure-mark{display:flex;align-items:center;justify-content:center;width:84px;height:84px;border-radius:50%;border:1px dashed var(--text-2);background:var(--bg-2);color:var(--text-1);font-weight:700}
+.bot-profile-head-main{flex:1 1 auto;min-width:0}
+.bot-profile-line,.bot-presenter__line{font-size:13px;line-height:1.5;color:var(--text-0);padding:2px 0;overflow-wrap:anywhere}
+.bot-why{margin-top:8px}
+.bot-why-panel{margin-top:6px;border-top:1px dashed var(--line);padding-top:6px}
+.bot-why-panel[hidden]{display:none}
+.bot-why-line{font-size:12px;line-height:1.5;color:var(--text-1);padding:2px 0;overflow-wrap:anywhere}
+.bot-profile-index{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.bot-presenter{position:fixed;left:calc(12px + var(--safe-left));bottom:calc(12px + var(--safe-bottom));z-index:var(--z-accounts);display:flex;align-items:flex-end;gap:12px;max-width:min(680px,calc(100vw - 24px));animation:presence-in .28s ease-out}
+.bot-presenter__figure{flex:0 0 auto;line-height:0}
+.bot-presenter__figure-img{display:block;height:min(420px,52vh);width:auto}
+.bot-presenter__figure-mark{display:flex;align-items:center;justify-content:center;width:96px;height:96px;border-radius:50%;border:1px dashed var(--text-2);background:var(--bg-2);color:var(--text-1);font-weight:700;font-size:18px}
+.bot-presenter__card{flex:1 1 auto;min-width:0;background:var(--bg-1);border:1px solid var(--line);border-radius:14px;border-end-start-radius:4px;box-shadow:var(--shadow);padding:12px 14px;max-height:70vh;overflow-y:auto}
+.bot-presenter__head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.bot-presenter__name{font-weight:700;letter-spacing:.06em;color:var(--cyan);font-size:15px}
+.bot-presenter__close{flex-shrink:0;min-width:44px;min-height:44px;padding:0;font-size:18px;line-height:1}
+.bot-presenter__label{font-size:11px;color:var(--text-2);margin-block:2px 6px}
+.bot-presenter__task{font-size:13px;line-height:1.45;color:var(--text-0);overflow-wrap:anywhere}
+.bot-presenter__chart{margin-top:10px}
+.bot-presenter__chart-title{font-size:12px;font-weight:700;color:var(--text-1);margin-bottom:6px}
+@media (prefers-reduced-motion:reduce){.bot-presenter{animation:none}}
+@media (max-width:480px){.bot-presenter__figure-img{height:180px}.bot-profile-figure-img{height:120px}}
 
 /* ---- World Globe visual modes ---- */
 .globe-modes {
@@ -2403,6 +2615,82 @@ html, body { overflow-x: hidden; }
 .globe-visual.globe-mode-terrain { background: var(--mti6-bg-navy); }
 .globe-visual.globe-mode-intelligence { border-color: var(--mti6-purple-ai); }
 .globe-visual.globe-mode-boundaries { border-color: var(--mti6-silver-dark); }
+/* Globe Engine Build 1: the canvas fills the visual (the visual is
+   position:relative); the truth label stays legible above it. The
+   canvas is presentation only — the same layer data is available
+   as text in the tabs and Details panel. */
+.globe-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.globe-visual > .api-meta { position: relative; z-index: 1; }
+/* Globe Alert Mode (owner, 2026-11-16): banner + red frame ONLY on a genuine GlobeIntelligence alarm. */
+.globe-alert-banner {
+  display: none;
+  position: relative;
+  z-index: 1;
+  padding: 8px 12px;
+  border: 1px solid rgba(255,92,92,0.65);
+  border-radius: 8px;
+  background: rgba(64,8,12,0.88);
+  color: #ffd9d4;
+  font-weight: 700;
+}
+.globe-alert-banner--on { display: block; }
+.globe-visual--alert {
+  border-color: rgba(255,92,92,0.65);
+  box-shadow: inset 0 0 42px rgba(255,40,40,0.16);
+}
+/* Live World Build 1: canvas takes pointer input directly. */
+.globe-canvas { touch-action: none; cursor: grab; }
+.globe-controls .btn,
+.globe-live-panel .btn { min-height: 44px; }
+.globe-live-context {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--bg-2);
+  margin: 10px 0;
+}
+.globe-live-context__heading { font-weight: 700; margin-bottom: 6px; }
+.globe-live-context__title { font-weight: 700; font-size: 16px; margin-bottom: 4px; }
+.globe-live-actions { margin: 10px 0; }
+.globe-live-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--bg-2);
+  margin: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.globe-live-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.globe-live-card__title { font-weight: 700; }
+.globe-live-source { font-weight: 700; }
+.globe-live-media__heading { margin: 14px 0 6px; }
+.globe-live-media-list { display: flex; flex-direction: column; gap: 6px; }
+.globe-live-media-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  min-height: 44px;
+}
+.globe-live-media-row__name { font-weight: 600; }
+.globe-live-note { margin-top: 10px; }
 .globe-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .globe-controls--layers { flex-direction: column; align-items: stretch; }
 .globe-controls__heading { margin: 0; font-size: 14px; color: var(--mti6-text-primary); }
@@ -2518,6 +2806,29 @@ html, body { overflow-x: hidden; }
 /* ---- Angel Security (§69-71): silver/white mechanical + dark internal,
    cyan/blue illumination — distinct from Tribe operations. ------------- */
 .angel-dash { display: flex; flex-direction: column; gap: 4px; }
+/* Angel robot portraits (owner, 2026-11-16): framed medallions. */
+.angel-identity-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--mti6-border);
+}
+.angel-portrait-medallion {
+  width: 84px;
+  height: 84px;
+  flex: 0 0 auto;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--mti6-border);
+  background: #05070a;
+}
+.angel-portrait-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 .angel-domain-row {
   display: flex;
   flex-direction: column;
@@ -2550,28 +2861,7 @@ html, body { overflow-x: hidden; }
  * freely and Analytics / Stage 1 tokens are untouched.
  * ============================================================ */
 
-/* Defect 1 — header search row overflow at intermediate widths:
- * live at ~886px the source select was cut at the right edge and
- * the Search button was off-screen (search submittable only with
- * Enter). Static width audit of the base rules: the row's children
- * fit at 886px with ~590px spare (input flex:1 min-width:0, select
- * ~170px intrinsic, button ~90px), so the overflow could not be
- * reproduced from the stylesheet alone — the live cause is most
- * likely browser-specific select sizing (a <select>'s intrinsic
- * width is set by its longest option and varies by browser/font)
- * and/or a zoomed or chrome-reduced viewport in that browser.
- * The fix is therefore defensive at the layout level, and it holds
- * under every one of those causes: (a) the row may wrap, so a
- * too-wide control set drops the button to a second line instead
- * of pushing it off-screen; (b) the select is capped (180px fits
- * the longest label "Auto (bot picks)" at 15px, ~156px, with room
- * to spare) so it can never grow past the row; (c) the button can
- * never shrink and its label never wraps, so it stays whole and
- * clickable; the shrinking input absorbs all remaining width.
- * At phone width (<=640px, the existing #quick-nav breakpoint) the
- * select cap tightens to 120px so the input keeps a usable width;
- * the label truncates to "Auto (bot…" there, which Phase 1's
- * collapse-into-icon/menu rework will replace properly. */
+/* Defect 1 — header search row overflow at intermediate widths: */
 #global-search-wrap { flex-wrap: wrap; min-width: 0; }
 #global-search-source { flex: 0 1 auto; min-width: 0; max-width: 180px; }
 #global-search-btn { flex: none; white-space: nowrap; }
@@ -2579,21 +2869,7 @@ html, body { overflow-x: hidden; }
   #global-search-source { max-width: 120px; }
 }
 
-/* ================================================================
- * UNIVERSAL SEARCH — PHASE 1 (Nov 14, 2026; manual search only)
- * This section is the replacement the fix-up #2 comment promised
- * ("will be replaced properly" by Phase 1): at phone width the
- * source select is hidden and replaced by a compact source button +
- * menu (see below), so the 120px phone cap above no longer governs
- * anything — display:none on the select supersedes it. The fix-up
- * #2 rules that still hold (wrap, min-width, button protection) are
- * kept untouched. No existing rule above is edited; this section
- * only adds new rules and explicitly overrides the search bar /
- * results panel for the Phase 1 workspace. Analytics rules and the
- * light badge tokens are not touched.
- * Bar: dark recessed row; electric-blue focus ring on the input.
- * Workspace: black/navy panels inside the existing fixed overlay.
- * ================================================================ */
+/* ================================================================ */
 #global-search-wrap { background: #0b0f14; border: 1px solid #1c2530; border-radius: 12px; }
 #global-search-input:focus { border-color: #38bdf8; outline: 2px solid #38bdf8; outline-offset: 1px; box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25); }
 #global-search-source-state { align-self: center; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; color: #9ca3af; border: 1px solid #1c2530; border-radius: 999px; padding: 4px 8px; white-space: nowrap; background: #0b0f14; }
@@ -2637,11 +2913,7 @@ html, body { overflow-x: hidden; }
 .search-workspace-footer { margin-top: 8px; }
 .search-history-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 #global-search-results .price-offer-list li { overflow-wrap: anywhere; }
-/* Mobile collapse (§61): at <=640px the source select and its state
- * chip are hidden and replaced by the compact source button; the Web
- * provider select drops to its own row (flex-wrap on the bar); the
- * tab strip scrolls horizontally; results stay one column; STAR stays
- * visible; nothing may overflow horizontally. */
+/* Mobile collapse (§61): <=640px source select. */
 @media (max-width: 640px) {
   #global-search-source { display: none; max-width: none; }
   #global-search-source-state { display: none; }
@@ -2678,11 +2950,7 @@ html, body { overflow-x: hidden; }
   width: var(--touch-min);
   height: var(--touch-min);
 }
-/* Bands A+B (phones): search text stays >=16px so mobile browsers
-   do not auto-zoom on focus; shell type uses the token scale; main
-   content gains safe-area inline padding. Scoped to <768px on
-   purpose: at >=768px the historical 20px main padding governs and
-   Phase B must not override it from a later base rule. */
+/* Bands A+B: search text >=16px (no mobile auto-zoom). */
 @media (max-width: 767px) {
   #global-search-input { font-size: 16px; }
   #app-title { font-size: var(--fs-title); }
@@ -2862,7 +3130,7 @@ html, body { overflow-x: hidden; }
 .bubble--alarm { border-color: var(--state-alarm); background: rgba(255, 60, 60, 0.14); }
 .bubble--alarm .bubble-dot { background: var(--state-alarm); width: auto; min-width: 14px; height: 14px; border-radius: 7px; }
 
-/* ---- STAR launcher: bottom-right, purple at rest ---- */
+/* STAR launcher: bottom-right — blue at rest, green glow while talking (owner, 2026-11-16). */
 #star-launcher {
   position: fixed;
   right: max(16px, var(--safe-right));
@@ -2871,20 +3139,39 @@ html, body { overflow-x: hidden; }
   width: 56px;
   height: 56px;
   border-radius: 50%;
+  overflow: hidden;
   border: 2px solid var(--state-star-idle);
-  background: radial-gradient(circle at 35% 30%, #3b2070, #1c0f38);
+  background: radial-gradient(circle at 35% 30%, #0d4a6e, #07273d);
   font-size: 24px;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(139, 92, 246, 0.35);
+  box-shadow: 0 4px 16px rgba(0, 212, 255, 0.35);
   transition: box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease;
 }
 #star-launcher.star-talking {
   border-color: var(--state-star-active);
-  background: radial-gradient(circle at 35% 30%, #0d4a6e, #07273d);
-  box-shadow: 0 0 20px 4px rgba(0, 212, 255, 0.55);
+  background: radial-gradient(circle at 35% 30%, #14663c, #07331d);
+  box-shadow: 0 0 22px 6px rgba(40, 209, 124, 0.55);
+  animation: star-launcher-glow 1.5s ease-in-out infinite alternate;
+}
+@keyframes star-launcher-glow {
+  from { box-shadow: 0 0 14px 3px rgba(40, 209, 124, 0.45); }
+  to { box-shadow: 0 0 28px 9px rgba(40, 209, 124, 0.8); }
 }
 @media (prefers-reduced-motion: reduce) {
   #star-launcher { transition: none; }
+}
+/* STAR's face in the launcher (owner, 2026-11-16): portrait fills the disc. */
+.star-launcher-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 20%;
+  transform: scale(1.45);
+  transform-origin: 50% 30%;
+  border-radius: 50%;
+  pointer-events: none;
 }
 
 /* ---- Command bar compaction ---- */
@@ -2910,4 +3197,474 @@ html, body { overflow-x: hidden; }
     border-radius: var(--sheet-radius) var(--sheet-radius) 0 0;
     resize: none;
   }
+}
+
+/* ================================================================
+   UNIVERSAL SEARCH PHASE 1 COMPLETION (P1.2–P1.5): uniform result
+   cards, local suggestions, open-method chooser, onion card.
+   ================================================================ */
+.search-card { list-style: none; border: 1px solid #1c2530; border-radius: 10px; padding: 8px 10px; margin: 0 0 8px; background: #0b0f14; }
+.search-card-head { font-size: 14px; margin-bottom: 4px; }
+.search-card-title { font-weight: 600; }
+.search-card-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 11px; margin-bottom: 4px; }
+.search-card-type { font-weight: 700; letter-spacing: 0.04em; color: #e5e7eb; border: 1px solid #374151; border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
+.search-card-domain { color: #9ca3af; white-space: nowrap; }
+.search-card-verification { font-weight: 700; letter-spacing: 0.04em; color: #fbbf24; border: 1px solid #713f12; border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
+.search-card-date { color: #9ca3af; white-space: nowrap; }
+.search-card-snippet { font-size: 13px; color: #d1d5db; overflow-wrap: anywhere; }
+.search-card-snippet:empty { display: none; }
+.search-card-actions { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.search-open-chooser { flex: 1 1 100%; border-top: 1px dashed #1c2530; padding-top: 6px; margin-top: 2px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+#global-search-suggestions { position: fixed; top: 120px; left: 12px; right: 12px; z-index: 81; border: 1px solid #1c2530; border-radius: 12px; padding: 8px; background: #070b12; color: #e5e7eb; max-height: 50vh; overflow: auto; }
+#global-search-suggestions.hidden { display: none; }
+.search-suggestions-head { font-size: 12px; color: #9ca3af; margin-bottom: 6px; }
+.search-suggestion { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; width: 100%; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 8px; color: #e5e7eb; padding: 6px 8px; font-size: 14px; cursor: pointer; }
+.search-suggestion:hover, .search-suggestion:focus { border-color: #155e75; background: #0b0f14; }
+.search-suggestion-label { font-weight: 600; }
+.search-suggestion-detail { color: #9ca3af; font-size: 12px; }
+.search-suggestion-source { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #38bdf8; margin-left: auto; white-space: nowrap; }
+.search-onion-card { border: 1px solid #713f12; border-radius: 10px; padding: 10px 12px; background: #0b0f14; }
+/* Full-Screen World Shell follow-up (2026-11-16, Capitals
+   Completion): same docked-sidebar relic as the results panel
+   above — the sidebar is a closed-by-default drawer at every
+   width, so the suggestions overlay also aligns with the
+   full-width shell (left: 12px at >=768px, not 272px). */
+@media (min-width: 768px) {
+  #global-search-suggestions { left: 12px; }
+}
+
+/* ================================================================
+   RESPONSIVE SYSTEM — Phase D: World Home (Master Responsive
+   Directive, owner-authorized 2026-11-15; built 2026-11-16 under
+   the continuous-build instruction). The World Globe is HOME and
+   the dominant hero: the stage takes the full width available to
+   the view and the first viewport of height, and the 2D visual
+   flexes to fill whatever the compact control rows leave.
+   Presentation only — the globe module, its World Engine data
+   wiring, its modes and its honest labels are untouched, and the
+   cold-load layer refresh (fixed 2026-11-15) is not disturbed.
+   Canonical bands: A <480 | B 480–767 | C 768–1023 | D 1024–1439
+   | E 1440+. All values consume Phase B tokens; no new hex.
+   ================================================================ */
+
+/* The home view uses the whole content column: the 980/1100px
+   reading caps that serve text screens would cage the hero.
+   (:has() precedent: the Bot Ops panel fix in this file. Older
+   browsers without :has() simply keep the capped column — the
+   stage still renders, just narrower.) */
+#view-root:has(.globe-stage) { max-width: none; }
+
+/* Hero geometry: the stage claims the first viewport minus the
+   command bar and the view's vertical padding; the visual grows
+   to fill it. vh first, dvh second (no-dvh browsers keep vh). */
+.globe-stage {
+  min-height: calc(100vh - var(--cmdbar-h) - 32px);
+  min-height: calc(100dvh - var(--cmdbar-h) - 32px);
+}
+.globe-visual { flex: 1 1 auto; }
+
+/* Full screen (the stage's own Fullscreen API): the stage IS the
+   viewport, so the hero sizing resolves against it directly and
+   the visual fills it. */
+.globe-stage:fullscreen {
+  min-height: 100vh;
+  min-height: 100dvh;
+  border-radius: 0;
+}
+
+/* Band C — Tablet (768–1023px): #main-content padding grows to
+   20px at >=768px (Analytics block above), so the hero budget
+   grows with it: 56 bar + 20 + 16 + 16 view/main padding. */
+@media (min-width: 768px) {
+  .globe-stage {
+    min-height: calc(100vh - var(--cmdbar-h) - 52px);
+    min-height: calc(100dvh - var(--cmdbar-h) - 52px);
+  }
+}
+
+/* Band D (1024–1439px): Details panel docks beside the visual. */
+@media (min-width: 1024px) {
+  .globe-stage { flex-direction: row; flex-wrap: wrap; }
+  .globe-visual { flex: 1 1 420px; min-height: 480px; }
+  .globe-side-panel { flex: 0 1 360px; }
+  .globe-stage > .globe-controls { flex: 1 1 100%; }
+}
+
+/* Band E — Large Cockpit (1440px+): ultrawide anchoring (Phase B
+   reserved --shell-max for Phase D/E). The shell itself is
+   already capped at 1600px, so this binds only if the shell cap
+   ever moves; the visual's floor rises for large displays. */
+@media (min-width: 1440px) {
+  .globe-stage { max-width: var(--shell-max); margin-inline: auto; width: 100%; }
+  .globe-visual { min-height: 560px; }
+}
+
+/* ================================================================
+   RESPONSIVE SYSTEM — Phase E: Panel system (Master Responsive
+   Directive, owner-authorized 2026-11-15; built 2026-11-16).
+   Phone: panels are bottom sheets with PEEK / HALF / EXPANDED /
+   FULL states (js/sheet-system.js drives the state attribute;
+   the caps live here). Tablet: STAR docks as a floating side
+   panel; other windows keep the centered float. Desktop: the
+   window manager's existing bounded behavior (drag / resize /
+   minimize / maximize / stack, clamped to the viewport) already
+   meets the directive and is deliberately untouched — as is the
+   docked sidebar and the deferred desktop drawer.
+   ================================================================ */
+
+/* The grab handle exists only in the phone bands; the button is
+   in the DOM at every width (sheet-system decorates once) but
+   renders only where sheets exist. */
+.sheet-handle { display: none; }
+@media (max-width: 767px) {
+  .sheet-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 28px;
+    padding: 6px 0 2px;
+    background: transparent;
+    border: none;
+    cursor: grab;
+    touch-action: none; /* the drag belongs to the sheet, not scroll */
+    flex: none;
+  }
+  .sheet-handle::before {
+    content: "";
+    width: 44px;
+    height: 5px;
+    border-radius: 999px;
+    background: var(--mti6-silver-dark);
+  }
+  .sheet-handle:active { cursor: grabbing; }
+
+  /* Sheet states: max-height caps. */
+  .wm-window:not(.wm-maximized):not(.wm-minimized)[data-sheet-state="PEEK"] { max-height: 33dvh; }
+  .wm-window:not(.wm-maximized):not(.wm-minimized)[data-sheet-state="HALF"] { max-height: 55dvh; }
+  .wm-window:not(.wm-maximized):not(.wm-minimized)[data-sheet-state="EXPANDED"] { max-height: 88dvh; }
+  .wm-window:not(.wm-maximized):not(.wm-minimized)[data-sheet-state="FULL"] {
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+  #accounts-panel[data-sheet-state] { overflow-y: auto; }
+  #accounts-panel[data-sheet-state="PEEK"] { max-height: 33dvh; }
+  #accounts-panel[data-sheet-state="HALF"] { max-height: 55dvh; }
+  #accounts-panel[data-sheet-state="EXPANDED"] { max-height: 88dvh; }
+  #accounts-panel[data-sheet-state="FULL"] { max-height: 100dvh; border-radius: 0; }
+
+  /* The World Globe's layer Details panel joins the sheet system
+     on phones: when open it leaves the stage flow and presents
+     as a bottom sheet over the home (its content and close
+     button are the module's own — presentation only). */
+  .globe-side-panel--open {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: var(--z-accounts);
+    max-height: 88dvh;
+    overflow-y: auto;
+    border-radius: var(--sheet-radius) var(--sheet-radius) 0 0;
+    padding-bottom: max(12px, var(--safe-bottom));
+    box-shadow: var(--shadow);
+  }
+  .globe-side-panel[data-sheet-state="PEEK"] { max-height: 33dvh; }
+  .globe-side-panel[data-sheet-state="HALF"] { max-height: 55dvh; }
+  .globe-side-panel[data-sheet-state="EXPANDED"] { max-height: 88dvh; }
+  .globe-side-panel[data-sheet-state="FULL"] { max-height: 100dvh; border-radius: 0; }
+}
+
+/* Band C (768–1023px): STAR floating side panel. */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .wm-window[data-wm-id="star-overlay"]:not(.wm-maximized) {
+    left: auto;
+    right: max(12px, var(--safe-right));
+    top: calc(var(--cmdbar-h) + 8px);
+    transform: none;
+    width: min(var(--panel-w), 92vw);
+    height: calc(100dvh - var(--cmdbar-h) - 16px);
+    max-height: none;
+  }
+}
+
+/* ================================================================
+   RESPONSIVE SYSTEM — Phase F: Existing screens (Master
+   Responsive Directive, owner-authorized 2026-11-15; built
+   2026-11-16). The screens keep their own markup, modules and
+   data — this phase aligns their LAYOUT breakpoints to the
+   canonical Phase B bands. The historical ad-hoc edges (640,
+   1200) split bands mid-way; the rules below are additive
+   overrides in the established style of this file (no existing
+   rule is edited), so inside each band every screen now behaves
+   one way:
+     A <480 | B 480–767 | C 768–1023 | D 1024–1439 | E 1440+
+   ================================================================ */
+
+/* Bot Operations grids. */
+@media (min-width: 640px) and (max-width: 767px) {
+  .botops-grid, .botops-hud { grid-template-columns: 1fr; }
+}
+
+/* Task queue rows: the stacked phone layout now spans the whole
+   phone range (the historical rule stopped at 640, mid-band-B);
+   from band C up the row layout governs. */
+@media (min-width: 641px) and (max-width: 767px) {
+  .task-queue__row { flex-direction: column; align-items: stretch; }
+  .task-queue__row > span:first-child { flex-basis: auto; }
+}
+
+/* Dashboard card grid: three columns now start at band D
+   (1024), not mid-band at 1200; the existing >=1200 rule still
+   applies above and agrees. */
+@media (min-width: 1024px) and (max-width: 1199px) {
+  .card-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* Band A — Compact Phone (320–479px): panel/card padding steps
+   down to the token spacing so content, not chrome, takes the
+   narrow width. (Analytics panels keep their own scoped padding
+   — higher specificity, untouched.) */
+@media (max-width: 479px) {
+  .api-panel, .mti6-card, .wallet-card { padding: var(--space-3); }
+}
+
+/* Band E — Large Cockpit (1440px+): the wide screens gain a
+   fourth column — the twelve Tribe principals lay out 4x3 and
+   dashboard cards stop stretching across the large display.
+   The view column itself keeps its readable cap; only the
+   grids use the room. */
+@media (min-width: 1440px) {
+  .card-grid, .botops-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* ================================================================
+   RESPONSIVE SYSTEM — Phase H: Accessibility / performance QA
+   (Master Responsive Directive, owner-authorized 2026-11-15;
+   built 2026-11-16). Findings applied below; everything else
+   the QA verified as already sound is asserted in the test
+   harness instead (global :focus-visible ring on the token,
+   zoom never locked, no external CSS resources).
+   ================================================================ */
+
+/* Reduced motion — complete coverage for this file's keyframes. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Touch targets — bands A–C (<=1023px). */
+@media (max-width: 1023px) {
+  .bubble { height: var(--touch-min); }
+  .wm-btn { min-width: var(--touch-min); min-height: var(--touch-min); }
+  .mti6-tab { min-height: var(--touch-min); }
+  .search-suggestion { min-height: var(--touch-min); }
+}
+
+/* Tribe principal slots (drawer). */
+.tribe-grid { grid-template-columns: repeat(3, 1fr); }
+
+/* Skip link: visually hidden until keyboard focus lands on it,
+   then it appears at the top of the shell. It is a <button>
+   (shell-chrome.js moves focus to #view-root) — an anchor href
+   would fight the hash router. */
+#skip-link {
+  position: fixed;
+  top: max(8px, var(--safe-top));
+  left: max(12px, var(--safe-left));
+  z-index: var(--z-toast);
+  transform: translateY(-300%);
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--mti6-border-active);
+  background: var(--mti6-bg-panel);
+  color: var(--mti6-text-primary);
+  font-weight: 600;
+  cursor: pointer;
+}
+#skip-link:focus-visible { transform: none; }
+
+/* ================================================================ */
+
+/* Direction 2: full-bleed Globe route. */
+body.route-globe #main-content, body.route-globe #view-root { padding: 0; }
+/* Dots rail + header gutter. */
+body.route-globe #view-root > .dot-rail,
+body.route-globe #view-root > .mti6-screen-header { margin-inline: 12px; }
+body.route-globe .globe-stage {
+  border: none; border-radius: 0; padding: 0;
+  min-height: calc(100vh - var(--cmdbar-h));
+  min-height: calc(100dvh - var(--cmdbar-h));
+}
+body.route-globe .globe-stage:fullscreen { min-height: 100vh; min-height: 100dvh; }
+body.route-globe .globe-visual { border: none; border-radius: 0; }
+
+/* Direction 2: the two rolls. Rolls take pointer events on
+   their own boxes only — the map's middle stays interactive. */
+.globe-roll {
+  position: absolute; left: 0; right: 0; z-index: 3;
+  background: rgba(5, 12, 19, 0.88);
+  border-color: var(--mti6-border);
+}
+.globe-roll--top {
+  top: 0; display: flex; flex-direction: row; align-items: center;
+  flex-wrap: nowrap; gap: 10px; padding: 6px 10px;
+  overflow-x: auto; overflow-y: hidden;
+  border-bottom: 1px solid var(--mti6-border);
+}
+.globe-roll__group { display: flex; align-items: center; gap: 8px; flex: none; }
+.globe-roll .globe-controls__heading { white-space: nowrap; }
+.globe-roll .api-meta { white-space: nowrap; }
+.globe-roll .globe-mode-note { white-space: normal; flex: 0 1 300px; min-width: 160px; }
+/* Roll tappables keep the 44px minimum. */
+.globe-roll .btn, .globe-roll .mti6-tab { min-height: var(--touch-min); }
+.globe-roll--bottom {
+  bottom: 0; display: flex; flex-direction: column; gap: 6px;
+  /* Inline-end clearance keeps roll controls clear of the
+     STAR launcher disc at the viewport's bottom-right. */
+  padding: 8px 88px 8px 10px;
+  padding-bottom: max(8px, var(--safe-bottom));
+  border-top: 1px solid var(--mti6-border);
+}
+.globe-roll__main { order: 1; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.globe-roll__layers {
+  flex: 1 1 auto; min-width: 0;
+  font-size: var(--fs-caption); color: var(--mti6-text-secondary);
+}
+.globe-roll .globe-live-note { order: 2; margin-top: 0; white-space: normal; }
+.globe-roll .globe-roll__truth { order: 3; margin-top: 0; white-space: normal; }
+/* Alert Mode: the banner rides ABOVE both rolls (z 4 over 3),
+   clear of the top strip; the red frame is the banner + the
+   visual's inset shadow (the full-bleed visual has no border). */
+.globe-visual > .globe-alert-banner {
+  position: absolute; top: 72px; left: 10px; right: 10px; z-index: 4;
+}
+/* World Lens package: lens tabs ride the top roll; alert-area
+   glows sit on the map at real projected points (the pulse is
+   opacity only); the coverage readout hides until a context
+   exists; the route line wraps inside the bottom roll. */
+.globe-lens-tabs { flex-wrap: nowrap; }
+.globe-lens-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--bg-2); margin: 10px 0; display: flex; flex-direction: column; gap: 6px; }
+.globe-glow-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 1; }
+.globe-alert-glow { position: absolute; width: 26px; height: 26px; border-radius: 50%; transform: translate(-50%, -50%); background: radial-gradient(circle, rgba(255,60,60,0.85) 0%, rgba(255,60,60,0.32) 45%, rgba(255,60,60,0) 72%); box-shadow: 0 0 18px 6px rgba(255,40,40,0.45); animation: globe-glow-pulse 2s ease-in-out infinite; }
+@keyframes globe-glow-pulse { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
+.globe-coverage--hidden { display: none; }
+.globe-coverage--focus { outline: 1px solid var(--cyan); outline-offset: 4px; border-radius: 8px; }
+.globe-roll__route { flex: 1 1 100%; white-space: normal; }
+.globe-routes__line { margin-top: 6px; }
+@media (prefers-reduced-motion: reduce) { .globe-alert-glow { animation: none; } }
+
+/* Direction 3: phone landscape = big globe. */
+@media (max-width: 767px) and (orientation: landscape) {
+  #top-bar { height: 44px; }
+  #app-shell { padding-top: 44px; }
+  #side-nav { inset-block-start: 44px; }
+  #nav-scrim { inset-block-start: 44px; }
+  body.route-globe .globe-stage { min-height: 100vh; min-height: 100dvh; }
+  body.route-globe .mti6-screen-header { margin-block: 2px 6px; }
+  /* Slim rolls; the 44px targets inside are untouched. */
+  .globe-roll--top { padding-block: 4px; gap: 8px; }
+  .globe-roll--bottom { padding-top: 6px; gap: 4px; }
+  .globe-visual > .globe-alert-banner { top: 62px; }
+}
+
+/* ================================================================
+   GLOBE EXPLORE BUILD (owner direction 2026-11-16): exact state,
+   state capital, the area selector, and Explore — STAR walks
+   the map. Glass-dark panels over the map, electric-blue
+   accents, 44px targets; motion is transform/opacity only and
+   stops under prefers-reduced-motion.
+   ================================================================ */
+.globe-live-capital { margin-top: 6px; }
+.globe-selector { margin: 12px 0; }
+.globe-selector--hidden { display: none; }
+.globe-selector__area { margin-bottom: 8px; }
+.globe-selector__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.globe-chip {
+  min-height: var(--touch-min); padding: 6px 14px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--bg-2); color: inherit;
+  font-weight: 600; cursor: pointer;
+  transition: border-color .18s ease, color .18s ease, box-shadow .18s ease;
+}
+.globe-chip--active { border-color: var(--cyan); color: var(--cyan); box-shadow: inset 0 0 0 1px var(--cyan); }
+.globe-selector__result { margin-top: 10px; }
+.globe-selector__result:empty { margin-top: 0; }
+
+.globe-explore { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.globe-explore--hidden { display: none; }
+.globe-explore__top {
+  position: absolute; top: 64px; left: 10px; right: 10px;
+  display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+}
+.globe-explore:not(.globe-explore--hidden) .globe-explore__top { animation: globe-explore-in .25s ease-out; }
+.globe-explore:not(.globe-explore--hidden) .globe-explore__pad { animation: globe-explore-in .25s ease-out; }
+@keyframes globe-explore-in { from { opacity: 0; } to { opacity: 1; } }
+.globe-explore__bar {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  background: rgba(5, 12, 19, 0.88); backdrop-filter: blur(8px);
+  border: 1px solid var(--mti6-border); border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); pointer-events: auto;
+}
+.globe-explore__figure {
+  width: 56px; height: 56px; border-radius: 50%; overflow: hidden; flex: none;
+  border: 2px solid var(--cyan); background: var(--bg-0);
+  display: flex; align-items: center; justify-content: center;
+}
+.globe-explore__img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.globe-explore__glyph { font-size: 26px; }
+.globe-explore__figure--walking { animation: globe-explore-bob .48s ease-in-out; }
+@keyframes globe-explore-bob {
+  0%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-5px); }
+  60% { transform: translateY(1px); }
+}
+.globe-explore__guide { flex: 1 1 auto; min-width: 0; }
+.globe-explore__name { font-weight: 700; font-size: 13px; color: var(--cyan); letter-spacing: 0.02em; }
+.globe-explore__speech { font-size: 14px; }
+.globe-explore__chips { pointer-events: auto; }
+.globe-explore__chips .globe-selector__chips {
+  flex-wrap: nowrap; overflow-x: auto; padding: 6px;
+  background: rgba(5, 12, 19, 0.88); backdrop-filter: blur(8px);
+  border: 1px solid var(--mti6-border); border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+.globe-explore__result { pointer-events: auto; max-width: 360px; max-height: 38vh; overflow: auto; }
+.globe-explore__result:empty { display: none; }
+.globe-explore__result .globe-live-card { margin: 0; }
+.globe-explore__result .globe-live-card,
+.globe-explore__result .globe-live-media-row {
+  background: rgba(5, 12, 19, 0.92); backdrop-filter: blur(8px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+.globe-explore__pad {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  display: grid; grid-template-columns: repeat(3, 48px); grid-template-rows: repeat(3, 48px);
+  gap: 6px; pointer-events: auto;
+}
+.globe-explore__arrow {
+  width: 48px; height: 48px; border-radius: 50%; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(5, 12, 19, 0.88); backdrop-filter: blur(8px);
+  border: 1px solid var(--mti6-border); color: rgb(125, 211, 252); font-size: 18px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  transition: border-color .15s ease, color .15s ease;
+}
+.globe-explore__arrow:active { border-color: var(--cyan); color: var(--cyan); }
+.globe-explore__arrow--up { grid-column: 2; grid-row: 1; }
+.globe-explore__arrow--left { grid-column: 1; grid-row: 2; }
+.globe-explore__arrow--centre { grid-column: 2; grid-row: 2; }
+.globe-explore__arrow--right { grid-column: 3; grid-row: 2; }
+.globe-explore__arrow--down { grid-column: 2; grid-row: 3; }
+@media (max-width: 767px) and (orientation: landscape) {
+  .globe-explore__top { top: 56px; }
+  .globe-explore__result { max-height: 30vh; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .globe-explore__figure--walking { animation: none; }
+  .globe-explore:not(.globe-explore--hidden) .globe-explore__top,
+  .globe-explore:not(.globe-explore--hidden) .globe-explore__pad { animation: none; }
+  .globe-chip, .globe-explore__arrow { transition: none; }
 }

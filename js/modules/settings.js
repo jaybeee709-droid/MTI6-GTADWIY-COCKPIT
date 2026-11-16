@@ -37,6 +37,10 @@
       field("Device connection", el("div", { class: "api-meta" }, navigator.onLine ? "Online" : "Offline"))
     ]));
 
+    root.appendChild(starBackendSection());
+
+    root.appendChild(searchPrivacySection());
+
     root.appendChild(section("Data Management", [
       field("Storage used", el("div", { id: "storage-estimate" }, "Calculating…")),
       actionRow("Export backup (encrypted)", "Save all your data to a password-protected file you can keep or move to another device.", "Export", () => openExportDialog()),
@@ -68,6 +72,206 @@
     populateStorageEstimate(root);
     populateAppStatus(root);
     populatePermissionRows(root);
+  }
+
+  // ---- STAR Backend (roadmap item 14: design + inert plumbing) ----
+  // The configuration surface for a future live STAR connection.
+  // Endpoint + model only — there is deliberately NO API key field:
+  // a provider key must never be typed into this app; when the owner
+  // authorizes a connection, the key lives only in the server
+  // gateway's environment (Netlify), and this app talks to the
+  // gateway at /api/mti6. Saving an endpoint does NOT connect STAR
+  // and never claims to: the status below comes verbatim from
+  // StarBackend, and the only check offered is the Phase 1 gateway's
+  // own gateway.status — which today reports no provider configured.
+  function starBackendSection() {
+    const B = global.StarBackend;
+    const children = [];
+
+    const statusText = B && typeof B.getStatus === "function"
+      ? B.getStatus().state + " — " + B.getStatusLabel()
+      : "NOT_CONNECTED — Demo mode — no AI backend connected";
+    const statusNode = el("div", { class: "api-meta", id: "settings-star-backend-status" }, statusText);
+    children.push(field("Connection status", statusNode));
+
+    const cfg = B && typeof B.getConfig === "function" ? B.getConfig() : { endpoint: "", model: "" };
+    const endpointInput = el("input", {
+      class: "input", id: "settings-star-endpoint", type: "text",
+      placeholder: "/api/mti6", value: cfg.endpoint || "",
+      "aria-label": "STAR backend endpoint"
+    });
+    children.push(field("Backend endpoint", endpointInput));
+    children.push(el("div", { class: "api-meta" }, "Same-origin gateway path only (for example /api/mti6) — third-party provider URLs are rejected. Saving an endpoint does not connect STAR and does not verify anything: chat keeps answering in demo mode until the server gateway is authorized and a provider is connected by the owner."));
+
+    const modelInput = el("input", {
+      class: "input", id: "settings-star-model", type: "text",
+      placeholder: "Model name — chosen with the provider, later",
+      value: cfg.model || "",
+      "aria-label": "STAR backend model"
+    });
+    children.push(field("Model", modelInput));
+    children.push(el("div", { class: "api-meta" }, "A model name only, sent to the gateway with each message once a provider is connected. It is not a credential."));
+
+    children.push(field("Provider key", el("div", { class: "api-meta" }, "There is no API key field in this app, by design. A provider key must never be typed into this page or stored in this app — when the owner authorizes a connection, the key belongs in the server gateway's environment (Netlify dashboard), and this app only ever talks to the gateway at /api/mti6.")));
+
+    const note = el("div", { class: "api-meta", id: "settings-star-backend-note", "aria-live": "polite" }, "");
+    const saveBtn = el("button", { class: "btn btn-secondary", id: "settings-star-save", type: "button" }, "Save endpoint");
+    saveBtn.addEventListener("click", () => {
+      if (!B || typeof B.configure !== "function") {
+        note.textContent = "StarBackend did not load — nothing was saved.";
+        return;
+      }
+      B.configure({ endpoint: endpointInput.value.trim(), model: modelInput.value.trim() });
+      const st = B.getStatus();
+      statusNode.textContent = st.state + " — " + B.getStatusLabel();
+      note.textContent = st.configured
+        ? "Endpoint saved — not verified. STAR remains in demo mode: the gateway has no STAR provider until the owner authorizes one, so no connection is claimed."
+        : "No endpoint is saved. STAR is in demo mode — no AI backend connected.";
+    });
+    const checkBtn = el("button", { class: "btn btn-secondary", id: "settings-star-check", type: "button" }, "Check gateway");
+    checkBtn.addEventListener("click", async () => {
+      if (!B || typeof B.checkGateway !== "function") {
+        note.textContent = "StarBackend did not load — the gateway could not be checked.";
+        return;
+      }
+      note.textContent = "Checking the gateway…";
+      const r = await B.checkGateway();
+      if (r.reachable) {
+        note.textContent = "Gateway check: reachable — the Phase 1 gateway answered gateway.status." +
+          (r.note ? " It reports: “" + r.note + "”" : "") +
+          " STAR itself is still not connected — the gateway has no STAR provider until the owner authorizes one.";
+      } else {
+        note.textContent = "Gateway check: UNREACHABLE — the gateway did not answer (" + (r.error ? r.error.message : "unknown error") + "). STAR remains in demo mode.";
+      }
+    });
+    children.push(el("div", { class: "toggle-row" }, [saveBtn, checkBtn]));
+    children.push(note);
+
+    return section("STAR Backend", children);
+  }
+
+  // ---- Search & Privacy (Universal Search Phase 1 completion, P1.1) ----
+  // Every control here wires an EXISTING mechanism — nothing new is
+  // stored: the default web provider persists through the provider
+  // registry (the same key the search bar's own provider select
+  // writes, so there is never a second, competing default), and
+  // history controls call SearchHistory directly. Where a search
+  // type has exactly one provider in this build, the row says so —
+  // no inert selector pretends a choice exists.
+  function searchPrivacySection() {
+    const P = global.SearchProviders;
+    const H = global.SearchHistory;
+    const children = [];
+
+    // Default web provider — a real choice among the four launch
+    // providers; the bar reads the same stored default.
+    if (P && typeof P.listWebProviders === "function" && typeof P.setDefaultWebProvider === "function") {
+      const current = typeof P.getDefaultWebProvider === "function" ? P.getDefaultWebProvider() : "duckduckgo";
+      const select = el("select", { class: "input", id: "settings-search-provider", "aria-label": "Default web search provider" },
+        P.listWebProviders().map((p) => el("option", { value: p.providerId, selected: p.providerId === current || undefined }, p.displayName || p.providerId)));
+      select.addEventListener("change", () => {
+        if (P.setDefaultWebProvider(select.value)) {
+          setSearchStatus(`Default web provider: ${select.selectedOptions[0].textContent}. The search bar uses this provider first.`);
+          U.toast("Default web provider updated");
+        } else {
+          setSearchStatus("That provider could not be set as the default.");
+        }
+      });
+      children.push(field("Default web provider", select));
+      children.push(el("div", { class: "api-meta" }, "Used first by the search bar's full-web links. Stored on this device only; the bar's provider menu writes the same setting."));
+    } else {
+      children.push(field("Default web provider", el("div", { class: "api-meta" }, "Provider registry did not load — the search bar keeps its built-in default (DuckDuckGo).")));
+    }
+
+    // Providers by type — truthful rows for the types where this
+    // build has exactly one serving provider (or a fallback chain).
+    children.push(field("Technical", el("div", { class: "api-meta" }, "GitHub (public) — the only technical provider in this build. Public repos and events only; private content is never sent to an external provider.")));
+    children.push(field("Crypto prices", el("div", { class: "api-meta" }, "CoinGecko → Coinbase → CoinPaprika fallback chain (PriceScout). A chain, not a single default — the first source that answers wins.")));
+    children.push(field("News", el("div", { class: "api-meta" }, "Hacker News (Algolia). RSS / Atom feeds: REQUIRES SETUP — not enabled until a server-side proxy is owner-approved.")));
+    children.push(field("AI / search backend", el("div", { class: "api-meta" }, "REQUIRES SETUP — no key lives in this app; a key-required provider runs only through the private gateway with owner approval.")));
+
+    // Search history — toggle + count + clear/export actions.
+    if (H && typeof H.isEnabled === "function") {
+      const toggle = el("button", { class: "btn btn-secondary", id: "settings-search-history-toggle", type: "button" }, H.isEnabled() ? "On" : "Off");
+      const count = el("span", { class: "api-meta", id: "settings-search-history-count" }, searchHistoryCountText(H));
+      toggle.addEventListener("click", () => {
+        const next = !H.isEnabled();
+        H.setEnabled(next);
+        toggle.textContent = next ? "On" : "Off";
+        count.textContent = searchHistoryCountText(H);
+        setSearchStatus(next ? "Search history saving is ON — searches are recorded on this device only." : "Search history saving is OFF — nothing is recorded.");
+      });
+      const wrap = el("div", { class: "toggle-row" }, [toggle, count]);
+      children.push(field("Search history", wrap));
+
+      const clearSessionBtn = el("button", { class: "btn btn-secondary", id: "settings-search-clear-session", type: "button" }, "Clear session");
+      clearSessionBtn.addEventListener("click", () => {
+        // The bar records the default session's entries under "" and
+        // a named session's entries under its sessionId; the current
+        // session is whichever the active tab belongs to, so clear
+        // both buckets that could hold "current" entries.
+        const sids = [""];
+        try {
+          const at = global.SearchTabs && typeof global.SearchTabs.getActiveTab === "function" ? global.SearchTabs.getActiveTab() : null;
+          if (at && typeof at.sessionId === "string" && at.sessionId && sids.indexOf(at.sessionId) === -1) sids.push(at.sessionId);
+        } catch (e) {}
+        let removed = 0;
+        if (typeof H.clearSession === "function") sids.forEach((sid) => { removed += H.clearSession(sid); });
+        count.textContent = searchHistoryCountText(H);
+        setSearchStatus(`Cleared ${removed} search${removed === 1 ? "" : "es"} recorded in the current session.`);
+      });
+      children.push(field("Clear session history", clearSessionBtn));
+      children.push(el("div", { class: "api-meta" }, "Removes the searches recorded in the current session (the active search tab's session). Other sessions' entries stay."));
+
+      const clearAllBtn = el("button", { class: "btn btn-secondary", id: "settings-search-clear-all", type: "button" }, "Clear all");
+      clearAllBtn.addEventListener("click", () => {
+        if (typeof H.clearAll === "function") H.clearAll();
+        count.textContent = searchHistoryCountText(H);
+        setSearchStatus("All search history on this device was cleared.");
+      });
+      children.push(field("Clear all history", clearAllBtn));
+
+      const exportBtn = el("button", { class: "btn btn-secondary", id: "settings-search-export", type: "button" }, "Export");
+      exportBtn.addEventListener("click", () => {
+        const json = typeof H.exportJson === "function" ? H.exportJson() : "[]";
+        try {
+          if (typeof Blob !== "undefined" && typeof URL !== "undefined" && URL.createObjectURL) {
+            const blob = new Blob([json], { type: "application/json" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = "mti6-search-history.json";
+            if (document.body && document.body.appendChild) document.body.appendChild(a);
+            if (typeof a.click === "function") a.click();
+            if (a.remove) a.remove();
+          }
+        } catch (e) {}
+        setSearchStatus("Search history exported as JSON (explicit download — nothing is sent anywhere).");
+      });
+      children.push(field("Export history", exportBtn));
+    } else {
+      children.push(field("Search history", el("div", { class: "api-meta" }, "Search history module did not load.")));
+    }
+
+    // Temporary sessions — the honest label, verbatim from SearchTabs.
+    const tempNote = global.SearchTabs && typeof global.SearchTabs.temporaryNote === "function"
+      ? global.SearchTabs.temporaryNote()
+      : "A temporary session keeps no search history in MTI6. It is not Tor Browser and not private/incognito mode.";
+    children.push(field("Temporary sessions", el("div", { class: "api-meta" }, tempNote + " Start one from the search results History panel.")));
+    children.push(field("What history keeps", el("div", { class: "api-meta" }, "Only the query text, source, origin and time — one storage key, at most 100 entries, on this device only. Never credentials, form data, page text, or URL query strings; a query that looks like a credential is not recorded at all.")));
+    children.push(el("div", { class: "api-meta", id: "settings-search-status", "aria-live": "polite" }, ""));
+
+    return section("Search & Privacy", children);
+  }
+
+  function searchHistoryCountText(H) {
+    if (!H.isEnabled()) return "History is off — nothing is recorded or shown.";
+    const n = typeof H.list === "function" ? (H.list() || []).length : 0;
+    return `${n} search${n === 1 ? "" : "es"} recorded on this device`;
+  }
+
+  function setSearchStatus(text) {
+    const node = document.getElementById("settings-search-status");
+    if (node) node.textContent = text;
   }
 
   // ---- STAR & Tribe Appearance / Sound & Voice / Permissions (Build 1) ----

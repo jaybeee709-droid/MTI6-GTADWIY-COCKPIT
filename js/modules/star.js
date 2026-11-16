@@ -19,16 +19,115 @@
   var U = global.U;
   if (!U) return;
 
+  // STAR's face (owner ruling 2026-11-16): Daniel designated his
+  // own portrait as STAR's avatar (js/data/star-avatar.js). The
+  // identity slot shows the portrait when the data file is present;
+  // if it is missing or the image fails to load, the 🌟 glyph
+  // stays — exactly the pre-avatar panel.
+  // STAR's expressions (Embodiment Build 1, owner direction
+  // 2026-11-16): STAR_AVATAR_EXPRESSIONS carries the talking /
+  // thinking / smile faces beside the idle STAR_AVATAR_SRC. Any
+  // missing expression falls back to the idle face; a missing data
+  // file falls back to the glyphs, exactly as before.
+  function idleSrc() {
+    var src = global.STAR_AVATAR_SRC;
+    return typeof src === "string" && src ? src : null;
+  }
+  function expressionSrc(name) {
+    var exprs = global.STAR_AVATAR_EXPRESSIONS;
+    var s = exprs && typeof exprs[name] === "string" && exprs[name] ? exprs[name] : null;
+    return s || idleSrc();
+  }
+
+  // STAR's embodied figure (Embodiment Build 1): the full
+  // head-and-shoulders cutout — that IS his body — standing at the
+  // top of the panel beside the name/status block. Rendered only
+  // when the avatar data file loaded; without it the panel is
+  // exactly the pre-embodiment panel. The figure's expression and
+  // motion are driven by setStatus() below — see the state-mapping
+  // note there. If the image fails to load, the figure removes
+  // itself and the panel keeps its header avatar / glyph.
+  function figureNode() {
+    var src = idleSrc();
+    if (!src) return null;
+    var img = U.el("img", {
+      class: "star-figure-img",
+      src: src,
+      alt: "",
+      onerror: function () {
+        var fig = img.parentNode;
+        if (fig && fig.parentNode) fig.parentNode.removeChild(fig);
+      }
+    });
+    return U.el("div", { class: "star-figure", "aria-hidden": "true" }, [img]);
+  }
+
+  function avatarNode() {
+    var src = global.STAR_AVATAR_SRC;
+    if (typeof src === "string" && src) {
+      var img = U.el("img", {
+        class: "star-avatar-img",
+        src: src,
+        alt: "",
+        onerror: function () {
+          var slot = img.parentNode;
+          if (slot) slot.textContent = "🌟";
+        }
+      });
+      return U.el("span", { class: "star-avatar", "aria-hidden": "true" }, [img]);
+    }
+    return U.el("span", { class: "star-avatar", "aria-hidden": "true" }, "🌟");
+  }
+
+  // STAR's greeting, shown as his first bubble when no exchange
+  // exists yet. One source for the full message log AND the
+  // presence-form exchange bubble, so the two can never disagree.
+  var GREETING = "Hi, I'm Star 3.0. Ask me about your cockpit — notes, tasks, spending, or projects — and I'll answer in demo mode for now. Try “BTC price” for a live crypto price, or “cockpit status” and “how many strategies” for answers from the cockpit's real records via the World Engine. Voice, video, specialist bots, and GitHub actions are coming later, and anything that changes something outside this device will need your approval first.";
+
   function renderPanel() {
-    var panel = U.el("section", { class: "star-panel", "aria-label": "Star 3.0 command chat" }, [
-      U.el("div", { class: "star-header" }, [
-        U.el("div", { class: "star-identity" }, [
-          U.el("span", { class: "star-avatar", "aria-hidden": "true" }, "🌟"),
-          U.el("div", {}, [
-            U.el("h2", { class: "star-title" }, "STAR 3.0"),
-            U.el("div", { class: "star-subtitle" }, "Your cockpit AI assistant — future commander of the MTI6 bot system")
-          ])
-        ]),
+    // Presence form (Presence Anywhere Build 1, owner ruling
+    // 2026-11-16): the header's Presence toggle switches this
+    // window to a compact presence form — STAR's standing figure,
+    // a bubble with the latest exchange, and the chat input — so
+    // the owner can keep talking to STAR from any screen while
+    // navigating. It is the SAME panel and the SAME conversation:
+    // the figure's expression/motion still comes only from
+    // setStatus() below, the bubble mirrors StarState's real
+    // messages, and the demo footnote stays visible. Toggling off
+    // restores the full panel; nothing is re-rendered or lost.
+    var presenceBtn = U.el("button", {
+      class: "btn btn-ghost btn-sm star-presence-btn",
+      type: "button",
+      title: "Switch STAR to the compact presence form (figure + latest exchange + input, on any screen)",
+      "aria-label": "Toggle Star presence form",
+      "aria-pressed": "false"
+    }, "Presence");
+    var headerEl = U.el("div", { class: "star-header" }, [
+      U.el("div", { class: "star-identity" }, [
+        avatarNode(),
+        U.el("div", {}, [
+          U.el("h2", { class: "star-title" }, "STAR 3.0"),
+          U.el("div", { class: "star-subtitle" }, "Your cockpit AI assistant — future commander of the MTI6 bot system")
+        ])
+      ]),
+      U.el("div", { class: "star-header-actions" }, [
+        presenceBtn,
+        // Big Screen Presenter (Bot Profiles + Big Screen Build,
+        // owner direction 2026-11-16): STAR steps before the World
+        // Globe — the big screen — and presents the cockpit's
+        // recorded state (js/bot-presenter.js). The presenter is
+        // presentation of real state only, like Presence.
+        U.el("button", {
+          class: "btn btn-ghost btn-sm star-present-btn",
+          type: "button",
+          title: "Present STAR at the big screen (the World Globe) with the cockpit's recorded state",
+          "aria-label": "Present Star at the big screen",
+          onclick: function () {
+            if (global.BotPresenter && typeof global.BotPresenter.show === "function") {
+              global.BotPresenter.show("star");
+            }
+          }
+        }, "Big screen"),
         U.el("button", {
           class: "btn btn-ghost btn-sm star-clear-btn",
           title: "Clear this demo conversation (local only)",
@@ -39,11 +138,41 @@
             setStatus("ready");
           }
         }, "Clear")
+      ])
+    ]);
+    var statusEl = U.el("div", { class: "star-status", role: "status" }, [
+      U.el("span", { class: "star-status-dot", "aria-hidden": "true" }),
+      U.el("span", { class: "star-status-text" }, statusText("ready"))
+    ]);
+    // Embodiment: when STAR has his figure, it stands at the top
+    // of the panel beside the name/status block (figure left,
+    // header + status in the column beside him). Without the
+    // avatar data file there is no figure and no wrapper — the
+    // panel's structure is exactly the pre-embodiment panel.
+    var figureEl = figureNode();
+    var topEls = figureEl
+      ? [U.el("div", { class: "star-top" }, [
+          figureEl,
+          U.el("div", { class: "star-top-main" }, [headerEl, statusEl])
+        ])]
+      : [headerEl, statusEl];
+    // The presence-form exchange bubble: the owner's last message
+    // and STAR's last reply, exactly as they appear in the chat
+    // (renderMessages keeps it in step with StarState). Visible
+    // only in presence form (CSS); the full log stays in the DOM
+    // underneath and returns untouched when the form toggles off.
+    var exchangeEl = U.el("div", { class: "star-presence-exchange", "aria-label": "Latest exchange" }, [
+      U.el("div", { class: "star-presence-line star-presence-line--user" }, [
+        U.el("span", { class: "star-presence-who" }, "You"),
+        U.el("span", { class: "star-presence-text" }, "")
       ]),
-      U.el("div", { class: "star-status", role: "status" }, [
-        U.el("span", { class: "star-status-dot", "aria-hidden": "true" }),
-        U.el("span", { class: "star-status-text" }, statusText("ready"))
-      ]),
+      U.el("div", { class: "star-presence-line star-presence-line--star" }, [
+        U.el("span", { class: "star-presence-who" }, "🌟 Star 3.0"),
+        U.el("span", { class: "star-presence-text" }, "")
+      ])
+    ]);
+    var panel = U.el("section", { class: "star-panel", "aria-label": "Star 3.0 command chat" }, topEls.concat([
+      exchangeEl,
       U.el("div", { class: "star-messages", role: "log", "aria-live": "polite" }),
       U.el("div", { class: "star-input-row" }, [
         U.el("input", {
@@ -71,12 +200,45 @@
       ]),
       U.el("div", { class: "star-footnote" },
         "Demo mode: Star answers locally on this device. No AI backend is connected yet, and no keys live in this page.")
-    ]);
+    ]));
 
+    var figureImg = panel.querySelector(".star-figure-img");
     var input = panel.querySelector(".star-input");
     var sendBtn = panel.querySelector(".star-send-btn");
     var micBtn = panel.querySelectorAll(".star-icon-btn")[0];
     var camBtn = panel.querySelectorAll(".star-icon-btn")[1];
+
+    // The presence-form exchange bubble mirrors the SAME
+    // StarState list the full log renders: the owner's last
+    // message and STAR's last reply, verbatim. With no messages
+    // at all it shows the greeting (the panel's own first bubble);
+    // while a reply is being produced it keeps the last completed
+    // reply — it never invents an in-flight answer.
+    function renderExchange(list) {
+      var userLine = exchangeEl.querySelector(".star-presence-line--user");
+      var starLine = exchangeEl.querySelector(".star-presence-line--star");
+      if (!userLine || !starLine) return;
+      var lastUser = null;
+      var lastStar = null;
+      list.forEach(function (m) {
+        if (m.role === "user") lastUser = m; else lastStar = m;
+      });
+      if (lastUser) {
+        userLine.style.display = "";
+        userLine.querySelector(".star-presence-text").textContent = lastUser.text;
+      } else {
+        userLine.style.display = "none";
+      }
+      if (lastStar) {
+        starLine.style.display = "";
+        starLine.querySelector(".star-presence-text").textContent = lastStar.text;
+      } else if (!list.length) {
+        starLine.style.display = "";
+        starLine.querySelector(".star-presence-text").textContent = GREETING;
+      } else {
+        starLine.style.display = "none";
+      }
+    }
 
     function renderMessages() {
       var area = panel.querySelector(".star-messages");
@@ -86,9 +248,9 @@
       if (!list.length) {
         area.appendChild(U.el("div", { class: "star-msg star-msg-star" }, [
           U.el("div", { class: "star-msg-label" }, "🌟 Star 3.0 — Demo"),
-          U.el("div", { class: "star-msg-text" },
-            "Hi, I'm Star 3.0. Ask me about your cockpit — notes, tasks, spending, or projects — and I'll answer in demo mode for now. Try “BTC price” for a live crypto price, or “cockpit status” and “how many strategies” for answers from the cockpit's real records via the World Engine. Voice, video, specialist bots, and GitHub actions are coming later, and anything that changes something outside this device will need your approval first.")
+          U.el("div", { class: "star-msg-text" }, GREETING)
         ]));
+        renderExchange(list);
         return;
       }
       list.forEach(function (m) {
@@ -99,6 +261,48 @@
         ]));
       });
       area.scrollTop = area.scrollHeight;
+      renderExchange(list);
+    }
+
+    // STAR's expression + motion mapping (Embodiment Build 1) —
+    // the honesty core of the embodiment. The figure is driven
+    // ONLY by this panel's real status state, through setStatus(),
+    // the single choke point every send/reply path already passes
+    // through. No timers, no polling, no simulated talking:
+    //
+    //   - "thinking" (setStatus("thinking")): send() sets this
+    //     synchronously when a message is sent, and every reply
+    //     path clears it with setStatus("ready") the moment the
+    //     reply lands. In this app that interval IS the speaking
+    //     interval — the reply is being produced throughout it —
+    //     so the figure shows the TALKING face and the gentle bob
+    //     for exactly that interval, and the launcher mirror in
+    //     js/shell-chrome.js (keyed on the same .star-status-
+    //     thinking class) swaps the launcher face to match.
+    //   - reply completion (the thinking -> ready transition
+    //     inside setStatus): the figure settles to the SMILE face
+    //     and keeps it while the panel rests in the answered
+    //     state; the next send flips it back to talking, and
+    //     Clear (setStatus("ready") with no production in flight)
+    //     returns it to idle.
+    //   - ready with no reply produced yet: the IDLE face, with
+    //     the slow breathing motion.
+    //
+    // The THINKING face (gaze up-and-to-the-side) is deliberately
+    // NOT bound to any state: this chat flow has exactly one
+    // production state — setStatus("thinking") fires in the same
+    // tick as the send, so there is no separate pre-reply
+    // deliberation moment to hang a thoughtful expression on.
+    // Inventing one (a fake pause, a timer) would claim a state
+    // STAR is not in. The asset ships in STAR_AVATAR_EXPRESSIONS
+    // and stays unused until a real state exists for it.
+    var wasThinking = false;
+    function setFigure(state) {
+      panel.classList.toggle("star-state-talking", state === "talking");
+      panel.classList.toggle("star-state-answered", state === "smile");
+      if (!figureImg) return;
+      var src = state === "idle" ? idleSrc() : expressionSrc(state);
+      if (src && figureImg.getAttribute("src") !== src) figureImg.src = src;
     }
 
     function setStatus(kind) {
@@ -106,6 +310,15 @@
       var text = panel.querySelector(".star-status-text");
       if (dot) dot.className = "star-status-dot" + (kind === "thinking" ? " star-status-thinking" : "");
       if (text) text.textContent = statusText(kind);
+      if (kind === "thinking") {
+        wasThinking = true;
+        setFigure("talking");
+      } else if (wasThinking) {
+        wasThinking = false;
+        setFigure("smile");
+      } else {
+        setFigure("idle");
+      }
     }
 
     function statusText(kind) {
@@ -275,6 +488,26 @@
       }
       continueSend();
     }
+
+    // Presence form toggle (see the note at presenceBtn above):
+    // a class on the panel compacts it to figure + latest
+    // exchange + input, and a class on the hosting window docks
+    // that window, compact, at the bottom-left corner of the
+    // screen — the window floats above every route, so STAR is
+    // present and talkable on any screen while the owner
+    // navigates. The STAR launcher (bottom-right) is never
+    // covered. Toggling off removes both classes and the full
+    // panel is exactly as it was.
+    var presenceOn = false;
+    function setPresenceForm(on) {
+      presenceOn = !!on;
+      panel.classList.toggle("star-panel--presence", presenceOn);
+      presenceBtn.setAttribute("aria-pressed", presenceOn ? "true" : "false");
+      presenceBtn.textContent = presenceOn ? "Full panel" : "Presence";
+      var win = panel.closest ? panel.closest(".wm-window") : null;
+      if (win) win.classList.toggle("wm-window--presence", presenceOn);
+    }
+    presenceBtn.addEventListener("click", function () { setPresenceForm(!presenceOn); });
 
     sendBtn.addEventListener("click", send);
     input.addEventListener("keydown", function (e) {

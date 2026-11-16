@@ -468,6 +468,30 @@
     return errors;
   }
 
+  // Geographic alert area (World Lens package, owner direction
+  // 2026-11-16: "the area lights up red where there are alerts").
+  // An OPTIONAL owner-picked place on an alert record:
+  // { label, lat, lon } with real coordinates. Additive only —
+  // an absent/null area keeps the record exactly as it always
+  // was (area-less alerts keep the Globe's global presentation);
+  // a present area must be a genuine coordinate pair, never a
+  // marker position or a guessed place.
+  function validateAreaValue(area) {
+    if (!area || typeof area !== "object") {
+      return "area must be an object {label, lat, lon}.";
+    }
+    if (typeof area.lat !== "number" || !isFinite(area.lat) || area.lat < -90 || area.lat > 90) {
+      return "area.lat must be a number between -90 and 90.";
+    }
+    if (typeof area.lon !== "number" || !isFinite(area.lon) || area.lon < -180 || area.lon > 180) {
+      return "area.lon must be a number between -180 and 180.";
+    }
+    if (area.label !== undefined && typeof area.label !== "string") {
+      return "area.label must be a string.";
+    }
+    return null;
+  }
+
   function validateAlert(alert) {
     var errors = [];
     if (!alert || typeof alert !== "object") {
@@ -506,6 +530,10 @@
     }
     if (alert.assignedAngelId !== null && typeof alert.assignedAngelId !== "string") {
       errors.push("assignedAngelId must be a string or null.");
+    }
+    if (alert.area !== undefined && alert.area !== null) {
+      var areaErr = validateAreaValue(alert.area);
+      if (areaErr) errors.push(areaErr);
     }
     // The assigned worker IS the angel for Angel Security, so the two
     // fields are aliases and must stay in sync: when both are set
@@ -642,6 +670,9 @@
     if (alert.resolution === undefined) alert.resolution = null;
     if (alert.starNotification === undefined) alert.starNotification = null;
     if (!Array.isArray(alert.flowTrail)) alert.flowTrail = [];
+    // Older records predate the optional geographic area: absent
+    // means area-less (null), never an invented place.
+    if (alert.area === undefined) alert.area = null;
     return alert;
   }
 
@@ -840,6 +871,22 @@
     if (data.relatedNetworks !== undefined && !isStringArray(data.relatedNetworks)) {
       reasons.push("relatedNetworks must be an array of strings.");
     }
+    // Optional geographic area (World Lens package): validated
+    // when given, normalised to {label, lat, lon}; absent stays
+    // null — the record is never given a place it did not pick.
+    var areaNorm = null;
+    if (data.area !== undefined && data.area !== null) {
+      var areaReason = validateAreaValue(data.area);
+      if (areaReason) {
+        reasons.push(areaReason);
+      } else {
+        areaNorm = {
+          label: typeof data.area.label === "string" ? data.area.label : "",
+          lat: data.area.lat,
+          lon: data.area.lon
+        };
+      }
+    }
     if (reasons.length) {
       throw new Error("Invalid alert: " + reasons.join(" "));
     }
@@ -872,6 +919,7 @@
       alertClass: classEntry ? classEntry.id :
         (data.alertClass === "UNKNOWN_CLASS" ? "UNKNOWN_CLASS" : null),
       affectedSystem: data.affectedSystem.trim(),
+      area: areaNorm,
       lastUpdated: stamp,
       mitigation: null,
       resolution: null,

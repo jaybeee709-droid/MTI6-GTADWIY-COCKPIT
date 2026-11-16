@@ -53,7 +53,16 @@
  * buildWorkerDetail, getWorkersActive, buildAngelSummary,
  * buildWalletTaskTemplates, createWalletTaskFromTemplate,
  * buildCryptoTaskTemplates, createCryptoTaskFromTemplate,
- * buildHud, buildTaskQueue, bringPrincipal, participantsAvailable.
+ * buildHud, buildTaskQueue, bringPrincipal, participantsAvailable,
+ * buildEntityPipeline.
+ *
+ * P5 adds ONE read-only panel: Entity Pipeline. It renders
+ * EntityGate.pipelineSummary — the same derivation STAR answers
+ * from — and nothing else: no candidate writes, no stage
+ * transitions, no gate actions (those live in Crypto World's
+ * PIPELINE tab). Candidates are records, not live work: the panel
+ * says so, and no candidate is presented as assigned to or executed
+ * by any principal or worker.
  */
 (function (global) {
   "use strict";
@@ -360,6 +369,57 @@
     }
   }
 
+  function presenceAvailable() {
+    return !!(global.Presence && typeof global.Presence.show === "function");
+  }
+
+  // The recorded-state readout lines for a principal's presence
+  // bubble (Presence Anywhere Build 1, owner ruling 2026-11-16).
+  // Derived ONLY from the principal's real records — the same
+  // buildPrincipalDetail record the detail view renders: his
+  // current task (or the plain fact that none is recorded), his
+  // assignment role when one is set, and the standing worker-link
+  // truth. No dialogue, opinion, or activity is invented: a
+  // principal's presence presents his records, labelled as a
+  // record readout — it is not live speech, and no worker is
+  // attached (NOT_CONNECTED).
+  function principalPresenceLines(detail) {
+    var task = detail && detail.currentTask && detail.currentTask !== "—" ? detail.currentTask : null;
+    var role = detail && detail.currentRole && detail.currentRole !== "—" ? detail.currentRole : null;
+    var lines = [];
+    lines.push(task ? ("Assignment: " + task) : "No assignment recorded");
+    if (role) lines.push("Assignment role: " + role);
+    lines.push("Worker link: NOT_CONNECTED — no live worker is attached; this is a record readout.");
+    return lines;
+  }
+
+  // Shows the selected principal's presence: his large portrait
+  // (TRIBE_PORTRAITS when loaded, his Tribe mark otherwise) with
+  // the readout bubble. Reports unavailable and does nothing when
+  // the Presence component did not load — never a crash.
+  function showPrincipalPresence(detail) {
+    if (!presenceAvailable() || !detail) {
+      return { ok: false, reason: "presence unavailable" };
+    }
+    var portraits = global.TRIBE_PORTRAITS;
+    var src = portraits && typeof portraits[detail.id] === "string" && portraits[detail.id]
+      ? portraits[detail.id] : null;
+    try {
+      global.Presence.show({
+        figureSrc: src,
+        fallbackText: (detail.order !== null && detail.order !== undefined ? String(detail.order) + " " : "") +
+          detail.displayName.charAt(0),
+        name: detail.displayName,
+        label: "Record readout — not live speech",
+        lines: principalPresenceLines(detail),
+        mood: "readout"
+      });
+      return { ok: true, reason: null };
+    } catch (e) {
+      return { ok: false, reason: e && e.message ? e.message : String(e) };
+    }
+  }
+
   function dashToNull(value) {
     return value === "—" ? null : value;
   }
@@ -639,6 +699,41 @@
     };
   }
 
+  // ---- Entity Pipeline summary (P5 — pure data, READ-ONLY) -----
+  // The single source is EntityGate.pipelineSummary (the same
+  // derivation StarWorld answers from), so this panel and STAR can
+  // never disagree. Unavailable when the pipeline modules are not
+  // loaded: the panel then states UNKNOWN and claims nothing.
+  async function buildEntityPipeline() {
+    var EG = global.EntityGate;
+    if (!EG || typeof EG.pipelineSummary !== "function") {
+      return { available: false, note: "Entity pipeline modules are not loaded, so no pipeline state can be verified." };
+    }
+    var s = null;
+    try { s = await EG.pipelineSummary(); } catch (e) { s = null; }
+    if (!s) {
+      return { available: false, note: "Entity pipeline state could not be read, so no pipeline state is claimed." };
+    }
+    return {
+      available: true,
+      total: s.total,
+      counts: s.counts,
+      stageOrder: s.stageOrder,
+      activeCount: s.activeCount,
+      gateQueueCount: s.gateQueueCount,
+      gatedCount: s.gatedCount,
+      registeredCount: s.registeredCount,
+      terminalCount: s.terminalCount,
+      rejectedCount: s.rejectedCount,
+      duplicateCount: s.duplicateCount,
+      staleCount: s.staleCount,
+      frozenPendingCount: s.frozenPendingCount,
+      frozenPendingBatches: s.frozenPendingBatches,
+      importedBatchCount: s.importedBatchCount,
+      decisions: (s.decisions || []).slice(0, 5)
+    };
+  }
+
   // ---- HUD aggregate (pure data — the .botops-hud grid reads this) -----
   // Every figure comes from the same real data the sections below
   // read: buildDrawerPrincipals, buildPrincipalDetail,
@@ -900,16 +995,46 @@
 
   // ---- Render helpers --------------------------------------------------------
 
+  // Tribe principal portrait (owner ruling 2026-11-16): when
+  // js/data/tribe-portraits.js loaded and holds an entry for this
+  // principal's permanent id, the avatar slot shows his generated
+  // face (round, object-fit cover). The data file is OPTIONAL: a
+  // missing file, a missing entry, or an image that fails to load
+  // falls back to the original Tribe mark (Revelation 7 order
+  // number + initial) exactly as before.
+  function principalAvatarNode(entry) {
+    var mark = String(entry.order) + " " + entry.displayName.charAt(0);
+    var portraits = global.TRIBE_PORTRAITS;
+    var src = portraits && typeof portraits[entry.id] === "string" && portraits[entry.id]
+      ? portraits[entry.id] : null;
+    if (!src) {
+      return U.el("div", { class: "tribe-card-avatar principal-card__avatar", "aria-hidden": "true" }, mark);
+    }
+    var img = U.el("img", {
+      class: "tribe-portrait-img",
+      src: src,
+      alt: "",
+      onerror: function () {
+        var slot = img.parentNode;
+        if (slot) {
+          slot.classList.remove("principal-card__avatar--portrait");
+          slot.textContent = mark;
+        }
+      }
+    });
+    return U.el("div", { class: "tribe-card-avatar principal-card__avatar principal-card__avatar--portrait", "aria-hidden": "true" }, [img]);
+  }
+
   function tribeCard(entry) {
     var assigned = entry.assignmentState !== "UNASSIGNED";
     // Visual Build Stage 2: .principal-card on the existing tribe
     // card (structure, Bring behaviour, and detail view unchanged).
-    // Tribe mark: the principal's Revelation 7 order number + initial
-    // (existing avatar hook — no new artwork). Meta line: stable ID,
+    // Avatar slot: the principal's generated portrait when
+    // TRIBE_PORTRAITS holds one for his id, else the Tribe mark
+    // (Revelation 7 order number + initial). Meta line: stable ID,
     // current role, REAL worker count, status — all real values.
     var card = U.el("button", { class: "tribe-card principal-card" + (assigned ? "" : " tribe-card-unassigned"), type: "button" }, [
-      U.el("div", { class: "tribe-card-avatar principal-card__avatar", "aria-hidden": "true" },
-        String(entry.order) + " " + entry.displayName.charAt(0)),
+      principalAvatarNode(entry),
       U.el("div", { class: "tribe-card-label" }, entry.displayName),
       U.el("div", { class: "tribe-card-status" }, entry.assignmentState),
       U.el("div", { class: "principal-card__meta" },
@@ -937,7 +1062,14 @@
         bringBtn.disabled = true;
       }
     });
-    card.appendChild(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [bringBtn]));
+    // Bot Profiles + Big Screen Build: the full profile (identity,
+    // recorded work, per-bot graphs) lives on its own route.
+    var profileBtn = U.el("button", { class: "btn btn-secondary", type: "button" }, "Profile");
+    profileBtn.addEventListener("click", function (ev) {
+      if (ev && typeof ev.stopPropagation === "function") ev.stopPropagation();
+      location.hash = "#/bot-profile/" + entry.id;
+    });
+    card.appendChild(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [bringBtn, profileBtn]));
     card.addEventListener("click", function () {
       selectedSlotId = entry.id;
       selectedWorkerId = null;
@@ -1023,6 +1155,13 @@
       rows.appendChild(detailRow("Controls", "None — worker records expose no controls in this shell"));
       rows.appendChild(detailRow("History / logs", ""));
       rows.appendChild(historyLines(w.history));
+      // Bot Profiles + Big Screen Build: the worker's full profile
+      // (identity, recorded work, graphs) lives on its own route.
+      var wProfileBtn = U.el("button", { class: "btn btn-secondary", type: "button" }, "Profile");
+      wProfileBtn.addEventListener("click", function () {
+        location.hash = "#/bot-profile/" + w.workerId;
+      });
+      rows.appendChild(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [wProfileBtn]));
       return;
     }
     var detail = selectedSlotId ? buildPrincipalDetail(selectedSlotId) : null;
@@ -1084,7 +1223,29 @@
         bringBtn.disabled = true;
       }
     });
-    detailBox.appendChild(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [bringBtn]));
+    // Presence (Presence Anywhere Build 1): the principal appears
+    // on the current screen with his recorded state as a labelled
+    // readout — see showPrincipalPresence. Offered next to Bring;
+    // disabled with an honest label when the component is absent.
+    var presenceBtn = U.el("button", {
+      class: "btn btn-secondary",
+      type: "button",
+      disabled: presenceAvailable() ? undefined : true
+    }, presenceAvailable() ? ("Show " + detail.displayName + " presence") : "Presence unavailable");
+    presenceBtn.addEventListener("click", function () {
+      var result = showPrincipalPresence(detail);
+      if (!result.ok) {
+        presenceBtn.textContent = "Presence unavailable";
+        presenceBtn.disabled = true;
+      }
+    });
+    // Bot Profiles + Big Screen Build: the principal's full
+    // profile (identity, recorded work, graphs) on its own route.
+    var pProfileBtn = U.el("button", { class: "btn btn-secondary", type: "button" }, "Profile");
+    pProfileBtn.addEventListener("click", function () {
+      location.hash = "#/bot-profile/" + detail.id;
+    });
+    detailBox.appendChild(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [bringBtn, presenceBtn, pProfileBtn]));
   }
 
   // ---- HUD helpers (Visual Build Stage 2, §59-68) -----------------------
@@ -1532,6 +1693,56 @@
     }
     root.appendChild(angelPanel);
 
+    // ---- ENTITY PIPELINE (P5 — read-only visibility) ----
+    // Same derivation STAR answers from (EntityGate.pipelineSummary
+    // via buildEntityPipeline). No buttons, no actions: candidates
+    // are managed in Crypto World's PIPELINE tab, and the authority
+    // gate is never operated from here.
+    var pipeline = await buildEntityPipeline();
+    var pipelinePanel = U.el("div", { class: "api-panel" }, [
+      U.el("h3", {}, "Entity Pipeline"),
+      U.el("div", { class: "api-meta" }, "Read-only view of the entity candidate pipeline — the same records STAR reports and Crypto World's PIPELINE tab manages. Candidates are records, not live work: no worker runtime is connected (workers active 0 / NOT_CONNECTED), and no candidate is assigned to a principal as executing work. Every candidate is UNVERIFIED and unregistered until the owner gate freezes it into a batch and the two-phase import gate registers it.")
+    ]);
+    if (!pipeline.available) {
+      pipelinePanel.appendChild(U.el("div", { class: "api-meta" }, "Pipeline state: UNKNOWN — " + pipeline.note));
+    } else if (pipeline.total === 0 && pipeline.frozenPendingCount === 0 && pipeline.importedBatchCount === 0) {
+      pipelinePanel.appendChild(U.el("div", { class: "api-meta" }, "Candidates: 0 — no entity candidates have been recorded. Nothing is invented to fill the pipeline."));
+    } else {
+      var staleDaysP = (global.EntityCandidates && global.EntityCandidates.STALE_DAYS) || 90;
+      pipelinePanel.appendChild(U.el("div", { class: "api-meta" },
+        "Candidates: " + pipeline.total + " (" + pipeline.activeCount + " in the working pipeline, " +
+        pipeline.gatedCount + " gated in a frozen batch, " + pipeline.registeredCount + " registered through the gate)."));
+      var stageParts = [];
+      (pipeline.stageOrder || []).forEach(function (st) {
+        var n = pipeline.counts ? (pipeline.counts[st] || 0) : 0;
+        if (n > 0) stageParts.push(st + " " + n);
+      });
+      if (stageParts.length) {
+        pipelinePanel.appendChild(U.el("div", { class: "api-meta" }, "By stage: " + stageParts.join(", ") + "."));
+      }
+      pipelinePanel.appendChild(U.el("div", { class: "api-meta" },
+        "Waiting at the owner authority gate (PREPARED): " + pipeline.gateQueueCount +
+        ". Frozen batches pending import: " + pipeline.frozenPendingCount +
+        (pipeline.frozenPendingCount ? " (" + pipeline.frozenPendingBatches.join(", ") + ")" : "") +
+        ". Batches imported through the gate: " + pipeline.importedBatchCount + "."));
+      pipelinePanel.appendChild(U.el("div", { class: "api-meta" },
+        "Stale candidates (working stage, unreviewed for over " + staleDaysP + " days): " + pipeline.staleCount +
+        ". Terminal history: " + pipeline.terminalCount + " (" + pipeline.rejectedCount + " rejected, " +
+        pipeline.duplicateCount + " duplicate) — retained as dedupe memory, not pipeline-active."));
+      if (pipeline.decisions.length) {
+        pipelinePanel.appendChild(U.el("div", { class: "api-meta" }, "Recent gate decisions (owner authority gate only — a recorded actor stands behind every decision):"));
+        pipeline.decisions.forEach(function (d) {
+          pipelinePanel.appendChild(U.el("div", { class: "status-row" }, [
+            U.el("span", {}, d.name + " — " + d.from + " → " + d.to),
+            U.el("span", { class: "status-value" }, d.actor + (d.at ? " · " + String(d.at).slice(0, 10) : ""))
+          ]));
+        });
+      } else {
+        pipelinePanel.appendChild(U.el("div", { class: "api-meta" }, "Gate decisions: none recorded yet."));
+      }
+    }
+    root.appendChild(pipelinePanel);
+
     // ---- LIVE WORK ----
     var liveWork = U.el("div", { class: "api-panel" + (mode === "theater" ? " botops-theater" : ""), id: "botops-live-work" });
     liveWork.appendChild(U.el("h3", {}, "Live Work"));
@@ -1555,8 +1766,12 @@
     createCryptoTaskFromTemplate: createCryptoTaskFromTemplate,
     buildHud: buildHud,
     buildTaskQueue: buildTaskQueue,
+    buildEntityPipeline: buildEntityPipeline,
     bringPrincipal: bringPrincipal,
     participantsAvailable: participantsAvailable,
+    principalPresenceLines: principalPresenceLines,
+    showPrincipalPresence: showPrincipalPresence,
+    presenceAvailable: presenceAvailable,
     WALLET_TASK_TEMPLATES: WALLET_TASK_TEMPLATES,
     CRYPTO_TASK_TEMPLATES: CRYPTO_TASK_TEMPLATES,
     CANONICAL_PRINCIPALS: CANONICAL_PRINCIPALS
