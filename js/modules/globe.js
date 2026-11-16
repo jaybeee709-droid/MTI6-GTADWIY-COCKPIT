@@ -33,6 +33,16 @@
  * truth label inside the visual says so. If the engine or a 2D
  * canvas context is unavailable, the screen keeps its previous
  * presentation (label only) — nothing here depends on it.
+ *
+ * Globe Map Build 2 (owner ruling, 2026-11-16): the sphere is
+ * replaced by a FLAT world map, drawn locally from vendored
+ * public-domain Natural Earth data (js/data/world-map.js): outlines
+ * of all countries in the same electric-blue scheme, US state
+ * outlines fainter, and country/state/city names faded into the
+ * background at their real positions. The map is presentation
+ * geography, NOT a live map feed — nothing is fetched. The layer
+ * markers remain layout, never locations: a marker does not sit in
+ * the country it happens to land on, and the truth label says so.
  */
 (function (global) {
   "use strict";
@@ -42,9 +52,9 @@
   var MODE_KEY = "mti6_globe_mode_v1";
   var MODES = [
     { id: "WORLD", label: "World", note: "Whole-world overview. Weather and headlines below are live public data; there is no live map feed connected." },
-    { id: "ELECTRIC", label: "Electric", note: "Electric view. Normal map boundaries and routes use electric blue/cyan. No live map or route data is connected — styling only." },
+    { id: "ELECTRIC", label: "Electric", note: "Electric view. Map boundaries use electric blue/cyan. The map is vendored public-domain data drawn locally; no live map or route data is connected — styling only." },
     { id: "TERRAIN", label: "Terrain", note: "Terrain view. No terrain data is connected — nothing is rendered as terrain." },
-    { id: "BOUNDARIES", label: "Boundaries", note: "Boundaries view. No live boundary data is connected." },
+    { id: "BOUNDARIES", label: "Boundaries", note: "Boundaries view. Outlines are vendored public-domain Natural Earth data drawn locally — not a live boundary feed." },
     { id: "INTELLIGENCE", label: "Intelligence", note: "Intelligence layer. No live intelligence feeds are connected — the headlines below are the only live layer." }
   ];
 
@@ -101,13 +111,15 @@
 
   // Honest label inside the visual area. TERRAIN gets the explicit
   // 2D-shell disclaimer; every other mode states plainly that no
-  // live map feed is connected. Globe Engine Build 1: the globe is
-  // rendered locally from this cockpit's own recorded layers —
-  // still no live map feed, and marker positions are presentation
-  // layout, not locations (no layer item carries geography).
+  // live map feed is connected. Globe Map Build 2: a local engine
+  // draws a flat world map from vendored public-domain Natural
+  // Earth outlines — the outlines and the faded names sit at their
+  // real positions; the glowing markers are this cockpit's recorded
+  // layers and their positions are presentation layout, not
+  // locations (no layer item carries geography).
   function truthLabelForMode(mode) {
-    if (mode === "TERRAIN") return "2D visual shell — not a 3D terrain engine. No terrain data is connected. A local visual engine renders the cockpit's recorded layers on it; marker positions are layout, not locations.";
-    return "No live map feed is connected — a local visual engine renders this cockpit's own recorded layers on a presentation globe; marker positions are layout, not locations.";
+    if (mode === "TERRAIN") return "2D visual shell — not a 3D terrain engine. No terrain data is connected. A local engine draws a flat world map from public-domain Natural Earth outlines, names faded at their real positions; marker positions are layout, not locations.";
+    return "No live map feed is connected — a local engine draws this flat world map from public-domain Natural Earth outlines, with country, state and city names faded at their real positions. The glowing markers are this cockpit's recorded layers; marker positions are layout, not locations.";
   }
 
   function fmtTime(iso) {
@@ -206,9 +218,9 @@
     ]);
     stage.appendChild(visual);
 
-    // Globe Engine Build 1: a canvas presentation globe inside the
-    // visual area (absolutely positioned by CSS; the truth label
-    // stays above it). The engine is presentation only — if it or a
+    // Globe Engine: a canvas flat world map inside the visual area
+    // (absolutely positioned by CSS; the truth label stays above
+    // it). The engine is presentation only — if it or a
     // 2D context is unavailable, the canvas is removed again and the
     // screen is exactly its pre-engine self. The plotted data is
     // handed in by plotGlobe() from this screen's own layer reads.

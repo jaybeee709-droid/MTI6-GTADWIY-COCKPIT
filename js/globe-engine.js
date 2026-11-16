@@ -1,85 +1,113 @@
-/* MTI6-GTADWIY-COCKPIT — Globe Engine (Build 1, roadmap item 13)
+/* MTI6-GTADWIY-COCKPIT — Globe Engine (Build 2: flat world map,
+ * owner ruling 2026-11-16; Build 1's rotating presentation sphere
+ * is replaced, per the owner's direction: "Put this outline of all
+ * the countries instead of a Globe... you can see the name of each
+ * country state city faded in the background of their position").
  *
  * A local canvas-2D rendering engine for the World Globe home
- * screen. It draws a shaded presentation sphere with a projected
- * graticule and plots one marker per item of the intelligence layer
- * the Globe screen currently has selected — the same layer object
- * (GlobeIntelligence.getLayer / listLayersLive) the screen's tabs,
- * badges and Details panel already read, handed in by the screen
- * itself, so the plotted set can never disagree with them.
+ * screen. It draws a FLAT world map inside .globe-visual:
+ * - Outlines of ALL countries (177) from vendored public-domain
+ *   Natural Earth data (js/data/world-map.js), filled very dark and
+ *   stroked electric blue on black — the same scheme as the rest of
+ *   the cockpit.
+ * - US state outlines (52) on top, fainter and thinner.
+ * - Names at their positions, FADED into the background: country
+ *   names (Natural Earth's own label points) most visible, then
+ *   state names, then major-city names (243, smallest and most
+ *   faded) with a tiny dot at each city's real position.
+ * - The selected intelligence layer's items as glowing markers on
+ *   top — the same layer object (GlobeIntelligence.getLayer /
+ *   listLayersLive) the screen's tabs, badges and Details panel
+ *   read, handed in by the screen itself, so the plotted count can
+ *   never disagree with them.
  *
  * Truth rules (do not weaken them):
- * - DATA is only: which items exist in the selected layer, their
- *   kinds, and their colours via GlobeIntelligence.colorFor (alarm
- *   red ONLY for a verified-and-active alert — that rule lives in
- *   GlobeIntelligence and is not re-decided here). The marker COUNT
- *   is data: it always equals the selected layer's item count.
- * - GEOMETRY is presentation only. No layer item anywhere in this
- *   platform carries latitude, longitude, or any geography
+ * - The MAP is real public-domain geography used as presentation:
+ *   outlines and names sit at their real positions (see the data
+ *   file's provenance header). It is NOT a live map feed — nothing
+ *   is fetched, no tiles, no imagery, no external requests.
+ * - The MARKERS are the cockpit's recorded layers, and their
+ *   positions are LAYOUT, never locations: no layer item anywhere
+ *   in this platform carries latitude, longitude, or any geography
  *   (GlobeIntelligence header rule: networks are logical nodes,
- *   never places). Marker anchors are therefore assigned by a
- *   deterministic Fibonacci-sphere distribution over the layer's
- *   items in registry order — layout, never a location. The Globe
- *   screen's truth label says exactly that.
- * - Nothing is fetched: no tiles, no imagery, no terrain, no
- *   external requests of any kind. The sphere's shading and
- *   graticule are drawn locally and claim no geography.
+ *   never places). Marker anchors are a deterministic low-
+ *   discrepancy spread over the map area in registry order. A
+ *   marker does NOT sit in the country/state/city it happens to
+ *   land on, and the Globe screen's truth label says so.
+ * - Marker DATA is only: which items exist in the selected layer,
+ *   their kinds, and their colours via GlobeIntelligence.colorFor
+ *   (alarm red ONLY for a verified-and-active alert — that rule
+ *   lives in GlobeIntelligence and is not re-decided here). The
+ *   marker COUNT is data: it always equals the layer's item count.
  * - Empty layers plot nothing (OPPORTUNITIES NO_DATA, BOT_ACTIVITY
  *   NOT_CONNECTED, SECURITY_ALERTS NO_ALERTS all have zero items by
  *   construction in GlobeIntelligence). The screen's badges and
  *   panel text say why; the engine invents nothing to fill them.
  *
- * Motion rules: slow rotation (one revolution per ROTATION_MS)
- * only while running; prefers-reduced-motion yields static frames
- * and no loop; the loop stops while the document is hidden and
- * self-terminates when the canvas leaves the DOM (route change),
- * so a re-render never leaves an orphan loop behind.
- *
+ * The map is STATIC (no rotation, no animation loop): it redraws
+ * when the screen hands in new data and when the canvas resizes.
  * Pure presentation: no storage, no network, no data writes. If a
  * 2D context cannot be obtained, create() returns null and the
- * Globe screen keeps its pre-engine presentation unchanged.
+ * Globe screen keeps its pre-engine presentation unchanged. If the
+ * map data file is absent, the engine still plots the layer
+ * markers over the background — the screen never depends on it.
  */
 (function (global) {
   "use strict";
 
   var TAU = Math.PI * 2;
-  var ROTATION_MS = 150000; // one revolution per 150 s — slow drift
-  var GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
   var FALLBACK_BLUE = "#00BFFF"; // GlobeIntelligence.COLORS.ELECTRIC_BLUE
 
   // Mode palettes: presentation styling only (the five globe modes
-  // restyle the rendering; they change no data). Disc shades mirror
-  // the app's navy/black surfaces; TERRAIN is a muted palette, NOT
-  // terrain data — the screen's label keeps that disclaimer.
+  // restyle the rendering; they change no data). TERRAIN is a muted
+  // palette, NOT terrain data — the screen's label keeps that
+  // disclaimer. BOUNDARIES emphasises the outlines; INTELLIGENCE
+  // accents in STAR purple. Label colours are rgba so the names sit
+  // faded in the background: countries strongest, states weaker,
+  // cities weakest.
   var PALETTES = {
-    WORLD:        { disc: ["#10283d", "#04070b"], graticule: "rgba(0,191,255,0.16)", limb: "rgba(0,191,255,0.55)" },
-    ELECTRIC:     { disc: ["#143c5a", "#030608"], graticule: "rgba(0,212,255,0.28)", limb: "rgba(0,212,255,0.85)" },
-    TERRAIN:      { disc: ["#263026", "#060806"], graticule: "rgba(170,196,150,0.15)", limb: "rgba(170,196,150,0.45)" },
-    BOUNDARIES:   { disc: ["#0a0d12", "#030405"], graticule: "rgba(192,200,214,0.32)", limb: "rgba(192,200,214,0.65)" },
-    INTELLIGENCE: { disc: ["#1c1136", "#050409"], graticule: "rgba(139,92,246,0.20)", limb: "rgba(139,92,246,0.55)" }
+    WORLD: {
+      bg: "#04070b", glow: "#10283d",
+      countryFill: "rgba(14,36,56,0.88)", countryStroke: "rgba(0,191,255,0.55)", countryWidth: 0.7,
+      stateStroke: "rgba(0,191,255,0.16)",
+      labelCountry: "rgba(190,226,255,0.34)", labelState: "rgba(160,200,235,0.20)", labelCity: "rgba(150,185,220,0.14)",
+      cityDot: "rgba(0,212,255,0.35)"
+    },
+    ELECTRIC: {
+      bg: "#030608", glow: "#143c5a",
+      countryFill: "rgba(18,52,80,0.92)", countryStroke: "rgba(0,212,255,0.85)", countryWidth: 0.8,
+      stateStroke: "rgba(0,212,255,0.26)",
+      labelCountry: "rgba(200,238,255,0.42)", labelState: "rgba(170,220,250,0.26)", labelCity: "rgba(160,210,245,0.18)",
+      cityDot: "rgba(0,212,255,0.5)"
+    },
+    TERRAIN: {
+      bg: "#060806", glow: "#263026",
+      countryFill: "rgba(34,44,34,0.88)", countryStroke: "rgba(170,196,150,0.45)", countryWidth: 0.7,
+      stateStroke: "rgba(170,196,150,0.14)",
+      labelCountry: "rgba(216,226,200,0.28)", labelState: "rgba(200,210,185,0.17)", labelCity: "rgba(190,200,175,0.12)",
+      cityDot: "rgba(170,196,150,0.3)"
+    },
+    BOUNDARIES: {
+      bg: "#030405", glow: "#0a0d12",
+      countryFill: "rgba(10,13,18,0.92)", countryStroke: "rgba(192,200,214,0.9)", countryWidth: 1.1,
+      stateStroke: "rgba(192,200,214,0.3)",
+      labelCountry: "rgba(200,208,220,0.22)", labelState: "rgba(190,198,210,0.13)", labelCity: "rgba(180,188,200,0.09)",
+      cityDot: "rgba(192,200,214,0.3)"
+    },
+    INTELLIGENCE: {
+      bg: "#050409", glow: "#1c1136",
+      countryFill: "rgba(26,16,50,0.88)", countryStroke: "rgba(139,92,246,0.6)", countryWidth: 0.7,
+      stateStroke: "rgba(139,92,246,0.18)",
+      labelCountry: "rgba(216,200,255,0.32)", labelState: "rgba(196,178,245,0.19)", labelCity: "rgba(186,168,235,0.13)",
+      cityDot: "rgba(139,92,246,0.4)"
+    }
   };
 
-  function prefersReducedMotion() {
-    try {
-      return typeof global.matchMedia === "function" &&
-        global.matchMedia("(prefers-reduced-motion: reduce)").matches === true;
-    } catch (e) { return false; }
-  }
-
-  // Deterministic presentation anchors: a Fibonacci-sphere spread
-  // over the items in the order the layer returned them. Same items
-  // in the same order always produce the same anchors.
-  function anchorsFor(items) {
-    var n = items.length;
-    var out = [];
-    for (var i = 0; i < n; i++) {
-      var y = n === 1 ? 0 : 1 - (i / (n - 1)) * 2;
-      var rad = Math.sqrt(Math.max(0, 1 - y * y));
-      var theta = GOLDEN_ANGLE * i;
-      out.push({ x: Math.cos(theta) * rad, y: y, z: Math.sin(theta) * rad });
-    }
-    return out;
-  }
+  // Projection window (degrees). Latitudes beyond +/-85 are pole
+  // caps with no label content; Antarctica's outline continues
+  // below the window and is clipped by the canvas edge, as on most
+  // flat world maps.
+  var LON_MIN = -180, LON_SPAN = 360, LAT_MAX = 85, LAT_SPAN = 170;
 
   function create(canvas) {
     if (!canvas || typeof canvas.getContext !== "function") return null;
@@ -88,26 +116,18 @@
     if (!ctx) return null;
 
     var doc = canvas.ownerDocument || global.document || null;
-    var raf = typeof global.requestAnimationFrame === "function"
-      ? function (fn) { return global.requestAnimationFrame(fn); } : null;
-    var caf = typeof global.cancelAnimationFrame === "function"
-      ? function (id) { global.cancelAnimationFrame(id); } : null;
-
-    var reduced = prefersReducedMotion();
     var alive = true;
-    var running = false;
-    var rafId = null;
-    var lastTs = null;
-    var angle = 0;
     var mode = "WORLD";
     var layer = null;
     var items = [];
-    var anchors = [];
+    var markers = [];
     var viewW = 0, viewH = 0;
     var stats = {
-      framesDrawn: 0, markersPlotted: 0, markersFront: 0,
+      framesDrawn: 0, markersPlotted: 0,
+      countriesDrawn: 0, statesDrawn: 0, citiesDrawn: 0, labelsDrawn: 0,
+      mapLoaded: false,
       layerId: null, layerState: null, mode: mode,
-      running: false, reducedMotion: reduced, angle: 0
+      running: false, reducedMotion: false, angle: 0
     };
 
     function fit() {
@@ -122,139 +142,179 @@
       viewW = w; viewH = h;
     }
 
-    // Orthographic projection of a unit-sphere point, rotated by
-    // `angle` around the vertical axis. z > 0 faces the viewer.
-    function project(px, py, pz) {
-      var cosA = Math.cos(angle), sinA = Math.sin(angle);
-      return { x: px * cosA + pz * sinA, y: py, z: -px * sinA + pz * cosA };
+    // Equirectangular projection, fit to the visual box with the
+    // aspect preserved and the map centred (letterboxed).
+    function projector() {
+      var s = Math.min(viewW / LON_SPAN, viewH / LAT_SPAN);
+      var ox = (viewW - LON_SPAN * s) / 2;
+      var oy = (viewH - LAT_SPAN * s) / 2;
+      return {
+        scale: s,
+        x: function (lon) { return ox + (lon - LON_MIN) * s; },
+        y: function (lat) { return oy + (LAT_MAX - lat) * s; }
+      };
     }
 
-    function graticulePath(cx, cy, R) {
-      var lat, lon, i, p, started;
+    // Trace one feature's rings. Segments jumping more than 180
+    // degrees of longitude are antimeridian cuts in the source data
+    // (Russia, Fiji): the pen lifts instead of streaking a line
+    // across the map.
+    function traceRings(rings, proj) {
       ctx.beginPath();
-      // Parallels every 15 degrees.
-      for (lat = -75; lat <= 75; lat += 15) {
-        var phi = lat * Math.PI / 180;
-        started = false;
-        for (lon = -180; lon <= 180; lon += 6) {
-          var lam = lon * Math.PI / 180;
-          p = project(Math.cos(phi) * Math.sin(lam), Math.sin(phi), Math.cos(phi) * Math.cos(lam));
-          if (p.z > 0) {
-            var sx = cx + p.x * R, sy = cy - p.y * R;
-            if (started) ctx.lineTo(sx, sy); else { ctx.moveTo(sx, sy); started = true; }
-          } else started = false;
+      for (var r = 0; r < rings.length; r++) {
+        var ring = rings[r];
+        var started = false;
+        var prevLon = 0;
+        for (var i = 0; i + 1 < ring.length; i += 2) {
+          var lon = ring[i], lat = ring[i + 1];
+          if (!started || Math.abs(lon - prevLon) > 180) {
+            ctx.moveTo(proj.x(lon), proj.y(lat));
+            started = true;
+          } else {
+            ctx.lineTo(proj.x(lon), proj.y(lat));
+          }
+          prevLon = lon;
         }
+        ctx.closePath();
       }
-      // Meridians every 15 degrees.
-      for (lon = 0; lon < 180; lon += 15) {
-        var lam2 = lon * Math.PI / 180;
-        started = false;
-        for (i = -90; i <= 90; i += 6) {
-          var phi2 = i * Math.PI / 180;
-          p = project(Math.cos(phi2) * Math.sin(lam2), Math.sin(phi2), Math.cos(phi2) * Math.cos(lam2));
-          if (p.z > 0) {
-            var mx = cx + p.x * R, my = cy - p.y * R;
-            if (started) ctx.lineTo(mx, my); else { ctx.moveTo(mx, my); started = true; }
-          } else started = false;
-        }
+    }
+
+    function drawLabels(list, proj, font, style, statsKey) {
+      ctx.font = font;
+      ctx.fillStyle = style;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      var drawn = 0;
+      for (var i = 0; i < list.length; i++) {
+        var it = list[i];
+        var pt = it.lp || it.at;
+        if (!pt) continue;
+        var x = proj.x(pt[0]), y = proj.y(pt[1]);
+        if (x < -40 || x > viewW + 40 || y < -10 || y > viewH + 10) continue;
+        ctx.fillText(it.n, x, y);
+        drawn++;
       }
+      stats[statsKey] = drawn;
+      return drawn;
     }
 
     function draw() {
       if (!alive) return;
       fit();
       if (!viewW || !viewH) return;
-      var cx = viewW / 2, cy = viewH / 2;
-      var R = Math.min(viewW, viewH) / 2 - 6;
-      if (R < 12) R = 12;
       var pal = PALETTES[mode] || PALETTES.WORLD;
+      var proj = projector();
+      var data = global.WorldMapData || null;
+      stats.mapLoaded = !!(data && Array.isArray(data.countries));
+
+      // Background: deep void with a soft central glow (the mode's
+      // disc colours from Build 1, kept as the map's ambience).
       ctx.clearRect(0, 0, viewW, viewH);
-      // Shaded sphere disc.
-      var grad = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.35, R * 0.08, cx, cy, R);
-      grad.addColorStop(0, pal.disc[0]);
-      grad.addColorStop(1, pal.disc[1]);
-      ctx.beginPath();
-      ctx.arc(cx, cy, R, 0, TAU);
+      ctx.fillStyle = pal.bg;
+      ctx.fillRect(0, 0, viewW, viewH);
+      var cx = viewW / 2, cy = viewH / 2;
+      var grad = ctx.createRadialGradient(cx, cy, 10, cx, cy, Math.max(viewW, viewH) * 0.62);
+      grad.addColorStop(0, pal.glow);
+      grad.addColorStop(1, pal.bg);
       ctx.fillStyle = grad;
-      ctx.fill();
-      // Graticule (front hemisphere only).
-      graticulePath(cx, cy, R);
-      ctx.strokeStyle = pal.graticule;
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      // Limb.
-      ctx.beginPath();
-      ctx.arc(cx, cy, R, 0, TAU);
-      ctx.strokeStyle = pal.limb;
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      // Markers: every item of the selected layer is plotted. The
-      // far side shows through at low alpha (x-ray presentation), so
-      // the plotted count always equals the layer's item count.
-      var r = Math.max(2.2, Math.min(5, R / 90));
-      var front = 0;
-      for (var i = 0; i < anchors.length; i++) {
-        var a = anchors[i];
-        var p = project(a.x, a.y, a.z);
-        var isFront = p.z > 0;
-        if (isFront) front++;
-        var sx2 = cx + p.x * R, sy2 = cy - p.y * R;
-        ctx.globalAlpha = isFront ? 1 : 0.16;
-        ctx.fillStyle = a.color;
-        ctx.strokeStyle = a.color;
-        ctx.beginPath();
-        ctx.arc(sx2, sy2, r, 0, TAU);
-        if (a.hollow) { ctx.lineWidth = 1.5; ctx.stroke(); } else { ctx.fill(); }
-        if (a.alarm && isFront) {
+      ctx.fillRect(0, 0, viewW, viewH);
+
+      var labelTotal = 0;
+      if (stats.mapLoaded) {
+        // Country fills, then strokes (one path per country so the
+        // even-odd fill honours enclaves/holes at this scale).
+        var countries = data.countries;
+        ctx.fillStyle = pal.countryFill;
+        ctx.strokeStyle = pal.countryStroke;
+        ctx.lineWidth = pal.countryWidth;
+        for (var ci = 0; ci < countries.length; ci++) {
+          traceRings(countries[ci].p, proj);
+          ctx.fill("evenodd");
+          ctx.stroke();
+        }
+        stats.countriesDrawn = countries.length;
+        // US state outlines: fainter, thinner, no fill.
+        var states = Array.isArray(data.states) ? data.states : [];
+        ctx.strokeStyle = pal.stateStroke;
+        ctx.lineWidth = 0.4;
+        for (var si = 0; si < states.length; si++) {
+          traceRings(states[si].p, proj);
+          ctx.stroke();
+        }
+        stats.statesDrawn = states.length;
+        // Faded background names at their real positions:
+        // countries strongest, states weaker, cities weakest.
+        var s = proj.scale;
+        var countryFont = Math.max(9, Math.min(15, s * 3.1));
+        labelTotal += drawLabels(countries, proj,
+          "600 " + countryFont.toFixed(1) + "px system-ui, sans-serif",
+          pal.labelCountry, "labelsCountries");
+        labelTotal += drawLabels(states, proj,
+          "500 " + (countryFont * 0.74).toFixed(1) + "px system-ui, sans-serif",
+          pal.labelState, "labelsStates");
+        var cities = Array.isArray(data.cities) ? data.cities : [];
+        // City dots at their real positions.
+        ctx.fillStyle = pal.cityDot;
+        for (var ti = 0; ti < cities.length; ti++) {
+          var cpt = cities[ti].at;
           ctx.beginPath();
-          ctx.arc(sx2, sy2, r + 3.5, 0, TAU);
+          ctx.arc(proj.x(cpt[0]), proj.y(cpt[1]), 1.1, 0, TAU);
+          ctx.fill();
+        }
+        stats.citiesDrawn = cities.length;
+        labelTotal += drawLabels(cities, proj,
+          "400 " + (countryFont * 0.58).toFixed(1) + "px system-ui, sans-serif",
+          pal.labelCity, "labelsCities");
+      } else {
+        stats.countriesDrawn = 0;
+        stats.statesDrawn = 0;
+        stats.citiesDrawn = 0;
+      }
+      stats.labelsDrawn = labelTotal;
+
+      // Layer markers on top: every item of the selected layer is
+      // plotted, glowing in its GlobeIntelligence colour. Positions
+      // are the deterministic layout spread (see header) — layout,
+      // never locations.
+      var r = Math.max(2.4, Math.min(4.5, proj.scale * 1.05));
+      ctx.save();
+      for (var mi = 0; mi < markers.length; mi++) {
+        var mk = markers[mi];
+        var mx = proj.x(mk.lon), my = proj.y(mk.lat);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = mk.color;
+        ctx.strokeStyle = mk.color;
+        ctx.shadowColor = mk.color;
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.arc(mx, my, r, 0, TAU);
+        if (mk.hollow) { ctx.lineWidth = 1.5; ctx.stroke(); } else { ctx.fill(); }
+        if (mk.alarm) {
+          ctx.beginPath();
+          ctx.arc(mx, my, r + 3.5, 0, TAU);
           ctx.lineWidth = 1;
           ctx.stroke();
         }
-        ctx.globalAlpha = 1;
       }
+      ctx.restore();
+      ctx.globalAlpha = 1;
       stats.framesDrawn++;
-      stats.markersPlotted = anchors.length;
-      stats.markersFront = front;
-      stats.angle = angle;
+      stats.markersPlotted = markers.length;
       stats.mode = mode;
     }
 
-    function loop(ts) {
-      if (!alive) { running = false; stats.running = false; return; }
-      if (canvas.isConnected === false) { destroy(); return; }
-      if (typeof ts === "number") {
-        if (lastTs !== null) angle += ((ts - lastTs) / ROTATION_MS) * TAU;
-        lastTs = ts;
+    // Deterministic presentation anchors for the layer markers: a
+    // low-discrepancy (golden-ratio) spread over the map area, in
+    // the order the layer returned its items. Same items in the
+    // same order always produce the same anchors. Layout only.
+    function anchorsFor(count) {
+      var out = [];
+      for (var i = 0; i < count; i++) {
+        var fx = ((i + 0.5) * 0.6180339887498949) % 1;
+        var fy = ((i + 0.5) * 0.7548776662466927) % 1;
+        out.push({ lon: -172 + fx * 344, lat: -56 + fy * 132 });
       }
-      draw();
-      rafId = raf(loop);
-    }
-
-    function startLoop() {
-      if (!alive || reduced || !raf || running) return;
-      if (doc && doc.hidden) return;
-      running = true;
-      stats.running = true;
-      lastTs = null;
-      rafId = raf(loop);
-    }
-
-    function stopLoop() {
-      running = false;
-      stats.running = false;
-      lastTs = null;
-      if (rafId !== null && caf) { try { caf(rafId); } catch (e) {} }
-      rafId = null;
-    }
-
-    function onVisibility() {
-      if (!doc) return;
-      if (doc.hidden) stopLoop();
-      else {
-        if (canvas.isConnected === false) { destroy(); return; }
-        startLoop();
-      }
+      return out;
     }
 
     function onResize() {
@@ -269,9 +329,6 @@
         resizeObserver.observe(canvas.parentNode);
       } catch (e) { resizeObserver = null; }
     }
-    if (doc && typeof doc.addEventListener === "function") {
-      doc.addEventListener("visibilitychange", onVisibility);
-    }
     if (typeof global.addEventListener === "function") {
       global.addEventListener("resize", onResize);
     }
@@ -279,19 +336,15 @@
     function destroy() {
       if (!alive) return;
       alive = false;
-      stopLoop();
       if (resizeObserver) { try { resizeObserver.disconnect(); } catch (e) {} resizeObserver = null; }
-      if (doc && typeof doc.removeEventListener === "function") {
-        doc.removeEventListener("visibilitychange", onVisibility);
-      }
       if (typeof global.removeEventListener === "function") {
         global.removeEventListener("resize", onResize);
       }
     }
 
     // The screen hands in its own current layer object + mode. The
-    // engine snapshots the items, derives anchors and colours, draws
-    // immediately, and keeps the loop state honest.
+    // engine snapshots the items, derives colours and layout
+    // anchors, and redraws immediately (static map — no loop).
     function setData(newLayer, newMode) {
       if (!alive) return;
       layer = newLayer || null;
@@ -299,12 +352,12 @@
       mode = PALETTES[m] ? m : "WORLD";
       items = layer && Array.isArray(layer.items) ? layer.items.slice() : [];
       var GI = global.GlobeIntelligence;
-      var pos = anchorsFor(items);
-      anchors = items.map(function (it, i) {
+      var pos = anchorsFor(items.length);
+      markers = items.map(function (it, i) {
         var color = FALLBACK_BLUE;
         try { if (GI && typeof GI.colorFor === "function") color = GI.colorFor(it); } catch (e) {}
         return {
-          x: pos[i].x, y: pos[i].y, z: pos[i].z,
+          lon: pos[i].lon, lat: pos[i].lat,
           color: color,
           hollow: !!(it && it.kind === "ASSET_CLASS"),
           alarm: !!(it && it.alarm === true)
@@ -314,7 +367,6 @@
       stats.layerState = layer ? layer.state : null;
       stats.mode = mode;
       draw();
-      startLoop();
     }
 
     fit();
@@ -326,7 +378,11 @@
         return {
           framesDrawn: stats.framesDrawn,
           markersPlotted: stats.markersPlotted,
-          markersFront: stats.markersFront,
+          countriesDrawn: stats.countriesDrawn,
+          statesDrawn: stats.statesDrawn,
+          citiesDrawn: stats.citiesDrawn,
+          labelsDrawn: stats.labelsDrawn,
+          mapLoaded: stats.mapLoaded,
           layerId: stats.layerId,
           layerState: stats.layerState,
           mode: stats.mode,
