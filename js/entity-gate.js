@@ -569,6 +569,89 @@
     return ec.listCandidates({ stage: "PREPARED" });
   }
 
+  /* ---------------- P5: read-only pipeline summary ----------------
+   * ONE derivation of pipeline state for the P5 visibility surfaces
+   * (StarWorld answers + the Bot Operations panel), so both always
+   * report the same numbers from the same real records. READ-ONLY:
+   * this function never writes — it reads candidates and frozen-batch
+   * artifacts and derives counts, the gate queue, stale flags, and
+   * recent gate decisions from the candidates' append-only history.
+   *
+   * Gate decisions are exactly the transitions the authority gate
+   * performs: PREPARED -> GATED (freeze), GATED -> REGISTERED
+   * (import), PREPARED -> MAPPED (return for evidence), and
+   * PREPARED -> REJECTED (gate rejection). Stage advances and dedupe
+   * verdicts inside the working pipeline are not gate decisions.
+   * Stale = a candidate still in a working stage (not GATED /
+   * REGISTERED / terminal) older than EntityCandidates.STALE_DAYS. */
+  var GATE_STAGES = ["GATED", "REGISTERED"];
+  function isGateDecision(h) {
+    if (!h) return false;
+    if (h.to === "GATED" || h.to === "REGISTERED") return true;
+    if (h.from === "PREPARED" && (h.to === "MAPPED" || h.to === "REJECTED")) return true;
+    return false;
+  }
+  function pipelineSummary(now) {
+    var ec = EC();
+    if (!ec) return Promise.resolve(null);
+    return Promise.all([ec.listCandidates(), listFrozenBatches()]).then(function (res) {
+      var list = res[0] || [];
+      var artifacts = res[1] || [];
+      var stageOrder = ec.STAGES.concat(GATE_STAGES).concat(ec.TERMINAL_STAGES);
+      var counts = {};
+      stageOrder.forEach(function (s) { counts[s] = 0; });
+      list.forEach(function (c) {
+        if (c && counts.hasOwnProperty(c.pipelineStage)) counts[c.pipelineStage] += 1;
+      });
+      var activeCount = 0;
+      ec.STAGES.forEach(function (s) { activeCount += counts[s]; });
+      var staleCount = 0;
+      list.forEach(function (c) {
+        if (c && ec.STAGES.indexOf(c.pipelineStage) !== -1 && ec.isStale(c, now)) staleCount += 1;
+      });
+      var decisions = [];
+      list.forEach(function (c) {
+        if (!c) return;
+        (Array.isArray(c.history) ? c.history : []).forEach(function (h) {
+          if (isGateDecision(h)) {
+            decisions.push({
+              candidateId: c.id,
+              name: c.proposedName || c.id,
+              from: h.from, to: h.to,
+              actor: h.actor || "UNKNOWN",
+              at: h.at || null,
+              note: h.note || ""
+            });
+          }
+        });
+      });
+      decisions.sort(function (a, b) {
+        var ta = a.at ? Date.parse(a.at) : 0;
+        var tb = b.at ? Date.parse(b.at) : 0;
+        return tb - ta;
+      });
+      var frozenPending = artifacts.filter(function (a) { return a && a.status === "FROZEN"; });
+      var imported = artifacts.filter(function (a) { return a && a.status === "IMPORTED"; });
+      return {
+        total: list.length,
+        counts: counts,
+        stageOrder: stageOrder,
+        activeCount: activeCount,
+        gateQueueCount: counts.PREPARED || 0,
+        gatedCount: counts.GATED || 0,
+        registeredCount: counts.REGISTERED || 0,
+        terminalCount: (counts.REJECTED || 0) + (counts.DUPLICATE || 0),
+        rejectedCount: counts.REJECTED || 0,
+        duplicateCount: counts.DUPLICATE || 0,
+        staleCount: staleCount,
+        frozenPendingCount: frozenPending.length,
+        frozenPendingBatches: frozenPending.map(function (a) { return a.batch; }),
+        importedBatchCount: imported.length,
+        decisions: decisions
+      };
+    }).catch(function () { return null; });
+  }
+
   global.EntityGate = {
     VERSION: "P4.1",
     ARTIFACT_KIND: ARTIFACT_KIND,
@@ -579,6 +662,7 @@
     listFrozenBatches: listFrozenBatches,
     getFrozenBatch: getFrozenBatch,
     reviewQueue: reviewQueue,
+    pipelineSummary: pipelineSummary,
     freezeIntoBatch: freezeIntoBatch,
     importFrozenBatch: importFrozenBatch,
     returnForEvidence: returnForEvidence,

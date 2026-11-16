@@ -53,7 +53,16 @@
  * buildWorkerDetail, getWorkersActive, buildAngelSummary,
  * buildWalletTaskTemplates, createWalletTaskFromTemplate,
  * buildCryptoTaskTemplates, createCryptoTaskFromTemplate,
- * buildHud, buildTaskQueue, bringPrincipal, participantsAvailable.
+ * buildHud, buildTaskQueue, bringPrincipal, participantsAvailable,
+ * buildEntityPipeline.
+ *
+ * P5 adds ONE read-only panel: Entity Pipeline. It renders
+ * EntityGate.pipelineSummary — the same derivation STAR answers
+ * from — and nothing else: no candidate writes, no stage
+ * transitions, no gate actions (those live in Crypto World's
+ * PIPELINE tab). Candidates are records, not live work: the panel
+ * says so, and no candidate is presented as assigned to or executed
+ * by any principal or worker.
  */
 (function (global) {
   "use strict";
@@ -636,6 +645,41 @@
       angels: typeof s.angels === "number" ? s.angels : 0,
       alerts: alerts,
       note: typeof s.note === "string" ? s.note : ""
+    };
+  }
+
+  // ---- Entity Pipeline summary (P5 — pure data, READ-ONLY) -----
+  // The single source is EntityGate.pipelineSummary (the same
+  // derivation StarWorld answers from), so this panel and STAR can
+  // never disagree. Unavailable when the pipeline modules are not
+  // loaded: the panel then states UNKNOWN and claims nothing.
+  async function buildEntityPipeline() {
+    var EG = global.EntityGate;
+    if (!EG || typeof EG.pipelineSummary !== "function") {
+      return { available: false, note: "Entity pipeline modules are not loaded, so no pipeline state can be verified." };
+    }
+    var s = null;
+    try { s = await EG.pipelineSummary(); } catch (e) { s = null; }
+    if (!s) {
+      return { available: false, note: "Entity pipeline state could not be read, so no pipeline state is claimed." };
+    }
+    return {
+      available: true,
+      total: s.total,
+      counts: s.counts,
+      stageOrder: s.stageOrder,
+      activeCount: s.activeCount,
+      gateQueueCount: s.gateQueueCount,
+      gatedCount: s.gatedCount,
+      registeredCount: s.registeredCount,
+      terminalCount: s.terminalCount,
+      rejectedCount: s.rejectedCount,
+      duplicateCount: s.duplicateCount,
+      staleCount: s.staleCount,
+      frozenPendingCount: s.frozenPendingCount,
+      frozenPendingBatches: s.frozenPendingBatches,
+      importedBatchCount: s.importedBatchCount,
+      decisions: (s.decisions || []).slice(0, 5)
     };
   }
 
@@ -1532,6 +1576,56 @@
     }
     root.appendChild(angelPanel);
 
+    // ---- ENTITY PIPELINE (P5 — read-only visibility) ----
+    // Same derivation STAR answers from (EntityGate.pipelineSummary
+    // via buildEntityPipeline). No buttons, no actions: candidates
+    // are managed in Crypto World's PIPELINE tab, and the authority
+    // gate is never operated from here.
+    var pipeline = await buildEntityPipeline();
+    var pipelinePanel = U.el("div", { class: "api-panel" }, [
+      U.el("h3", {}, "Entity Pipeline"),
+      U.el("div", { class: "api-meta" }, "Read-only view of the entity candidate pipeline — the same records STAR reports and Crypto World's PIPELINE tab manages. Candidates are records, not live work: no worker runtime is connected (workers active 0 / NOT_CONNECTED), and no candidate is assigned to a principal as executing work. Every candidate is UNVERIFIED and unregistered until the owner gate freezes it into a batch and the two-phase import gate registers it.")
+    ]);
+    if (!pipeline.available) {
+      pipelinePanel.appendChild(U.el("div", { class: "api-meta" }, "Pipeline state: UNKNOWN — " + pipeline.note));
+    } else if (pipeline.total === 0 && pipeline.frozenPendingCount === 0 && pipeline.importedBatchCount === 0) {
+      pipelinePanel.appendChild(U.el("div", { class: "api-meta" }, "Candidates: 0 — no entity candidates have been recorded. Nothing is invented to fill the pipeline."));
+    } else {
+      var staleDaysP = (global.EntityCandidates && global.EntityCandidates.STALE_DAYS) || 90;
+      pipelinePanel.appendChild(U.el("div", { class: "api-meta" },
+        "Candidates: " + pipeline.total + " (" + pipeline.activeCount + " in the working pipeline, " +
+        pipeline.gatedCount + " gated in a frozen batch, " + pipeline.registeredCount + " registered through the gate)."));
+      var stageParts = [];
+      (pipeline.stageOrder || []).forEach(function (st) {
+        var n = pipeline.counts ? (pipeline.counts[st] || 0) : 0;
+        if (n > 0) stageParts.push(st + " " + n);
+      });
+      if (stageParts.length) {
+        pipelinePanel.appendChild(U.el("div", { class: "api-meta" }, "By stage: " + stageParts.join(", ") + "."));
+      }
+      pipelinePanel.appendChild(U.el("div", { class: "api-meta" },
+        "Waiting at the owner authority gate (PREPARED): " + pipeline.gateQueueCount +
+        ". Frozen batches pending import: " + pipeline.frozenPendingCount +
+        (pipeline.frozenPendingCount ? " (" + pipeline.frozenPendingBatches.join(", ") + ")" : "") +
+        ". Batches imported through the gate: " + pipeline.importedBatchCount + "."));
+      pipelinePanel.appendChild(U.el("div", { class: "api-meta" },
+        "Stale candidates (working stage, unreviewed for over " + staleDaysP + " days): " + pipeline.staleCount +
+        ". Terminal history: " + pipeline.terminalCount + " (" + pipeline.rejectedCount + " rejected, " +
+        pipeline.duplicateCount + " duplicate) — retained as dedupe memory, not pipeline-active."));
+      if (pipeline.decisions.length) {
+        pipelinePanel.appendChild(U.el("div", { class: "api-meta" }, "Recent gate decisions (owner authority gate only — a recorded actor stands behind every decision):"));
+        pipeline.decisions.forEach(function (d) {
+          pipelinePanel.appendChild(U.el("div", { class: "status-row" }, [
+            U.el("span", {}, d.name + " — " + d.from + " → " + d.to),
+            U.el("span", { class: "status-value" }, d.actor + (d.at ? " · " + String(d.at).slice(0, 10) : ""))
+          ]));
+        });
+      } else {
+        pipelinePanel.appendChild(U.el("div", { class: "api-meta" }, "Gate decisions: none recorded yet."));
+      }
+    }
+    root.appendChild(pipelinePanel);
+
     // ---- LIVE WORK ----
     var liveWork = U.el("div", { class: "api-panel" + (mode === "theater" ? " botops-theater" : ""), id: "botops-live-work" });
     liveWork.appendChild(U.el("h3", {}, "Live Work"));
@@ -1555,6 +1649,7 @@
     createCryptoTaskFromTemplate: createCryptoTaskFromTemplate,
     buildHud: buildHud,
     buildTaskQueue: buildTaskQueue,
+    buildEntityPipeline: buildEntityPipeline,
     bringPrincipal: bringPrincipal,
     participantsAvailable: participantsAvailable,
     WALLET_TASK_TEMPLATES: WALLET_TASK_TEMPLATES,
