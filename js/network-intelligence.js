@@ -145,6 +145,15 @@
       description: "BNB Chain family networks (BNB Smart Chain and relatives).",
       verificationStatus: "UNVERIFIED",
       source: "owner-seed"
+    },
+    {
+      id: "avalanche-family",
+      name: "Avalanche-family",
+      vm: "EVM",
+      accountModel: "ACCOUNT",
+      description: "Avalanche family networks (Avalanche C-Chain and relatives).",
+      verificationStatus: "UNVERIFIED",
+      source: "owner-seed"
     }
   ];
 

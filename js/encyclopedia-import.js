@@ -127,17 +127,26 @@
     if (global.EncyclopediaCanonical60) list.push(global.EncyclopediaCanonical60);
     if (global.EncyclopediaBatchB) list.push(global.EncyclopediaBatchB);
     if (global.EncyclopediaEntityBatch1) list.push(global.EncyclopediaEntityBatch1);
+    if (global.EncyclopediaEntityBatch2) list.push(global.EncyclopediaEntityBatch2);
     return list;
   }
 
-  // Entity import enable flag (owner sequence, Nov 14, 2026). The
-  // entity gate below is WIRED — validated, reported, and visible —
-  // but the import leg stays disabled until the owner's separate
-  // IMPORT authorization flips this constant. While disabled, an
-  // entity batch performs zero writes and zero registrations and
-  // reports itself as disabled (not failed, not blocked): wiring and
-  // import are separate owner steps by design.
-  var ENTITY_IMPORT_ENABLED = true;
+  // Entity import enable state, PER BATCH (owner sequence, Nov 14, 2026;
+  // per-batch since the P2 wiring, Nov 16, 2026). The entity gate below
+  // is WIRED — validated, reported, and visible — but a batch's import
+  // leg stays disabled until the owner's separate IMPORT authorization
+  // enables THAT batch. While a batch is disabled it performs zero
+  // writes and zero registrations and reports itself as disabled (not
+  // failed, not blocked): wiring and import are separate owner steps.
+  var ENTITY_BATCH_ENABLED = {
+    "entity-batch-1": true,
+    "entity-batch-2": false
+  };
+  function entityBatchEnabled(batch) {
+    if (!batch) return false;
+    var key = typeof batch === "string" ? batch : batch.batch;
+    return ENTITY_BATCH_ENABLED[key] === true;
+  }
 
   // ---- Single-flight guard (Fix-up #3, defect B) ----
   // importAll is called from TWO places: fire-and-forget at boot
@@ -450,6 +459,33 @@
   // never blocks, alters, or hides the canonical record — it is
   // reported on the run summary instead.
 
+  // Forbidden financial-state keys on entity identity records (P2
+  // additive, owner-directed Nov 16, 2026). The vocabulary follows the
+  // platform's existing forbidden-field convention
+  // (OpportunityIntelligence.FORBIDDEN_RETURN_FIELDS): keys are
+  // normalised — lowercase, dashes/underscores stripped — before
+  // comparison, so "market-value" and "marketValue" both hit
+  // "marketvalue". Identity records carry identity only: no prices,
+  // returns, balances, or market data, ever.
+  var FORBIDDEN_ENTITY_KEYS = ["price", "apy", "apypct",
+    "annualpercentageyield", "apr", "annualpercentagerate", "tvl",
+    "totallockedvalue", "balance", "balances", "holdings", "earnings",
+    "profit", "expectedprofit", "projectedprofit", "return", "returns",
+    "expectedreturn", "projectedreturn", "roi", "yield", "yieldpct",
+    "income", "revenue", "fees", "marketvalue", "marketcap", "volume",
+    "liquidity"];
+  function forbiddenEntityKeyErrors(rec) {
+    var errors = [];
+    if (!rec || typeof rec !== "object") return errors;
+    Object.keys(rec).forEach(function (k) {
+      var nk = String(k).toLowerCase().replace(/[-_]/g, "");
+      if (FORBIDDEN_ENTITY_KEYS.indexOf(nk) !== -1) {
+        errors.push("Entity records must not carry financial-state field \"" + k + "\".");
+      }
+    });
+    return errors;
+  }
+
   function checkEntityStoreRecord(batch, rec) {
     var errors = [];
     var CW = global.CryptoWorld;
@@ -458,6 +494,7 @@
     } else {
       errors.push("CryptoWorld.validateEntry is not available.");
     }
+    errors = errors.concat(forbiddenEntityKeyErrors(rec));
     if (!rec || typeof rec !== "object") return errors;
     if (["assets", "chains", "protocols"].indexOf(rec.registry) === -1) {
       errors.push("Entity records must use registry \"assets\", \"chains\", or \"protocols\".");
@@ -492,25 +529,74 @@
       if (r && r.level === "MAJOR_ACTIVITY" && r.id) majorIds[r.id] = true;
     });
 
+    // Canonical union context (P2, owner-authorized Nov 16, 2026): the
+    // existing store records that are legitimate canonical ENTITIES —
+    // entity registries (chains/assets/protocols), written by an entity
+    // batch (importBatch "entity-batch-*"), and not pipeline candidates
+    // (recordKind ENTITY_CANDIDATE is excluded outright; candidates also
+    // never carry an entity-batch importBatch tag). Reference resolution
+    // may consult these ids READ-ONLY; nothing here writes, overwrites,
+    // or promotes anything. Meta/taxonomy records (registry "taxonomy")
+    // can never satisfy an entity reference, and resolution is keyed by
+    // canonical id only — never by name, ticker, or alias.
+    var ctxNetIds = {}, ctxAssetIds = {}, ctxProtoIds = {};
+    (existing || []).forEach(function (r) {
+      if (!r || typeof r.id !== "string") return;
+      if (r.recordKind === "ENTITY_CANDIDATE") return;
+      if (typeof r.importBatch !== "string" || r.importBatch.indexOf("entity-batch-") !== 0) return;
+      if (r.registry === "chains") ctxNetIds[r.id] = true;
+      else if (r.registry === "assets") ctxAssetIds[r.id] = true;
+      else if (r.registry === "protocols") ctxProtoIds[r.id] = true;
+    });
+    function netKnown(id) { return !!(netIds[id] || ctxNetIds[id]); }
+    function assetKnown(id) { return !!(assetIds[id] || ctxAssetIds[id]); }
+    function protoKnown(id) { return !!(protoIds[id] || ctxProtoIds[id]); }
+
+    // Contract/mint anchor uniqueness across every REGISTERED entity
+    // batch plus this batch (P2 additive): one canonical anchor must
+    // never establish two different asset identities. Anchors live on
+    // module records, so the registered batch globals are the source.
+    var anchorOwner = {};
+    function claimAnchor(asset) {
+      var v = asset && (asset.contractAddress || asset.mintAddress);
+      if (!v || !asset.assetId) return null;
+      var key = String(v).toLowerCase();
+      if (anchorOwner[key] && anchorOwner[key] !== asset.assetId) {
+        return "Anchor \"" + v + "\" is also claimed by " + anchorOwner[key] + ".";
+      }
+      anchorOwner[key] = asset.assetId;
+      return null;
+    }
+    batches().forEach(function (b) {
+      if (b && b.kind === "entity" && b !== batch) {
+        (b.assets || []).forEach(function (a) { claimAnchor(a); });
+      }
+    });
+
     var moduleErrors = [];
     var NI = global.NetworkIntelligence, AI = global.AssetIntelligence, PI = global.ProtocolIntelligence;
     nets.forEach(function (n) {
       var errs = NI && typeof NI.validateNetwork === "function" ? NI.validateNetwork(n) : ["NetworkIntelligence is not available."];
+      errs = errs.concat(forbiddenEntityKeyErrors(n));
       if (!storeIds[n.id]) errs.push("Network \"" + n.id + "\" has no canonical store record in this batch.");
       if (errs.length) moduleErrors.push({ id: n.id || "(no id)", kind: "network", reasons: errs });
     });
     assets.forEach(function (a) {
       var errs = AI && typeof AI.validateAssetRecord === "function" ? AI.validateAssetRecord(a) : ["AssetIntelligence is not available."];
+      errs = errs.concat(forbiddenEntityKeyErrors(a));
+      var anchorErr = claimAnchor(a);
+      if (anchorErr) errs.push(anchorErr);
       if (!storeIds[a.assetId]) errs.push("Asset \"" + a.assetId + "\" has no canonical store record in this batch.");
-      if (a.networkId && !netIds[a.networkId]) errs.push("Asset network \"" + a.networkId + "\" is not one of this batch's networks.");
-      if (a.protocol && !protoIds[a.protocol]) errs.push("Asset protocol \"" + a.protocol + "\" is not one of this batch's protocols.");
+      if (a.networkId && !netKnown(a.networkId)) errs.push("Asset network \"" + a.networkId + "\" is not one of this batch's networks or a canonical network.");
+      if (a.protocol && !protoKnown(a.protocol)) errs.push("Asset protocol \"" + a.protocol + "\" is not one of this batch's protocols or a canonical protocol.");
       if (errs.length) moduleErrors.push({ id: a.assetId || "(no id)", kind: "asset", reasons: errs });
     });
     protos.forEach(function (pr) {
       var errs = PI && typeof PI.validateProtocol === "function" ? PI.validateProtocol(pr) : ["ProtocolIntelligence is not available."];
+      errs = errs.concat(forbiddenEntityKeyErrors(pr));
       if (!storeIds[pr.protocolId]) errs.push("Protocol \"" + pr.protocolId + "\" has no canonical store record in this batch.");
       (pr.networks || []).forEach(function (n) {
-        if (!netIds[n]) errs.push("Protocol network \"" + n + "\" is not one of this batch's networks.");
+        if (!netKnown(n)) errs.push("Protocol network \"" + n + "\" is not one of this batch's networks or a canonical network.");
       });
       (pr.activities || []).forEach(function (m) {
         if (!majorIds[m]) errs.push("Protocol activity \"" + m + "\" is not a known canonical Major Activity.");
@@ -519,7 +605,21 @@
     });
 
     var CW = global.CryptoWorld;
-    var seenIds = {}, firstIndexById = {}, aliasOwner = {};
+    var seenIds = {}, firstIndexById = {};
+    // Alias ownership is seeded from the existing canonical entities
+    // (P2 additive): a new batch may not claim an alias already owned
+    // by a different canonical entity. Seeding uses the same canonical
+    // filter as the union context; a record re-claiming its OWN alias
+    // (a batch re-validated against its own imported records) is not
+    // a conflict — the owner comparison below compares ids.
+    var aliasOwner = {};
+    (existing || []).forEach(function (r) {
+      if (!r || typeof r.id !== "string") return;
+      if (r.recordKind === "ENTITY_CANDIDATE") return;
+      if (typeof r.importBatch !== "string" || r.importBatch.indexOf("entity-batch-") !== 0) return;
+      if (["chains", "assets", "protocols"].indexOf(r.registry) === -1) return;
+      (r.aliases || []).forEach(function (a) { aliasOwner[String(a).toLowerCase()] = r.id; });
+    });
     var dispositions = [];
     for (var i = 0; i < records.length; i++) {
       var rec = records[i];
@@ -544,14 +644,14 @@
           }
           aliasOwner[key] = rec.id;
         });
-        if (rec.nativeAssetRef && !assetIds[rec.nativeAssetRef]) {
-          errors.push("nativeAssetRef \"" + rec.nativeAssetRef + "\" is not one of this batch's assets.");
+        if (rec.nativeAssetRef && !assetKnown(rec.nativeAssetRef)) {
+          errors.push("nativeAssetRef \"" + rec.nativeAssetRef + "\" is not one of this batch's assets or a canonical asset.");
         }
-        if (rec.networkRef && !netIds[rec.networkRef]) {
-          errors.push("networkRef \"" + rec.networkRef + "\" is not one of this batch's networks.");
+        if (rec.networkRef && !netKnown(rec.networkRef)) {
+          errors.push("networkRef \"" + rec.networkRef + "\" is not one of this batch's networks or a canonical network.");
         }
         (rec.networkRefs || []).forEach(function (n) {
-          if (!netIds[n]) errors.push("networkRefs entry \"" + n + "\" is not one of this batch's networks.");
+          if (!netKnown(n)) errors.push("networkRefs entry \"" + n + "\" is not one of this batch's networks or a canonical network.");
         });
         (rec.activityRefs || []).forEach(function (m) {
           if (!majorIds[m]) errors.push("activityRefs entry \"" + m + "\" is not a known canonical Major Activity.");
@@ -634,12 +734,12 @@
     try { await d.put("cryptoWorld", next); } catch (e) {}
   }
 
-  // Two-phase entity import. While ENTITY_IMPORT_ENABLED is false
-  // the batch reports disabled and performs ZERO writes and ZERO
-  // registrations (wiring without import, per the owner sequence).
+  // Two-phase entity import. While the batch's per-batch enable state
+  // is false the batch reports disabled and performs ZERO writes and
+  // ZERO registrations (wiring without import, per the owner sequence).
   async function importEntityBatch(batch, existing, out) {
     var CW = global.CryptoWorld;
-    if (!ENTITY_IMPORT_ENABLED) {
+    if (!entityBatchEnabled(batch)) {
       out.disabled = true;
       (batch.records || []).forEach(function (rec) {
         var stored = (rec && typeof rec.id === "string" && CW && typeof CW.getEntry === "function")
@@ -835,7 +935,11 @@
       }
       try { await syncTaxonomyMeta(); } catch (e) {}
       try { await syncBatchBMeta(); } catch (e) {}
-      try { await syncEntityMeta(global.EncyclopediaEntityBatch1); } catch (e) {}
+      for (var e = 0; e < list.length; e++) {
+        if (list[e].kind === "entity") {
+          try { await syncEntityMeta(list[e]); } catch (err) {}
+        }
+      }
     } catch (e) {
       summary.failed = true;
       summary.error = "Import failed: " + (e && e.message ? e.message : String(e));
@@ -932,7 +1036,7 @@
           rep.blocked = true;
           rep.blockReason = "Entity import blocked: " + rep.rejected.length + " record(s) failed the entity gate.";
         }
-        if (!ENTITY_IMPORT_ENABLED) rep.disabled = true;
+        if (!entityBatchEnabled(batch)) rep.disabled = true;
         return rep;
       }
       batch.records.forEach(function (rec) {
@@ -967,6 +1071,6 @@
     validateEntityBatch: validateEntityBatch,
     ensureEntityRegistrations: ensureEntityRegistrations,
     syncEntityMeta: syncEntityMeta,
-    entityImportEnabled: function () { return ENTITY_IMPORT_ENABLED; }
+    entityImportEnabled: function (batch) { return entityBatchEnabled(batch || "entity-batch-1"); }
   };
 })(window);
