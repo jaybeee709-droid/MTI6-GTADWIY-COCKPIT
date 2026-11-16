@@ -166,6 +166,14 @@
        labelled as a record readout. Loads before its consumers
        (Bot Operations). -->
   <script src="./js/presence.js"></script>
+  <!-- Bot Profiles + Big Screen Build (owner direction 2026-11-16):
+       bot-profiles.js derives every bot's profile from the real
+       records (principals / workers / tasks / crypto assignments /
+       entity pipeline); bot-presenter.js stands STAR or any bot
+       before the World Globe presenting its recorded task/chart.
+       Both are readouts of real state — no fabricated activity. -->
+  <script src="./js/bot-profiles.js"></script>
+  <script src="./js/bot-presenter.js"></script>
   <!-- API registry (must load before price-scout) and health panel -->
   <script src="./js/api-registry.js"></script>
   <!-- Universal Search Phase 1: provider registry, URL detection, tabs,
@@ -230,6 +238,7 @@
   <script src="./js/modules/settings.js"></script>
   <!-- Master shell (Build 1) screens -->
   <script src="./js/modules/bot-ops.js"></script>
+  <script src="./js/modules/bot-profile.js"></script>
   <script src="./js/modules/wallets.js"></script>
   <script src="./js/modules/opportunities.js"></script>
   <script src="./js/modules/positions.js"></script>

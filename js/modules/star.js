@@ -112,6 +112,22 @@
       ]),
       U.el("div", { class: "star-header-actions" }, [
         presenceBtn,
+        // Big Screen Presenter (Bot Profiles + Big Screen Build,
+        // owner direction 2026-11-16): STAR steps before the World
+        // Globe — the big screen — and presents the cockpit's
+        // recorded state (js/bot-presenter.js). The presenter is
+        // presentation of real state only, like Presence.
+        U.el("button", {
+          class: "btn btn-ghost btn-sm star-present-btn",
+          type: "button",
+          title: "Present STAR at the big screen (the World Globe) with the cockpit's recorded state",
+          "aria-label": "Present Star at the big screen",
+          onclick: function () {
+            if (global.BotPresenter && typeof global.BotPresenter.show === "function") {
+              global.BotPresenter.show("star");
+            }
+          }
+        }, "Big screen"),
         U.el("button", {
           class: "btn btn-ghost btn-sm star-clear-btn",
           title: "Clear this demo conversation (local only)",

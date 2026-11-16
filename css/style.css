@@ -198,14 +198,10 @@ textarea {
 
 #app-shell {
   display: flex;
-  /* Wide-screen fix (Nov 14, 2026): the shell is a row flex container,
-     so without wrapping the full-width global search bar became a tall
-     in-flow column on the left (its 44px controls hidden behind the
-     fixed top bar, its Search button stretched full-height by
-     align-items:stretch = the "wide black area + tall cyan strip" at
-     ~1919px, sidebar pushed right, content squeezed). Wrapping lets
-     the search bar take its own full-width row; sidebar + main content
-     form the row below it. */
+  /* Wide-screen fix (Nov 14, 2026): wrapping lets the full-width
+     search bar take its own row; sidebar + main content form the
+     row below it (without it the search bar became a tall in-flow
+     column on wide screens). */
   flex-wrap: wrap;
   min-height: 100vh;
 }
@@ -322,13 +318,9 @@ body.nav-open #nav-scrim {
      sidebar). min-width:0 lets the column shrink; content inside still
      lays out normally. */
   min-width: 0;
-  /* Was 56px to clear the fixed top bar. The top-bar clearance now
-     comes from the search bar's own row (margin-block-start: 56px on
-     #global-search-wrap, see below), so the extra 56px here would
-     double the gap. (At >=768px the Analytics-block rule setting
-     #main-content padding to 20px still applies on top of this —
-     untouched, and harmless now that main content starts below the
-     search row instead of at y=0 under the fixed top bar.) */
+  /* Was 56px to clear the fixed top bar; the clearance now comes
+     from the search bar's own row (margin-block-start: 56px on
+     #global-search-wrap, below), so 56px here would double it. */
   padding-block-start: 0;
   min-height: 100vh;
 }
@@ -1430,14 +1422,10 @@ body.nav-open #nav-scrim {
   line-height: 1.4;
 }
 /* ---- STAR presence form (Presence Anywhere Build 1) ------------------
- * The panel's compact form: the standing figure, the status line
- * (which carries the demo truth), a bubble with the LATEST exchange
- * only, the chat input, and the demo footnote. The full message
- * log and the subtitle step aside; the log stays in the DOM and
- * returns untouched when the form toggles off. The hosting window
- * docks compact bottom-left (see .wm-window--presence below) so
- * STAR stays present and talkable on any screen; the launcher at
- * bottom-right is never covered. */
+ * The panel's compact form: standing figure, status line, a bubble
+ * with the LATEST exchange only, the chat input, the demo footnote.
+ * The full log stays in the DOM and returns untouched on toggle
+ * off; the window docks compact bottom-left (.wm-window--presence). */
 .star-presence-exchange {
   display: none;
   flex-direction: column;
@@ -1759,13 +1747,9 @@ html, body { overflow-x: hidden; }
 
 /* ============================================================
  * MASTER SHELL — Build 1 (Nov 8, 2026)
- * World Globe home, permanent top command bar, grouped drawer with
- * TRIBES, Bot Operations shell, STAR overlay, window manager.
- * Palette: pitch/shiny black, deep navy, electric blue/cyan, royal
- * purple/violet AI accents, brushed/dark metallic silver, restrained
- * gold for selected financial accents. Alarm red is reserved for a
- * real verified critical alert state and is NOT used decoratively
- * anywhere in this section.
+ * World Globe home, top command bar, grouped drawer with TRIBES,
+ * Bot Operations shell, STAR overlay, window manager. Alarm red is
+ * reserved for a real verified critical alert state only.
  * ============================================================ */
 :root {
   --violet: #8b5cf6;
@@ -2060,13 +2044,10 @@ html, body { overflow-x: hidden; }
 }
 
 /* ===================== MTI6 reusable visual primitives (Stage 1) =====================
- * One shared component system (spec §110). Screens use these classes
- * instead of hand-coding a different button/card/badge per module.
- * Every status uses color PLUS a text label, never color alone (§96).
- * All colours come from --mti6-* tokens (§3); no new hex values here
- * except the translucent variant tints, which reuse the token hues.
- * Analytics is NOT restyled: its locked .analytics-grid rules keep
- * higher specificity and are untouched. */
+ * One shared component system (spec §110): screens use these
+ * classes instead of hand-coding per module. Every status uses
+ * color PLUS a text label, never color alone (§96). Colours come
+ * from --mti6-* tokens (§3). Analytics is NOT restyled. */
 
 /* ---- Screen header (§19): icon + title + description + status + actions ---- */
 .mti6-screen-header {
@@ -2433,14 +2414,10 @@ html, body { overflow-x: hidden; }
 }
 
 /* ---- Presence card (Presence Anywhere Build 1) -----------------------
- * js/presence.js: one figure + speech bubble anchored bottom-left
- * of the app viewport, above the current screen's content and
- * below the window layer — the STAR launcher (bottom-right,
- * z 130) is never covered. The entrance is a single fade/slide,
- * transform/opacity only, off under reduced motion (this scoped
- * guard plus the Phase H global net). The bubble carries only
- * caller-supplied real state: STAR's actual chat content, or a
- * principal's recorded state under its readout label. */
+ * js/presence.js: one figure + speech bubble anchored bottom-left,
+ * below the window layer — the STAR launcher (bottom-right, z 130)
+ * is never covered. Entrance is one fade/slide, off under reduced
+ * motion. The bubble carries only caller-supplied real state. */
 .presence {
   position: fixed;
   left: calc(12px + var(--safe-left));
@@ -2532,6 +2509,44 @@ html, body { overflow-x: hidden; }
   .presence-figure-img { height: 104px; }
   .presence-figure-mark { width: 60px; height: 60px; font-size: 13px; }
 }
+
+/* ---- Bot Profiles + Big Screen (owner direction 2026-11-16) ----
+ * Sidebar STAR slot + tribe accordion (js/app.js), Bot Profile
+ * screen (js/modules/bot-profile.js), big-screen presenter
+ * (js/bot-presenter.js) at the Presence layer (z 120, bottom-left)
+ * so the STAR launcher (z 130, bottom-right) is never covered. */
+.nav-star-slot{display:flex;align-items:center;gap:10px;width:calc(100% - 16px);margin:2px 8px 8px;min-height:44px;padding:6px 10px;border:1px solid var(--line);border-radius:12px;background:var(--bg-2);color:var(--text-0);cursor:pointer}
+.nav-star-slot-img{width:32px;height:32px;border-radius:50%;object-fit:cover}
+.nav-star-slot-label{font-weight:700;letter-spacing:.08em;color:var(--cyan);font-size:13px}
+.nav-tribe-accordion{margin:8px 8px 2px;border:1px solid var(--line);border-radius:12px;background:var(--bg-1);padding:8px}
+.nav-tribe-accordion.hidden{display:none}
+.nav-tribe-accordion-head{font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--text-2);padding:2px 4px 6px}
+.nav-tribe-entry{display:block;width:100%;min-height:44px;text-align:left;padding:8px 10px;margin-top:4px;border:1px solid var(--line);border-radius:10px;background:var(--bg-2);color:var(--text-0);font-size:13px;cursor:pointer}
+.nav-tribe-none{font-size:12px;color:var(--text-2);padding:6px 4px 2px}
+.bot-profile-header{display:flex;gap:16px;align-items:flex-start}
+.bot-profile-figure-img{display:block;height:168px;width:auto}
+.bot-profile-figure-mark{display:flex;align-items:center;justify-content:center;width:84px;height:84px;border-radius:50%;border:1px dashed var(--text-2);background:var(--bg-2);color:var(--text-1);font-weight:700}
+.bot-profile-head-main{flex:1 1 auto;min-width:0}
+.bot-profile-line,.bot-presenter__line{font-size:13px;line-height:1.5;color:var(--text-0);padding:2px 0;overflow-wrap:anywhere}
+.bot-why{margin-top:8px}
+.bot-why-panel{margin-top:6px;border-top:1px dashed var(--line);padding-top:6px}
+.bot-why-panel[hidden]{display:none}
+.bot-why-line{font-size:12px;line-height:1.5;color:var(--text-1);padding:2px 0;overflow-wrap:anywhere}
+.bot-profile-index{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.bot-presenter{position:fixed;left:calc(12px + var(--safe-left));bottom:calc(12px + var(--safe-bottom));z-index:var(--z-accounts);display:flex;align-items:flex-end;gap:12px;max-width:min(680px,calc(100vw - 24px));animation:presence-in .28s ease-out}
+.bot-presenter__figure{flex:0 0 auto;line-height:0}
+.bot-presenter__figure-img{display:block;height:min(420px,52vh);width:auto}
+.bot-presenter__figure-mark{display:flex;align-items:center;justify-content:center;width:96px;height:96px;border-radius:50%;border:1px dashed var(--text-2);background:var(--bg-2);color:var(--text-1);font-weight:700;font-size:18px}
+.bot-presenter__card{flex:1 1 auto;min-width:0;background:var(--bg-1);border:1px solid var(--line);border-radius:14px;border-end-start-radius:4px;box-shadow:var(--shadow);padding:12px 14px;max-height:70vh;overflow-y:auto}
+.bot-presenter__head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.bot-presenter__name{font-weight:700;letter-spacing:.06em;color:var(--cyan);font-size:15px}
+.bot-presenter__close{flex-shrink:0;min-width:44px;min-height:44px;padding:0;font-size:18px;line-height:1}
+.bot-presenter__label{font-size:11px;color:var(--text-2);margin-block:2px 6px}
+.bot-presenter__task{font-size:13px;line-height:1.45;color:var(--text-0);overflow-wrap:anywhere}
+.bot-presenter__chart{margin-top:10px}
+.bot-presenter__chart-title{font-size:12px;font-weight:700;color:var(--text-1);margin-bottom:6px}
+@media (prefers-reduced-motion:reduce){.bot-presenter{animation:none}}
+@media (max-width:480px){.bot-presenter__figure-img{height:180px}.bot-profile-figure-img{height:120px}}
 
 /* ---- World Globe visual modes ---- */
 .globe-modes {
@@ -3319,15 +3334,9 @@ html, body { overflow-x: hidden; }
    stage still renders, just narrower.) */
 #view-root:has(.globe-stage) { max-width: none; }
 
-/* Hero geometry: the stage claims the first viewport, minus the
-   fixed command bar and the view's own vertical padding (16px
-   top + 16px bottom at base; the band rules below adjust where
-   that padding differs). The visual — already flex column child
-   of the stage — grows to fill the hero; its px min-height
-   floors (below + the historical rules above) keep it dominant
-   even when the stacked control rows push the stage past one
-   viewport on short screens. vh first, dvh second: browsers
-   without dvh keep the vh value. */
+/* Hero geometry: the stage claims the first viewport minus the
+   command bar and the view's vertical padding; the visual grows
+   to fill it. vh first, dvh second (no-dvh browsers keep vh). */
 .globe-stage {
   min-height: calc(100vh - var(--cmdbar-h) - 32px);
   min-height: calc(100dvh - var(--cmdbar-h) - 32px);

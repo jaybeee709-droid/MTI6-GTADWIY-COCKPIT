@@ -72,6 +72,13 @@
   function show(opts) {
     opts = opts && typeof opts === "object" ? opts : {};
     hide();
+    // One figure system at a time (Bot Profiles + Big Screen
+    // Build): a presence replaces the big-screen presenter, just
+    // as the presenter replaces a presence (js/bot-presenter.js).
+    if (global.BotPresenter && typeof global.BotPresenter.isShowing === "function" &&
+        global.BotPresenter.isShowing() && typeof global.BotPresenter.hide === "function") {
+      global.BotPresenter.hide();
+    }
     var name = typeof opts.name === "string" && opts.name ? opts.name : "Presence";
     var lines = Array.isArray(opts.lines) ? opts.lines
       : (typeof opts.lines === "string" && opts.lines ? [opts.lines] : []);

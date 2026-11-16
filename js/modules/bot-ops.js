@@ -1062,7 +1062,14 @@
         bringBtn.disabled = true;
       }
     });
-    card.appendChild(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [bringBtn]));
+    // Bot Profiles + Big Screen Build: the full profile (identity,
+    // recorded work, per-bot graphs) lives on its own route.
+    var profileBtn = U.el("button", { class: "btn btn-secondary", type: "button" }, "Profile");
+    profileBtn.addEventListener("click", function (ev) {
+      if (ev && typeof ev.stopPropagation === "function") ev.stopPropagation();
+      location.hash = "#/bot-profile/" + entry.id;
+    });
+    card.appendChild(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [bringBtn, profileBtn]));
     card.addEventListener("click", function () {
       selectedSlotId = entry.id;
       selectedWorkerId = null;
@@ -1148,6 +1155,13 @@
       rows.appendChild(detailRow("Controls", "None — worker records expose no controls in this shell"));
       rows.appendChild(detailRow("History / logs", ""));
       rows.appendChild(historyLines(w.history));
+      // Bot Profiles + Big Screen Build: the worker's full profile
+      // (identity, recorded work, graphs) lives on its own route.
+      var wProfileBtn = U.el("button", { class: "btn btn-secondary", type: "button" }, "Profile");
+      wProfileBtn.addEventListener("click", function () {
+        location.hash = "#/bot-profile/" + w.workerId;
+      });
+      rows.appendChild(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [wProfileBtn]));
       return;
     }
     var detail = selectedSlotId ? buildPrincipalDetail(selectedSlotId) : null;
@@ -1225,7 +1239,13 @@
         presenceBtn.disabled = true;
       }
     });
-    detailBox.appendChild(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [bringBtn, presenceBtn]));
+    // Bot Profiles + Big Screen Build: the principal's full
+    // profile (identity, recorded work, graphs) on its own route.
+    var pProfileBtn = U.el("button", { class: "btn btn-secondary", type: "button" }, "Profile");
+    pProfileBtn.addEventListener("click", function () {
+      location.hash = "#/bot-profile/" + detail.id;
+    });
+    detailBox.appendChild(U.el("div", { class: "modal-actions", style: "justify-content:flex-start" }, [bringBtn, presenceBtn, pProfileBtn]));
   }
 
   // ---- HUD helpers (Visual Build Stage 2, §59-68) -----------------------
