@@ -156,7 +156,19 @@
   function getAllRecords() {
     var d = db();
     if (!d || typeof d.getAll !== "function") return Promise.resolve([]);
-    return d.getAll(STORE).catch(function () { return []; });
+    return d.getAll(STORE).then(function (records) {
+      // Canonical view (P3 isolation): ENTITY_CANDIDATE records
+      // (js/entity-candidates.js) live in this store but are proposals,
+      // not canonical knowledge. Every canonical reader — World Engine,
+      // Encyclopedia views, Crypto World overview, Universal Search —
+      // reads through here, so candidates are excluded at this single
+      // point and can never inflate canonical counts or the graph.
+      // Candidate-aware code reads the store directly and filters by
+      // recordKind itself.
+      return (records || []).filter(function (r) {
+        return !r || r.recordKind !== "ENTITY_CANDIDATE";
+      });
+    }).catch(function () { return []; });
   }
 
   function getTaxonomyMeta() {
