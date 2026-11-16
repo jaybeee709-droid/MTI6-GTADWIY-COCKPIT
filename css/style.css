@@ -2911,3 +2911,32 @@ html, body { overflow-x: hidden; }
     resize: none;
   }
 }
+
+/* ================================================================
+   UNIVERSAL SEARCH PHASE 1 COMPLETION (P1.2–P1.5): uniform result
+   cards, local suggestions, open-method chooser, onion card.
+   ================================================================ */
+.search-card { list-style: none; border: 1px solid #1c2530; border-radius: 10px; padding: 8px 10px; margin: 0 0 8px; background: #0b0f14; }
+.search-card-head { font-size: 14px; margin-bottom: 4px; }
+.search-card-title { font-weight: 600; }
+.search-card-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 11px; margin-bottom: 4px; }
+.search-card-type { font-weight: 700; letter-spacing: 0.04em; color: #e5e7eb; border: 1px solid #374151; border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
+.search-card-domain { color: #9ca3af; white-space: nowrap; }
+.search-card-verification { font-weight: 700; letter-spacing: 0.04em; color: #fbbf24; border: 1px solid #713f12; border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
+.search-card-date { color: #9ca3af; white-space: nowrap; }
+.search-card-snippet { font-size: 13px; color: #d1d5db; overflow-wrap: anywhere; }
+.search-card-snippet:empty { display: none; }
+.search-card-actions { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.search-open-chooser { flex: 1 1 100%; border-top: 1px dashed #1c2530; padding-top: 6px; margin-top: 2px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+#global-search-suggestions { position: fixed; top: 120px; left: 12px; right: 12px; z-index: 81; border: 1px solid #1c2530; border-radius: 12px; padding: 8px; background: #070b12; color: #e5e7eb; max-height: 50vh; overflow: auto; }
+#global-search-suggestions.hidden { display: none; }
+.search-suggestions-head { font-size: 12px; color: #9ca3af; margin-bottom: 6px; }
+.search-suggestion { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; width: 100%; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 8px; color: #e5e7eb; padding: 6px 8px; font-size: 14px; cursor: pointer; }
+.search-suggestion:hover, .search-suggestion:focus { border-color: #155e75; background: #0b0f14; }
+.search-suggestion-label { font-weight: 600; }
+.search-suggestion-detail { color: #9ca3af; font-size: 12px; }
+.search-suggestion-source { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #38bdf8; margin-left: auto; white-space: nowrap; }
+.search-onion-card { border: 1px solid #713f12; border-radius: 10px; padding: 10px 12px; background: #0b0f14; }
+@media (min-width: 768px) {
+  #global-search-suggestions { left: 272px; }
+}
