@@ -3019,3 +3019,102 @@ html, body { overflow-x: hidden; }
   .globe-stage { max-width: var(--shell-max); margin-inline: auto; width: 100%; }
   .globe-visual { min-height: 560px; }
 }
+
+/* ================================================================
+   RESPONSIVE SYSTEM — Phase E: Panel system (Master Responsive
+   Directive, owner-authorized 2026-11-15; built 2026-11-16).
+   Phone: panels are bottom sheets with PEEK / HALF / EXPANDED /
+   FULL states (js/sheet-system.js drives the state attribute;
+   the caps live here). Tablet: STAR docks as a floating side
+   panel; other windows keep the centered float. Desktop: the
+   window manager's existing bounded behavior (drag / resize /
+   minimize / maximize / stack, clamped to the viewport) already
+   meets the directive and is deliberately untouched — as is the
+   docked sidebar and the deferred desktop drawer.
+   ================================================================ */
+
+/* The grab handle exists only in the phone bands; the button is
+   in the DOM at every width (sheet-system decorates once) but
+   renders only where sheets exist. */
+.sheet-handle { display: none; }
+@media (max-width: 767px) {
+  .sheet-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 28px;
+    padding: 6px 0 2px;
+    background: transparent;
+    border: none;
+    cursor: grab;
+    touch-action: none; /* the drag belongs to the sheet, not scroll */
+    flex: none;
+  }
+  .sheet-handle::before {
+    content: "";
+    width: 44px;
+    height: 5px;
+    border-radius: 999px;
+    background: var(--mti6-silver-dark);
+  }
+  .sheet-handle:active { cursor: grabbing; }
+
+  /* Sheet states: max-height caps. EXPANDED restates the Phase C
+     phone cap (88dvh) so the default presentation is unchanged;
+     FULL lets the sheet take the whole viewport and squares the
+     radius (it IS the screen then). A state never forces a panel
+     taller than its content — these are caps, not heights. */
+  .wm-window:not(.wm-maximized):not(.wm-minimized)[data-sheet-state="PEEK"] { max-height: 33dvh; }
+  .wm-window:not(.wm-maximized):not(.wm-minimized)[data-sheet-state="HALF"] { max-height: 55dvh; }
+  .wm-window:not(.wm-maximized):not(.wm-minimized)[data-sheet-state="EXPANDED"] { max-height: 88dvh; }
+  .wm-window:not(.wm-maximized):not(.wm-minimized)[data-sheet-state="FULL"] {
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+  #accounts-panel[data-sheet-state] { overflow-y: auto; }
+  #accounts-panel[data-sheet-state="PEEK"] { max-height: 33dvh; }
+  #accounts-panel[data-sheet-state="HALF"] { max-height: 55dvh; }
+  #accounts-panel[data-sheet-state="EXPANDED"] { max-height: 88dvh; }
+  #accounts-panel[data-sheet-state="FULL"] { max-height: 100dvh; border-radius: 0; }
+
+  /* The World Globe's layer Details panel joins the sheet system
+     on phones: when open it leaves the stage flow and presents
+     as a bottom sheet over the home (its content and close
+     button are the module's own — presentation only). */
+  .globe-side-panel--open {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: var(--z-accounts);
+    max-height: 88dvh;
+    overflow-y: auto;
+    border-radius: var(--sheet-radius) var(--sheet-radius) 0 0;
+    padding-bottom: max(12px, var(--safe-bottom));
+    box-shadow: var(--shadow);
+  }
+  .globe-side-panel[data-sheet-state="PEEK"] { max-height: 33dvh; }
+  .globe-side-panel[data-sheet-state="HALF"] { max-height: 55dvh; }
+  .globe-side-panel[data-sheet-state="EXPANDED"] { max-height: 88dvh; }
+  .globe-side-panel[data-sheet-state="FULL"] { max-height: 100dvh; border-radius: 0; }
+}
+
+/* Band C — Tablet (768–1023px): STAR docks as a floating side
+   panel (directive: sheet on phone / floating-side panel on
+   tablet / movable window on PC). The dock is the window's
+   opening geometry only: the window manager's drag writes inline
+   left/top, which then govern — docked until moved, by design.
+   Maximized keeps its own !important geometry. Other windows
+   keep the centered float (the "float" half of dock/float). */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .wm-window[data-wm-id="star-overlay"]:not(.wm-maximized) {
+    left: auto;
+    right: max(12px, var(--safe-right));
+    top: calc(var(--cmdbar-h) + 8px);
+    transform: none;
+    width: min(var(--panel-w), 92vw);
+    height: calc(100dvh - var(--cmdbar-h) - 16px);
+    max-height: none;
+  }
+}
