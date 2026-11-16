@@ -133,6 +133,46 @@
  *   the vendored data after every step, never narrated.
  *   Vehicle morphing (car/boat/plane/drone) is future owner
  *   direction — nothing for it is built here.
+ *
+ * World Lens package (World OS directive §§1/9/13; architecture
+ * §7): the Globe gains the World OS surfaces, all view state
+ * over the ONE location context — never a data fork:
+ * - WORLD LENS selector in the top roll: ten lenses (REALITY ·
+ *   LIVE · TRAFFIC · TRANSIT · WEATHER · OPPORTUNITIES ·
+ *   SECURITY · BOT ACTIVITY · SOURCE COVERAGE · SIMULATOR),
+ *   each with a state badge DERIVED from the same layer reads
+ *   and wiring the rest of the screen uses. A lens emphasises
+ *   its existing layer where one exists; TRAFFIC / TRANSIT /
+ *   LIVE / SIMULATOR carry their honest states (SIMULATOR is a
+ *   labelled NOT BUILT seat and opens nothing).
+ * - COVERAGE readout in the Live World panel: for the current
+ *   context, one (kind, state, basis) row per coverage kind,
+ *   computed only from vendored presence, the connected
+ *   Open-Meteo source, and the platform's GLOBAL layer states
+ *   (labelled global, never area coverage) — everything else
+ *   is a GAP worded MTI6-relatively ("MTI6 has no … source for
+ *   this area"). Land/ocean and tier aware; no heatmap (that
+ *   rendering is a future layer), no missions (they open with
+ *   the registry + worker runtime).
+ * - TRANSPORT ROUTES selector: every mode (DRIVING · WALKING ·
+ *   BOAT/FERRY · FLIGHT · RAIL · TRANSIT · DRONE) for any place
+ *   — all countries, islands, everywhere. Choosing a mode sets
+ *   the on-screen TRAVEL CONTEXT (from = the location context,
+ *   to = an owner-picked destination); the guide's line names
+ *   the mode (presentation only). Routing is NOT_CONNECTED —
+ *   no route line is ever drawn without a routing source.
+ * - GEOGRAPHIC ALERT AREAS: a verified-and-active alert
+ *   (GlobeIntelligence.isVerifiedActiveAlert) recorded WITH an
+ *   area glows red at its REAL coordinates on the map, in
+ *   every lens. Area-less alerts keep the v78 global Alert
+ *   Mode exactly; DETECTED/VERIFYING alerts never glow.
+ * - SKY joins the Area Selector as a labelled NOT_CONNECTED
+ *   seat — nothing above the atmosphere is drawn or implied.
+ * The module also publishes the session's last location
+ * context + travel context as MTI6GlobeContext, the small
+ * getter the Security intake's "Use current Globe context"
+ * button reads. Observations stay in session state; nothing
+ * here writes canonical storage.
  */
 (function (global) {
   "use strict";
@@ -206,7 +246,7 @@
   // renders that category's exact row.
   var AREA_CATEGORIES = [
     "TRAFFIC", "BUSINESS", "CITY", "TOWN",
-    "LIVE CAMS", "PICS", "STREET IMAGERY", "SOCIAL"
+    "LIVE CAMS", "PICS", "STREET IMAGERY", "SOCIAL", "SKY"
   ];
   var AREA_MEDIA_MAP = {
     "LIVE CAMS": "LIVE CAMS", "PICS": "PHOTOS",
@@ -216,6 +256,73 @@
   // Explore / zoom-to-capital land at LOCAL tier (engine tiers:
   // LOCAL starts at scale 20, max is 40).
   var EXPLORE_SCALE = 24;
+
+  // World Lens selector (World OS §13): view state over the one
+  // location context. LENS_LAYER names the existing layer a lens
+  // emphasises; lenses without an entry change no layer. Badges
+  // are derived at render from the same reads as everything else
+  // on this screen — never hard-coded prose about the world.
+  var LENSES = [
+    { id: "REALITY", label: "Reality" },
+    { id: "LIVE", label: "Live" },
+    { id: "TRAFFIC", label: "Traffic" },
+    { id: "TRANSIT", label: "Transit" },
+    { id: "WEATHER", label: "Weather" },
+    { id: "OPPORTUNITIES", label: "Opportunities" },
+    { id: "SECURITY", label: "Security" },
+    { id: "BOT_ACTIVITY", label: "Bot activity" },
+    { id: "SOURCE_COVERAGE", label: "Source coverage" },
+    { id: "SIMULATOR", label: "Simulator" }
+  ];
+  var LENS_LAYER = {
+    REALITY: "WORLD", WEATHER: "WORLD",
+    OPPORTUNITIES: "OPPORTUNITIES", SECURITY: "SECURITY_ALERTS",
+    BOT_ACTIVITY: "BOT_ACTIVITY"
+  };
+  var activeLens = "REALITY";
+
+  // Transportation Routes (owner direction: all transportation
+  // routes, in all countries, islands, everywhere). The travel
+  // context is session state: a mode, an origin (the current
+  // location context) and an owner-picked destination. Routing
+  // itself is NOT_CONNECTED — this state never draws a line.
+  var ROUTE_MODES = ["DRIVING", "WALKING", "BOAT/FERRY", "FLIGHT", "RAIL", "TRANSIT", "DRONE"];
+  var travelState = { mode: null, from: null, to: null, capturing: false };
+
+  // The session's last location context, published for the
+  // Security intake's "Use current Globe context" button (the
+  // brief's small published getter). Snapshots only — label +
+  // real pick coordinates; the full pick stays on the screen.
+  var lastGlobeContext = null;
+  global.MTI6GlobeContext = {
+    getLocationContext: function () {
+      return lastGlobeContext
+        ? { label: lastGlobeContext.label, lat: lastGlobeContext.lat, lon: lastGlobeContext.lon }
+        : null;
+    },
+    getTravelContext: function () {
+      function snap(p) { return p ? { label: p.label, lat: p.lat, lon: p.lon } : null; }
+      return {
+        mode: travelState.mode,
+        from: snap(travelState.from),
+        to: snap(travelState.to),
+        routing: "NOT_CONNECTED"
+      };
+    }
+  };
+
+  // Coverage kinds with no connected source today (World OS
+  // §§1/9). On land all of them are gaps; over open ocean only
+  // the marine-appropriate kinds are listed (architecture §3.2:
+  // an ocean point generates no traffic/transit/camera gaps).
+  var GAP_KINDS_LAND = [
+    "LIVE CAMERAS", "REFRESHED CAMERAS", "STREET IMAGERY", "PUBLIC PHOTOS",
+    "LIVESTREAMS", "TRAFFIC", "TRANSIT", "ENVIRONMENTAL SENSORS",
+    "SATELLITE / REMOTE OBSERVATIONS", "EVENTS", "GOVERNMENT DATA",
+    "DEVICE SENSORS", "OWNER CAMERAS"
+  ];
+  var GAP_KINDS_OCEAN = ["ENVIRONMENTAL SENSORS", "SATELLITE / REMOTE OBSERVATIONS", "GOVERNMENT DATA"];
+  var STREET_LEVEL_KINDS = ["STREET IMAGERY", "REFRESHED CAMERAS", "PUBLIC PHOTOS"];
 
   // One document-level fullscreenchange listener for the whole module
   // (render() can run more than once; never attach it twice).
@@ -399,6 +506,72 @@
       }
     } catch (e) { globeEngine = null; }
 
+    // Geographic alert areas (World Lens package): DOM glow
+    // markers inside the visual, one per VERIFIED-ACTIVE alert
+    // that carries an area, positioned through the engine's real
+    // project() transform at the alert's recorded coordinates.
+    // The derivation reads AngelSecurity records directly and
+    // qualifies them ONLY through GlobeIntelligence's one
+    // isVerifiedActiveAlert — DETECTED/VERIFYING never glow,
+    // area-less alerts never gain a point (they keep the global
+    // Alert Mode below). Pulse is transform/opacity only.
+    var glowLayer = U.el("div", { class: "globe-glow-layer", "aria-hidden": "true" }, []);
+    visual.appendChild(glowLayer);
+    var glowPoints = [];
+
+    function alertAreaPoints() {
+      var AS = global.AngelSecurity, GI = global.GlobeIntelligence;
+      if (!AS || !GI || typeof AS.listAlerts !== "function" ||
+          typeof GI.isVerifiedActiveAlert !== "function") return [];
+      try {
+        return (AS.listAlerts() || []).filter(function (a) {
+          return a && a.area && isFinite(a.area.lat) && isFinite(a.area.lon) &&
+            GI.isVerifiedActiveAlert(a);
+        }).map(function (a) {
+          return {
+            id: a.id,
+            label: (a.area.label || a.title || "Verified active alert"),
+            lat: +a.area.lat, lon: +a.area.lon
+          };
+        });
+      } catch (e) { return []; }
+    }
+
+    function positionAlertGlows() {
+      if (!globeEngine || typeof globeEngine.project !== "function") return;
+      var wpx = 0, hpx = 0;
+      try {
+        if (globeCanvas) { wpx = globeCanvas.clientWidth || 0; hpx = globeCanvas.clientHeight || 0; }
+      } catch (e) {}
+      glowLayer.querySelectorAll(".globe-alert-glow").forEach(function (m, i) {
+        var p = glowPoints[i];
+        if (!p) { m.style.display = "none"; return; }
+        var px = null;
+        try { px = globeEngine.project(p.lon, p.lat); } catch (e) {}
+        if (!px || (wpx && (px.x < 0 || px.y < 0 || px.x > wpx || px.y > hpx))) {
+          m.style.display = "none";
+          return;
+        }
+        m.style.display = "";
+        m.style.left = px.x + "px";
+        m.style.top = px.y + "px";
+      });
+    }
+
+    function refreshAlertAreas() {
+      glowPoints = alertAreaPoints();
+      glowLayer.innerHTML = "";
+      glowPoints.forEach(function (p) {
+        var m = U.el("div", { class: "globe-alert-glow" }, []);
+        m.setAttribute("data-alert-id", String(p.id));
+        m.setAttribute("data-lat", String(p.lat));
+        m.setAttribute("data-lon", String(p.lon));
+        m.setAttribute("title", p.label);
+        glowLayer.appendChild(m);
+      });
+      positionAlertGlows();
+    }
+
     // Hand the engine the screen's current layer + mode. Called on
     // every layer/mode refresh (including both async layer swaps),
     // so the plotted markers always match the badges and the panel.
@@ -453,6 +626,10 @@
       if (globeEngine && typeof globeEngine.setAlertMode === "function") {
         try { globeEngine.setAlertMode(alertState.on); } catch (e) {}
       }
+      // Area glows ride the same refresh: the set of glowing
+      // points is re-derived from the alert records every time
+      // the alarm presentation is, so the two can never disagree.
+      refreshAlertAreas();
     }
 
     // Side panel: selected layer's detail, beside the visual on wide
@@ -544,6 +721,8 @@
       if (!c) {
         liveContextBody.textContent = "No area selected yet — tap or click the map to set a location context.";
         updateSelectorVisibility();
+        renderCoverage();
+        refreshLensUI();
         return;
       }
       // Exact place (Globe Explore Build): city, STATE, country —
@@ -597,11 +776,34 @@
       liveContextBody.appendChild(U.el("div", { class: "api-meta" },
         "Local map data (Natural Earth, public domain) — outlines are coarse (110m); no street-level detail."));
       updateSelectorVisibility();
+      renderCoverage();
+      refreshLensUI();
+    }
+
+    // A short place label for a pick: the vendored city + its
+    // state when the tap named one, the state/country otherwise,
+    // honest coordinates over open ocean. Used for the travel
+    // context's from/to and the published Globe context — always
+    // from the pick itself, never from a marker.
+    function placeLabel(pick) {
+      if (!pick) return null;
+      if (pick.city) {
+        var st = pick.city.state || pick.state || null;
+        return pick.city.name + (st ? ", " + st : "");
+      }
+      if (pick.country) return (pick.state ? pick.state + ", " : "") + pick.country;
+      return "Open ocean — " + fmtCoord(pick.lat, "N", "S") + ", " + fmtCoord(pick.lon, "E", "W");
     }
 
     function setContextFromPick(pick) {
       if (!pick) return;
       liveState.context = pick;
+      // The travel context's origin IS the current location
+      // context, and the published snapshot follows the pick.
+      var label = placeLabel(pick);
+      lastGlobeContext = { label: label, lat: pick.lat, lon: pick.lon };
+      travelState.from = { label: label, lat: pick.lon, lon: pick.lat };
+      refreshRoutesUI();
       liveResults.innerHTML = "";
       renderContext();
       liveNote.textContent = "Location context set. Tap SEARCH THIS AREA to ask what is genuinely available for this area.";
@@ -874,6 +1076,16 @@
           "No " + cat.toLowerCase() + " provider is connected yet — no results exist for this area and none are invented, and result counts are never hard-coded."
         ], null);
       }
+      if (cat === "SKY") {
+        // The labelled sky seat (architecture §7.5): no sky or
+        // airspace source is connected, so the seat shows its
+        // state and nothing above the atmosphere is drawn,
+        // tinted or implied.
+        return resultCard("Sky — this area", "NOT_CONNECTED", [
+          "Sky / airspace sources — NOT_CONNECTED; no provider connected yet.",
+          "Satellite and airspace sources are source-catalog candidates, not connected feeds — a satellite observation carries an acquisition time and is never a live feed."
+        ], null);
+      }
       if (AREA_MEDIA_MAP[cat]) {
         var wrap = U.el("div", {}, []);
         wrap.appendChild(U.el("div", { class: "api-meta" },
@@ -996,7 +1208,8 @@
       try { v = globeEngine.getView(); } catch (e) {}
       if (!v) return;
       guideLine.textContent = "Exploring " + descriptorText(v.lon, v.lat) +
-        " — tap the arrows to walk the map.";
+        " — tap the arrows to walk the map." +
+        (travelState.mode ? " STAR travels by: " + travelState.mode + "." : "");
     }
 
     var bobTimer = null;
@@ -1110,12 +1323,371 @@
       syncViewUI();
     }
 
+    // ---- World Lens selector (World OS §13) ----------------------
+    // View state over the one location context: chips in the top
+    // roll (assembled with the rolls below), a card in this panel.
+    // Selecting a lens emphasises its existing layer where one
+    // exists and NEVER queries a provider or forks data.
+    var lensHeading = U.el("h3", { class: "globe-controls__heading" }, "World Lens");
+    var lensTabs = U.el("div", { class: "mti6-tabs globe-lens-tabs", role: "group", "aria-label": "World Lens selector" }, []);
+    var lensCardBody = U.el("div", { class: "globe-lens-card" }, []);
+
+    function lensLabel(id) {
+      for (var i = 0; i < LENSES.length; i++) if (LENSES[i].id === id) return LENSES[i].label;
+      return id;
+    }
+
+    // [badge text, badge class token], derived at render from
+    // the same layer reads and wiring as the rest of the screen.
+    function lensBadgeParts(id) {
+      if (id === "REALITY") return global.WorldMapData ? ["AVAILABLE", "AVAILABLE"] : ["NOT_LOADED", "NOT_LOADED"];
+      if (id === "LIVE") return ["WEATHER ONLY", "AVAILABLE"];
+      if (id === "TRAFFIC" || id === "TRANSIT") return ["NOT_CONNECTED", "NOT_CONNECTED"];
+      if (id === "WEATHER") return ["AVAILABLE", "AVAILABLE"];
+      if (id === "SOURCE_COVERAGE") {
+        return liveState.context ? ["AVAILABLE", "AVAILABLE"] : ["NO AREA", "NO_DATA"];
+      }
+      if (id === "SIMULATOR") return ["NOT BUILT", "NOT_CONNECTED"];
+      var layer = getLayerSafe(LENS_LAYER[id]);
+      if (!layer) return ["NOT_LOADED", "NOT_LOADED"];
+      return [layer.state + " · " + (layer.items ? layer.items.length : 0), layer.state];
+    }
+
+    function lensNote(id) {
+      switch (id) {
+        case "LIVE": return "Live lens: only currently available live or near-live sources — today that is weather only (Open-Meteo, via SEARCH THIS AREA); every other live category is honestly empty.";
+        case "TRAFFIC": return "Traffic lens: NOT_CONNECTED — no traffic source is connected, so nothing is shown as traffic.";
+        case "TRANSIT": return "Transit lens: NOT_CONNECTED — no transit source is connected (GTFS / GTFS-RT are catalog candidates).";
+        case "WEATHER": return "Weather lens: Open-Meteo is connected — SEARCH THIS AREA takes this area's weather reading with its source and observation time shown.";
+        case "OPPORTUNITIES": return "Opportunities lens: the Opportunities layer, global recorded state with no geography — its badge is its real state.";
+        case "SECURITY": return "Security lens: the Security Alerts layer — alarm red is reserved for verified-and-active alerts; an alert with an area glows at its real point.";
+        case "BOT_ACTIVITY": return "Bot activity lens: recorded workforce state only — workers are NOT_CONNECTED, and no bot motion is shown that was not recorded.";
+        case "SOURCE_COVERAGE": return "Source coverage lens: the Coverage readout in the Live World panel lists what MTI6 has for this area — and its gaps.";
+        case "SIMULATOR": return "Simulator lens: NOT BUILT — a labelled seat for the future derived-world reconstruction (World OS §13/§20).";
+        default: return modeNote(mode);
+      }
+    }
+
+    function refreshModeNote() {
+      modeNoteEl.textContent = activeLens === "REALITY" ? modeNote(mode) : lensNote(activeLens);
+    }
+
+    function lensLines(id) {
+      if (id === "REALITY") return [
+        "The base world: vendored country and state outlines and named places at their real positions, with the recorded layers as they stand.",
+        "The mode tabs (World / Electric / Terrain / Boundaries / Intelligence) are palettes over this same data — styling only. Terrain renders nothing as terrain: no terrain data is connected."
+      ];
+      if (id === "LIVE") return [
+        "Only currently available live or near-live sources appear under this lens.",
+        "Today exactly one live geographic source is connected: Open-Meteo weather, taken explicitly when you tap SEARCH THIS AREA. Every media category is NOT_CONNECTED, so the Live lens is weather-only — nothing else is presented as live."
+      ];
+      if (id === "TRAFFIC") return [
+        "No traffic provider is connected yet — no traffic results exist for any area and none are invented. The 511/DOT family is a source-catalog CANDIDATE under terms review."
+      ];
+      if (id === "TRANSIT") return [
+        "No transit provider is connected yet — GTFS and GTFS-RT feeds are source-catalog CANDIDATEs. No routes, vehicles or stations are shown."
+      ];
+      if (id === "WEATHER") return [
+        "Weather for the current area comes from Open-Meteo, the platform's one connected geographic source — a STATIC SNAPSHOT with its observation time and source shown, never a live feed.",
+        liveState.context ? "Use the button below (the same SEARCH THIS AREA path) to take this area's reading." : "Tap the map to set an area first — then SEARCH THIS AREA takes its weather reading."
+      ];
+      if (id === "OPPORTUNITIES" || id === "BOT_ACTIVITY") {
+        var layer = getLayerSafe(LENS_LAYER[id]);
+        return [
+          lensLabel(id) + " layer: " + (layer ? layer.state + " · " + (layer.items ? layer.items.length : 0) : "NOT_LOADED") + ".",
+          id === "OPPORTUNITIES"
+            ? "Global recorded state with no geography — nothing is pinned to this area, and zero records means zero, honestly."
+            : "Worker records only — no worker runtime is connected, so no bot activity is live and none is implied."
+        ];
+      }
+      if (id === "SECURITY") {
+        var slayer = getLayerSafe("SECURITY_ALERTS");
+        return [
+          "Security Alerts layer: " + (slayer ? slayer.state + " · " + (slayer.items ? slayer.items.length : 0) : "NOT_LOADED") + ".",
+          "Alarm red is reserved for verified-and-active alerts (CONFIRMED / ACTIVE / MITIGATING). An alert recorded with an area glows red at its real point on the map; an area-less verified-active alert keeps the global red presentation."
+        ];
+      }
+      if (id === "SOURCE_COVERAGE") return [
+        liveState.context
+          ? "The Coverage readout below lists, for this area, what MTI6 has and what it lacks — each row naming the basis it was computed from."
+          : "Tap the map to set an area — the Coverage readout binds to the location context and computes only what can honestly be computed for it."
+      ];
+      if (id === "SIMULATOR") return [
+        "Simulator — NOT_CONNECTED · derived-world reconstruction is a future layer (World OS §13/§20)",
+        "Nothing is simulated here yet: no derived world and no uncertainty rendering. The seat is reserved and labelled until the simulator exists."
+      ];
+      return [];
+    }
+
+    function renderLensCard() {
+      lensCardBody.innerHTML = "";
+      var parts = lensBadgeParts(activeLens);
+      lensCardBody.appendChild(U.el("div", { class: "globe-live-card__head" }, [
+        U.el("span", { class: "globe-live-card__title" }, "Lens: " + lensLabel(activeLens)),
+        U.el("span", { class: badgeClassForState(parts[1]) }, parts[0])
+      ]));
+      lensLines(activeLens).forEach(function (line) {
+        lensCardBody.appendChild(U.el("div", { class: "api-meta" }, line));
+      });
+      if (activeLens === "WEATHER") {
+        var wxBtn = U.el("button", { class: "btn", type: "button" }, "Search this area for weather");
+        wxBtn.disabled = !liveState.context;
+        wxBtn.addEventListener("click", function () { searchAreaBtn.click(); });
+        lensCardBody.appendChild(U.el("div", { class: "globe-controls globe-live-actions" }, [wxBtn]));
+      }
+    }
+
+    function refreshLensUI() {
+      lensTabs.innerHTML = "";
+      LENSES.forEach(function (l) {
+        var parts = lensBadgeParts(l.id);
+        var active = l.id === activeLens;
+        var b = U.el("button", {
+          class: "mti6-tab" + (active ? " mti6-tab--active" : ""),
+          type: "button",
+          "aria-pressed": active ? "true" : "false"
+        }, [
+          U.el("span", {}, l.label + " "),
+          U.el("span", { class: badgeClassForState(parts[1]) }, parts[0])
+        ]);
+        b.setAttribute("data-lens", l.id);
+        b.addEventListener("click", function () { selectLens(l.id); });
+        lensTabs.appendChild(b);
+      });
+      renderLensCard();
+      if (activeLens === "SOURCE_COVERAGE") coverageSection.classList.add("globe-coverage--focus");
+      else coverageSection.classList.remove("globe-coverage--focus");
+    }
+
+    function selectLens(id) {
+      activeLens = id;
+      var layerId = LENS_LAYER[id];
+      if (layerId && layerId !== selectedLayer) selectLayer(layerId);
+      refreshLensUI();
+      refreshModeNote();
+      if (id === "SOURCE_COVERAGE" && liveState.context) {
+        try {
+          if (typeof coverageSection.scrollIntoView === "function") coverageSection.scrollIntoView();
+        } catch (e) {}
+      }
+    }
+
+    // ---- Coverage readout (World OS §§1/9; architecture §3) -------
+    // Bound to the location context; hidden until one exists.
+    // Rows are (kind, state, basis) triples computed ONLY from
+    // vendored presence, the connected Open-Meteo source, and
+    // the platform's global layer states — labelled global,
+    // never presented as coverage of this area.
+    var coverageBody = U.el("div", { class: "globe-coverage__body" }, []);
+    var coverageSection = U.el("div", { class: "globe-coverage globe-coverage--hidden" }, [
+      U.el("h4", { class: "globe-live-media__heading" }, "Coverage here"),
+      coverageBody
+    ]);
+
+    function coverageRow(name, badgeText, badgeToken, basis) {
+      return U.el("div", { class: "globe-live-media-row globe-coverage-row" }, [
+        U.el("span", { class: "globe-live-media-row__name" }, name),
+        U.el("span", { class: badgeClassForState(badgeToken) }, badgeText),
+        U.el("span", { class: "api-meta" }, basis)
+      ]);
+    }
+
+    function openMeteoUsage() {
+      try {
+        if (!global.ApiRegistry || typeof global.ApiRegistry.getUsage !== "function") return null;
+        var all = global.ApiRegistry.getUsage();
+        for (var i = 0; i < all.length; i++) if (all[i].id === "open-meteo") return all[i];
+      } catch (e) {}
+      return null;
+    }
+
+    function renderCoverage() {
+      coverageBody.innerHTML = "";
+      var c = liveState.context;
+      if (!c) {
+        coverageSection.classList.add("globe-coverage--hidden");
+        return;
+      }
+      coverageSection.classList.remove("globe-coverage--hidden");
+      var land = !!c.land;
+      // MAP — vendored presence at this point (Input A).
+      if (land) {
+        coverageBody.appendChild(coverageRow("MAP", "COVERED", "AVAILABLE",
+          "Vendored outlines resolve this point" + (c.country ? " to " + c.country : "") +
+          " — local Natural Earth data on this device (coarse 110m outlines)."));
+      } else {
+        coverageBody.appendChild(coverageRow("MAP", "BASE WORLD", "STATIC SNAPSHOT",
+          "The vendored base map covers this point — open ocean: no land outline contains it."));
+      }
+      // PLACES — named places only; the data has no businesses.
+      var near = nearestPlaces(c.lon, c.lat, 8);
+      var within = near.filter(function (p) { return p.km <= 500; });
+      if (within.length) {
+        coverageBody.appendChild(coverageRow("PLACES", "COVERED", "AVAILABLE",
+          within.length + " named place(s) in the local data within 500 km — nearest: " + near[0].name +
+          ", " + Math.round(near[0].km) + " km. Named places only — the local data holds no business records."));
+      } else {
+        coverageBody.appendChild(coverageRow("PLACES", "NO_DATA", "NO_DATA",
+          "No named place within 500 km in the local data" +
+          (near.length ? " — nearest: " + near[0].name + ", " + Math.round(near[0].km) + " km." : ".")));
+      }
+      // WEATHER — the one connected geographic source (Input B):
+      // a capability statement; an observation only on request.
+      var om = openMeteoUsage();
+      var wxBasis = "Open-Meteo answers any coordinates on Earth — coverage, not an observation: tap SEARCH THIS AREA to take this area's reading.";
+      if (om && om.callsToday > 0) {
+        wxBasis += om.lastOk ? " Last recorded check: OK." : " Last recorded check: FAILED — declared unavailable from the recorded outcome, not assumed.";
+      }
+      coverageBody.appendChild(coverageRow("WEATHER", "AVAILABLE", "AVAILABLE", wxBasis));
+      coverageBody.appendChild(U.el("div", { class: "globe-live-source" }, "SOURCE: Open-Meteo"));
+      // WORLD ENGINE KNOWLEDGE — global platform state (Input C),
+      // labelled global so it can never pose as area coverage.
+      coverageBody.appendChild(coverageRow("WORLD ENGINE KNOWLEDGE", "GLOBAL", "STATIC SNAPSHOT",
+        "Platform-wide recorded state, not coverage of this area: " + layerCountsLine() +
+        ". Layer items carry no geography by design."));
+      // GAPS — kinds appropriate to this area with no connected
+      // source, worded MTI6-relatively (architecture §3.2).
+      var kinds = (land ? GAP_KINDS_LAND : GAP_KINDS_OCEAN).slice();
+      var suppressed = [];
+      if (c.tier === "WORLD") {
+        kinds = kinds.filter(function (k) {
+          if (STREET_LEVEL_KINDS.indexOf(k) !== -1) { suppressed.push(k); return false; }
+          return true;
+        });
+      }
+      kinds.forEach(function (k) {
+        coverageBody.appendChild(coverageRow(k, "NO CONNECTED SOURCE", "NOT_CONNECTED",
+          "MTI6 has no " + k.toLowerCase() + " source for this area — a statement about MTI6's coverage, not about the place."));
+      });
+      // The three world states (directive §12), honestly held.
+      coverageBody.appendChild(U.el("div", { class: "api-meta" },
+        "World states: CACHED BASE WORLD — this base map is vendored locally and works offline · ONLINE WORLD — live sources answer when the network allows · LIVE SOURCES UNAVAILABLE is declared per source from recorded outcomes (Open-Meteo: " +
+        (om ? (om.callsToday > 0 ? (om.lastOk ? "last check OK" : "last check FAILED") : "no check recorded yet") : "no registry read available") + ")."));
+      // GAPS summary + the gated Find more (no missions yet).
+      var gaps = U.el("div", { class: "globe-coverage__gaps" }, []);
+      gaps.appendChild(U.el("div", { class: "globe-live-context__heading" }, "Gaps for this area"));
+      var gapList = U.el("ul", { class: "price-offer-list" });
+      kinds.forEach(function (k) {
+        gapList.appendChild(U.el("li", {}, "MTI6 has no " + k.toLowerCase() + " source for this area"));
+      });
+      gaps.appendChild(gapList);
+      if (!land) {
+        gaps.appendChild(U.el("div", { class: "api-meta" },
+          "Land-only coverage kinds (traffic, transit, street imagery, cameras and the rest) are not listed for open ocean — there is nothing there for them to cover."));
+      }
+      if (suppressed.length) {
+        gaps.appendChild(U.el("div", { class: "api-meta" },
+          "Street-level kinds (" + suppressed.join(", ") + ") are not listed at WORLD tier — zoom in and the readout follows the view."));
+      }
+      gaps.appendChild(U.el("div", { class: "api-meta" },
+        "Gap missions open with the World Resource Registry and the worker runtime — neither is built yet, so no mission is opened and no research is simulated. FIND MORE stays in its gated state:"));
+      var covFindMore = U.el("button", { class: "btn", type: "button" }, "Find more");
+      covFindMore.addEventListener("click", function () { findMoreBtn.click(); });
+      gaps.appendChild(U.el("div", { class: "globe-controls globe-live-actions" }, [covFindMore]));
+      coverageBody.appendChild(gaps);
+    }
+
+    // ---- Transport Routes selector (World OS §13 routing seat) ----
+    // Modes for any place worldwide. The travel context is kept
+    // on screen (panel lines + the bottom-roll line); the guide
+    // travels by the chosen mode — presentation only. Routing is
+    // NOT_CONNECTED: no route geometry exists anywhere in this
+    // build, and none is drawn.
+    var routeModeRow = U.el("div", { class: "globe-selector__chips", role: "group", "aria-label": "Transportation route mode" }, []);
+    var routeChips = {};
+    ROUTE_MODES.forEach(function (m) {
+      var b = U.el("button", { class: "globe-chip", type: "button", "aria-pressed": "false" }, m);
+      b.setAttribute("data-route-mode", m);
+      b.addEventListener("click", function () { selectRouteMode(m); });
+      routeChips[m] = b;
+      routeModeRow.appendChild(b);
+    });
+    var routeFromLine = U.el("div", { class: "api-meta globe-routes__line" }, "");
+    var routeToLine = U.el("div", { class: "api-meta globe-routes__line" }, "");
+    var setDestBtn = U.el("button", { class: "btn", type: "button", "aria-pressed": "false" }, "Set destination");
+    setDestBtn.addEventListener("click", function () {
+      travelState.capturing = !travelState.capturing;
+      refreshRoutesUI();
+      if (travelState.capturing) {
+        liveNote.textContent = "Tap the map to set the destination — or tap Set destination again (or press Esc) to cancel. The tap is consumed as the destination; your location context stays as the origin.";
+      }
+    });
+    var clearRouteBtn = U.el("button", { class: "btn", type: "button" }, "Clear route");
+    clearRouteBtn.addEventListener("click", function () {
+      travelState.mode = null;
+      travelState.to = null;
+      travelState.capturing = false;
+      refreshRoutesUI();
+      if (walk.active) updateGuide();
+    });
+    var routesSection = U.el("div", { class: "globe-routes" }, [
+      U.el("h4", { class: "globe-live-media__heading" }, "Transport routes"),
+      U.el("div", { class: "api-meta" },
+        "A selector for all transportation routes — every mode, for any place: all countries, islands, everywhere. Choosing a mode sets your travel context and the mode STAR travels by in Explore (presentation only — a form grants no capability). Routing itself is NOT_CONNECTED: no routing provider is connected (OSRM is the source-catalog candidate; its demo server is not for production), so no route line is drawn."),
+      routeModeRow,
+      routeFromLine,
+      routeToLine,
+      U.el("div", { class: "globe-controls globe-live-actions" }, [setDestBtn, clearRouteBtn])
+    ]);
+    var routeLine = U.el("div", { class: "api-meta globe-roll__route" }, "");
+
+    function refreshRoutesUI() {
+      ROUTE_MODES.forEach(function (m) {
+        var b = routeChips[m];
+        if (!b) return;
+        var on = travelState.mode === m;
+        if (on) b.classList.add("globe-chip--active"); else b.classList.remove("globe-chip--active");
+        b.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+      routeFromLine.textContent = "From: " + (travelState.from ? travelState.from.label : "— tap the map to set a location context");
+      routeToLine.textContent = "To: " + (travelState.to ? travelState.to.label : "(no destination set)");
+      setDestBtn.textContent = travelState.capturing ? "Tap the map for the destination — tap again or Esc to cancel" : "Set destination";
+      setDestBtn.setAttribute("aria-pressed", travelState.capturing ? "true" : "false");
+      routeLine.textContent = travelState.mode
+        ? "Route: " + travelState.mode + " · " + (travelState.from ? travelState.from.label : "(no origin set)") +
+          " → " + (travelState.to ? travelState.to.label : "(no destination set)") + " · Routing NOT_CONNECTED"
+        : "Route: no mode selected · Routing NOT_CONNECTED";
+    }
+
+    function selectRouteMode(m) {
+      travelState.mode = m;
+      if (!travelState.from && liveState.context) {
+        var c = liveState.context;
+        travelState.from = { label: placeLabel(c), lat: c.lat, lon: c.lon };
+      }
+      refreshRoutesUI();
+      if (walk.active) updateGuide();
+    }
+
+    function completeDestination(pick) {
+      travelState.capturing = false;
+      if (pick) {
+        travelState.to = { label: placeLabel(pick), lat: pick.lat, lon: pick.lon };
+        liveNote.textContent = "Destination set: " + travelState.to.label +
+          ". Routing is NOT_CONNECTED — no route line is drawn; the travel context stays on screen.";
+      }
+      refreshRoutesUI();
+    }
+
+    // Esc cancels a destination capture in progress.
+    function routeKeys(e) {
+      if (!travelState.capturing) return;
+      if (e.key === "Escape") {
+        travelState.capturing = false;
+        refreshRoutesUI();
+        liveNote.textContent = "Destination capture cancelled — no destination was set.";
+      }
+    }
+    try { document.addEventListener("keydown", routeKeys); } catch (e) {}
+
     var livePanel = U.el("section", { class: "api-panel globe-live-panel", "aria-label": "Live World" }, [
       U.el("h3", {}, "Live World"),
       U.el("div", { class: "globe-live-context" }, [
         U.el("div", { class: "globe-live-context__heading" }, "Location context"),
         liveContextBody
       ]),
+      lensCardBody,
+      coverageSection,
       selectorSection,
       U.el("div", { class: "globe-controls globe-live-actions" }, [searchAreaBtn]),
       liveResults,
@@ -1123,6 +1695,7 @@
       U.el("div", { class: "api-meta" },
         "Media for an area appears here only from connected providers, every item with its source shown. No media provider is connected yet, so every category is honestly NOT_CONNECTED and shows no results — nothing is invented to fill them, and result counts are never hard-coded."),
       mediaList,
+      routesSection,
       U.el("div", { class: "globe-controls globe-live-actions" }, [findMoreBtn]),
       liveNote
     ]);
@@ -1141,7 +1714,7 @@
     var topRoll = U.el("div", { class: "globe-roll globe-roll--top", "aria-label": "Globe controls" }, []);
     var bottomRoll = U.el("div", { class: "globe-roll globe-roll--bottom", "aria-label": "Live World area actions and readouts" }, []);
     bottomRoll.appendChild(truthLabel);
-    bottomRoll.appendChild(U.el("div", { class: "globe-roll__main" }, [readoutLine, searchAreaBtn, findMoreBtn, exploreAreaBtn]));
+    bottomRoll.appendChild(U.el("div", { class: "globe-roll__main" }, [readoutLine, routeLine, searchAreaBtn, findMoreBtn, exploreAreaBtn]));
     bottomRoll.appendChild(liveNote);
     visual.appendChild(bottomRoll);
     // Explore overlay rides ON the map, above the canvas and
@@ -1159,6 +1732,7 @@
     topRoll.appendChild(rollGroup([exploreBtn, meBtn]));
     topRoll.appendChild(rollGroup([zoomOutBtn, zoomReadout, zoomInBtn, resetBtn]));
     topRoll.appendChild(rollGroup([modeTabs]));
+    topRoll.appendChild(rollGroup([lensHeading, lensTabs]));
     topRoll.appendChild(rollGroup([toggleBtns.SECURITY_ALERTS, toggleBtns.OPPORTUNITIES, toggleBtns.BOT_ACTIVITY]));
     topRoll.appendChild(rollGroup([detailsBtn, fsBtn]));
     topRoll.appendChild(rollGroup([modeNoteEl]));
@@ -1198,6 +1772,8 @@
         currentTier = v.tier;
         updateSelectorVisibility();
       }
+      // Alert-area glows track the real view transform.
+      positionAlertGlows();
     }
 
     function refreshModeUI() {
@@ -1207,7 +1783,7 @@
       stage.className = "globe-stage globe-mode-" + mode.toLowerCase();
       visual.className = "globe-visual globe-mode-" + mode.toLowerCase();
       applyTruthLabel();
-      modeNoteEl.textContent = modeNote(mode);
+      refreshModeNote();
       modeTabs.querySelectorAll(".mti6-tab").forEach(function (x) {
         var active = x.getAttribute("data-mode") === mode;
         // add/remove instead of classList.toggle: identical in a real
@@ -1313,6 +1889,11 @@
       refreshHeader();
       plotGlobe();
       refreshAlertMode();
+      // Lens badges and the coverage GLOBAL row read the same
+      // layer states — they refresh with the layers, including
+      // the async graph swap, so they can never drift apart.
+      refreshLensUI();
+      renderCoverage();
       // Bottom-roll readout line: the same live derivation the
       // SEARCH THIS AREA layers card uses — never hard-coded.
       try { readoutLine.textContent = layerCountsLine(); } catch (e) {}
@@ -1423,7 +2004,13 @@
     if (globeEngine && typeof globeEngine.setInteractionHandlers === "function") {
       try {
         globeEngine.setInteractionHandlers({
-          onTap: function (pick) { setContextFromPick(pick); },
+          onTap: function (pick) {
+            // A destination capture consumes the tap as the
+            // route's destination; the location context (the
+            // origin) is deliberately left standing.
+            if (travelState.capturing) { completeDestination(pick); return; }
+            setContextFromPick(pick);
+          },
           onViewChange: function () { syncViewUI(); }
         });
       } catch (e) {}
@@ -1432,6 +2019,7 @@
     // ---- Initial paint --------------------------------------------------
     syncViewUI();
     renderContext();
+    refreshRoutesUI();
     refreshModeUI();
     refreshLayerUI();
 

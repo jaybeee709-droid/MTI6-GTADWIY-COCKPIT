@@ -19,12 +19,7 @@
   --radius: 14px;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
   color-scheme: dark;
-  /* Visual Stage 1 (Nov 14, 2026): before this, --surface was undefined,
-     so every var(--surface, #fff) fell back to WHITE in both themes —
-     white cards with near-white --text-0 in dark theme (1.13:1,
-     invisible). Panels take the theme panel colour now; Analytics keeps
-     its locked black panels via the more specific .analytics-grid
-     .api-panel rules. */
+  /* Visual Stage 1: --surface defined here (was undefined before). */
   --surface: var(--bg-1);
   /* Visual Stage 1: --mti6-* canonical tokens (spec §3). Aliases over the
      existing tokens — existing names keep working; new semantic names
@@ -92,12 +87,7 @@
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
-  /* State colors — semantics, not decoration (directive §6/§44;
-     STAR colours superseded by owner ruling 2026-11-16):
-     electric blue = operational and STAR at rest; green = STAR
-     talking (glowing, until the reply completes); purple remains
-     the INTELLIGENCE accent; red = a genuine, confirmed alarm in
-     ONE category only. */
+  /* State colors — semantics, not decoration (directive §6/§44). */
   --state-operational: var(--mti6-blue-electric);
   --state-star-idle: var(--mti6-blue-electric);
   --state-star-active: var(--green);
@@ -312,11 +302,7 @@ body.nav-open #nav-scrim {
 /* ---- Main content ---- */
 #main-content {
   flex: 1;
-  /* Visual Stage 1: a flex item defaults to min-width:auto, so a wide
-     unbreakable descendant could force this column wider than the
-     viewport (latent overflow; it would spill right, not under the
-     sidebar). min-width:0 lets the column shrink; content inside still
-     lays out normally. */
+  /* Flex min-width guard for wide descendants. */
   min-width: 0;
   /* Was 56px to clear the fixed top bar; the clearance now comes
      from the search bar's own row (margin-block-start: 56px on
@@ -965,13 +951,7 @@ body.nav-open #nav-scrim {
 
 /* ===================== Tablet / Desktop / Samsung DeX ===================== */
 @media (min-width: 768px) {
-  /* Full-Screen World Shell (owner direction 2026-11-16): the
-     docked sidebar at >=768px is SUPERSEDED — the sidebar is
-     closed by default at every width and opens only from the
-     top-left menu button as an overlay drawer, so the base
-     #side-nav / #nav-scrim / #menu-toggle rules govern at all
-     widths; the sticky in-flow rules that lived here are
-     removed on purpose. */
+  /* Full-Screen World Shell (owner, 2026-11-16): docked sidebar SUPERSEDED — drawer at all bands. */
   #view-root {
     max-width: 1100px;
   }
@@ -1220,11 +1200,7 @@ body.nav-open #nav-scrim {
   color: var(--amber);
 }
 
-/* ---- Star 3.0 Command Chat (V1) ---------------------------------------
- * Mobile-first, built on the cockpit's own variables so it matches the
- * existing dark/light themes instead of introducing a new look. Touch
- * targets are 44px minimum for the Samsung Galaxy A14 (about 360px wide).
- * Desktop widens the conversation area and narrows the bubbles. */
+/* Star 3.0 Command Chat (V1). */
 .star-panel {
   background: var(--bg-1);
   border: 1px solid var(--line);
@@ -1421,11 +1397,7 @@ body.nav-open #nav-scrim {
   color: var(--text-2);
   line-height: 1.4;
 }
-/* ---- STAR presence form (Presence Anywhere Build 1) ------------------
- * The panel's compact form: standing figure, status line, a bubble
- * with the LATEST exchange only, the chat input, the demo footnote.
- * The full log stays in the DOM and returns untouched on toggle
- * off; the window docks compact bottom-left (.wm-window--presence). */
+/* STAR presence form (Presence Anywhere Build 1). */
 .star-presence-exchange {
   display: none;
   flex-direction: column;
@@ -1468,12 +1440,7 @@ body.nav-open #nav-scrim {
 .star-panel--presence .star-figure-img {
   height: 132px;
 }
-/* Presence header fit (fix, found in the v80 preview check): in the
-   compact 370px dock the single header row crushed the identity
-   block — the title ran over the round avatar and the actions
-   crowded its edge. In presence form the header wraps instead: the
-   identity row keeps its natural width and the actions drop to
-   their own row, right-aligned. Full-panel layout is untouched. */
+/* Presence header fit (v80 preview fix): compact-dock header rows. */
 .star-panel--presence .star-header {
   flex-wrap: wrap;
 }
@@ -1671,7 +1638,7 @@ body.nav-open #nav-scrim {
 .web-text { white-space: pre-wrap; font-size: 14px; line-height: 1.6; }
 
 /* Global search bar (V1): app-shell bar, visible on every screen. */
-#global-search-wrap { display: flex; gap: 8px; padding: 10px 12px; /* Full-width row of its own (see #app-shell flex-wrap): without this the bar sat as a tall left column in the shell's row layout. margin-block-start clears the 56px fixed top bar, so the 44px controls are no longer hidden behind it and the Search button can no longer stretch to full viewport height. */ flex: 1 1 100%; margin-block-start: 56px; }
+#global-search-wrap { display: flex; gap: 8px; padding: 10px 12px; /* Full-width row of its own (see #app-shell flex-wrap). */ flex: 1 1 100%; margin-block-start: 56px; }
 #global-search-input { flex: 1; min-width: 0; height: 44px; border-radius: 10px; border: 1px solid var(--border, #ddd); padding: 0 12px; font-size: 16px; background: var(--surface, #fff); color: inherit; }
 #global-search-results { /* Stage 2 fix-up (Nov 14, 2026, Defect 1): the results panel is a true fixed overlay, NOT an in-flow flex row. */ position: fixed; top: 120px; left: 12px; right: 12px; z-index: 80; border: 1px solid var(--border, #ddd); border-radius: 12px; padding: 12px; background: var(--surface, #fff); max-height: 70vh; overflow: auto; }
 #global-search-results.hidden { display: none; }
@@ -2336,12 +2303,7 @@ html, body { overflow-x: hidden; }
 .wm-window.wm-minimized .wm-body {
   display: none;
 }
-/* STAR presence form (Presence Anywhere Build 1): the STAR window
-   docks compact at the bottom-left corner of the screen — above
-   the current route's content, on any screen, never covering the
-   STAR launcher at bottom-right. The overlay's channel rows step
-   aside in this form; the panel inside carries the demo footnote
-   and status, so the demo truth stays visible. */
+/* STAR presence form: compact bottom-left dock. */
 .wm-window.wm-window--presence {
   left: calc(12px + var(--safe-left)) !important;
   right: auto;
@@ -2413,11 +2375,7 @@ html, body { overflow-x: hidden; }
   margin-top: 10px;
 }
 
-/* ---- Presence card (Presence Anywhere Build 1) -----------------------
- * js/presence.js: one figure + speech bubble anchored bottom-left,
- * below the window layer — the STAR launcher (bottom-right, z 130)
- * is never covered. Entrance is one fade/slide, off under reduced
- * motion. The bubble carries only caller-supplied real state. */
+/* Presence card (Presence Anywhere Build 1): js/presence.js. */
 .presence {
   position: fixed;
   left: calc(12px + var(--safe-left));
@@ -2510,11 +2468,7 @@ html, body { overflow-x: hidden; }
   .presence-figure-mark { width: 60px; height: 60px; font-size: 13px; }
 }
 
-/* ---- Bot Profiles + Big Screen (owner direction 2026-11-16) ----
- * Sidebar STAR slot + tribe accordion (js/app.js), Bot Profile
- * screen (js/modules/bot-profile.js), big-screen presenter
- * (js/bot-presenter.js) at the Presence layer (z 120, bottom-left)
- * so the STAR launcher (z 130, bottom-right) is never covered. */
+/* Bot Profiles + Big Screen (owner, 2026-11-16). */
 .nav-star-slot{display:flex;align-items:center;gap:10px;width:calc(100% - 16px);margin:2px 8px 8px;min-height:44px;padding:6px 10px;border:1px solid var(--line);border-radius:12px;background:var(--bg-2);color:var(--text-0);cursor:pointer}
 .nav-star-slot-img{width:32px;height:32px;border-radius:50%;object-fit:cover}
 .nav-star-slot-label{font-weight:700;letter-spacing:.08em;color:var(--cyan);font-size:13px}
@@ -2673,13 +2627,7 @@ html, body { overflow-x: hidden; }
   display: block;
 }
 .globe-visual > .api-meta { position: relative; z-index: 1; }
-/* Globe Alert Mode (owner ruling 2026-11-16): the banner and the
-   red visual frame appear ONLY while GlobeIntelligence reports a
-   genuine alarm (a verified confirmed/active security alert);
-   js/modules/globe.js toggles both classes from that one
-   derivation. The canvas palette crossfade itself lives in
-   js/globe-engine.js and honours prefers-reduced-motion there;
-   these two rules carry no transition of their own. */
+/* Globe Alert Mode (owner, 2026-11-16): banner + red frame ONLY on a genuine GlobeIntelligence alarm. */
 .globe-alert-banner {
   display: none;
   position: relative;
@@ -2696,11 +2644,7 @@ html, body { overflow-x: hidden; }
   border-color: rgba(255,92,92,0.65);
   box-shadow: inset 0 0 42px rgba(255,40,40,0.16);
 }
-/* Live World Build 1: the canvas takes pointer input directly
-   (drag pan / wheel / pinch / tap-to-context); touch-action:none
-   lets pointer events carry the gestures without the browser
-   hijacking them for scroll/zoom. View controls and Live World
-   actions keep 44px touch targets at every band. */
+/* Live World Build 1: canvas takes pointer input directly. */
 .globe-canvas { touch-action: none; cursor: grab; }
 .globe-controls .btn,
 .globe-live-panel .btn { min-height: 44px; }
@@ -2862,12 +2806,7 @@ html, body { overflow-x: hidden; }
 /* ---- Angel Security (§69-71): silver/white mechanical + dark internal,
    cyan/blue illumination — distinct from Tribe operations. ------------- */
 .angel-dash { display: flex; flex-direction: column; gap: 4px; }
-/* Angel robot portraits (owner ruling 2026-11-16): the framed
-   medallion beside each APPROVED identity's name in the Angel
-   identities card. Framed (rounded-rectangle) rather than round —
-   the portraits are full upper-body robots; Uriel's transparent
-   cutout sits on the medallion's dark ground, the other three
-   carry their own near-black background. */
+/* Angel robot portraits (owner, 2026-11-16): framed medallions. */
 .angel-identity-row {
   display: flex;
   align-items: center;
@@ -2974,11 +2913,7 @@ html, body { overflow-x: hidden; }
 .search-workspace-footer { margin-top: 8px; }
 .search-history-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 #global-search-results .price-offer-list li { overflow-wrap: anywhere; }
-/* Mobile collapse (§61): at <=640px the source select and its state
- * chip are hidden and replaced by the compact source button; the Web
- * provider select drops to its own row (flex-wrap on the bar); the
- * tab strip scrolls horizontally; results stay one column; STAR stays
- * visible; nothing may overflow horizontally. */
+/* Mobile collapse (§61): <=640px source select. */
 @media (max-width: 640px) {
   #global-search-source { display: none; max-width: none; }
   #global-search-source-state { display: none; }
@@ -3015,11 +2950,7 @@ html, body { overflow-x: hidden; }
   width: var(--touch-min);
   height: var(--touch-min);
 }
-/* Bands A+B (phones): search text stays >=16px so mobile browsers
-   do not auto-zoom on focus; shell type uses the token scale; main
-   content gains safe-area inline padding. Scoped to <768px on
-   purpose: at >=768px the historical 20px main padding governs and
-   Phase B must not override it from a later base rule. */
+/* Bands A+B: search text >=16px (no mobile auto-zoom). */
 @media (max-width: 767px) {
   #global-search-input { font-size: 16px; }
   #app-title { font-size: var(--fs-title); }
@@ -3199,12 +3130,7 @@ html, body { overflow-x: hidden; }
 .bubble--alarm { border-color: var(--state-alarm); background: rgba(255, 60, 60, 0.14); }
 .bubble--alarm .bubble-dot { background: var(--state-alarm); width: auto; min-width: 14px; height: 14px; border-radius: 7px; }
 
-/* ---- STAR launcher: bottom-right — electric blue at rest, green
-   glow while STAR talks (owner ruling 2026-11-16, superseding the
-   Phase C purple-at-rest / blue-while-talking rule). The talking
-   glow pulses for the whole reply and ends with it; under reduced
-   motion the Phase H net collapses the pulse and the static green
-   glow remains. ---- */
+/* STAR launcher: bottom-right — blue at rest, green glow while talking (owner, 2026-11-16). */
 #star-launcher {
   position: fixed;
   right: max(16px, var(--safe-right));
@@ -3234,13 +3160,7 @@ html, body { overflow-x: hidden; }
 @media (prefers-reduced-motion: reduce) {
   #star-launcher { transition: none; }
 }
-/* STAR's face inside the launcher (owner ruling 2026-11-16): the
-   owner's portrait fills the disc while the button's border and
-   shadow keep carrying the state colour around it (electric blue
-   at rest, green glow while talking). The portrait is head-and-
-   shoulders with the face in its upper third, so the image is
-   zoomed toward the face for the small circle. If the image is
-   absent, nothing renders here and the ✨ glyph shows as before. */
+/* STAR's face in the launcher (owner, 2026-11-16): portrait fills the disc. */
 .star-launcher-img {
   position: absolute;
   inset: 0;
@@ -3362,14 +3282,7 @@ html, body { overflow-x: hidden; }
   }
 }
 
-/* Band D — Laptop/Desktop (1024–1439px): the layer Details panel
-   docks BESIDE the visual (the side-by-side layout globe.js's
-   comments have always described) instead of stacking under it;
-   the three control rows take their own full-width rows beneath.
-   When the panel is closed (display:none) the visual takes the
-   whole row. The visual's dominance floor moves to the canonical
-   1024 edge (the historical 1200px rule above still applies at
-   >=1200 and agrees). */
+/* Band D (1024–1439px): Details panel docks beside the visual. */
 @media (min-width: 1024px) {
   .globe-stage { flex-direction: row; flex-wrap: wrap; }
   .globe-visual { flex: 1 1 420px; min-height: 480px; }
@@ -3426,11 +3339,7 @@ html, body { overflow-x: hidden; }
   }
   .sheet-handle:active { cursor: grabbing; }
 
-  /* Sheet states: max-height caps. EXPANDED restates the Phase C
-     phone cap (88dvh) so the default presentation is unchanged;
-     FULL lets the sheet take the whole viewport and squares the
-     radius (it IS the screen then). A state never forces a panel
-     taller than its content — these are caps, not heights. */
+  /* Sheet states: max-height caps. */
   .wm-window:not(.wm-maximized):not(.wm-minimized)[data-sheet-state="PEEK"] { max-height: 33dvh; }
   .wm-window:not(.wm-maximized):not(.wm-minimized)[data-sheet-state="HALF"] { max-height: 55dvh; }
   .wm-window:not(.wm-maximized):not(.wm-minimized)[data-sheet-state="EXPANDED"] { max-height: 88dvh; }
@@ -3466,13 +3375,7 @@ html, body { overflow-x: hidden; }
   .globe-side-panel[data-sheet-state="FULL"] { max-height: 100dvh; border-radius: 0; }
 }
 
-/* Band C — Tablet (768–1023px): STAR docks as a floating side
-   panel (directive: sheet on phone / floating-side panel on
-   tablet / movable window on PC). The dock is the window's
-   opening geometry only: the window manager's drag writes inline
-   left/top, which then govern — docked until moved, by design.
-   Maximized keeps its own !important geometry. Other windows
-   keep the centered float (the "float" half of dock/float). */
+/* Band C (768–1023px): STAR floating side panel. */
 @media (min-width: 768px) and (max-width: 1023px) {
   .wm-window[data-wm-id="star-overlay"]:not(.wm-maximized) {
     left: auto;
@@ -3498,12 +3401,7 @@ html, body { overflow-x: hidden; }
      A <480 | B 480–767 | C 768–1023 | D 1024–1439 | E 1440+
    ================================================================ */
 
-/* Bot Operations grids (tribe/principal cards + HUD): the 640px
-   two-column step split band B in two. Through band B the cards
-   now stay single-column (full-width, thumb-reachable); the
-   existing >=640 rule still yields two columns from band C
-   (768) up, and the existing >=1024 rule three columns in
-   band D — both now land exactly on canonical edges. */
+/* Bot Operations grids. */
 @media (min-width: 640px) and (max-width: 767px) {
   .botops-grid, .botops-hud { grid-template-columns: 1fr; }
 }
@@ -3549,13 +3447,7 @@ html, body { overflow-x: hidden; }
    zoom never locked, no external CSS resources).
    ================================================================ */
 
-/* Reduced motion — complete coverage. Every keyframe animation
-   in this file already had a scoped guard (skeleton shimmer,
-   STAR pulse, STAR idle glow, spinner); what was NOT covered
-   was transitions (.btn press, drawer slide) and anything
-   added later. This standard net closes the class entirely:
-   under reduced motion, animation and transition durations
-   collapse to effectively zero everywhere. */
+/* Reduced motion — complete coverage for this file's keyframes. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
@@ -3564,14 +3456,7 @@ html, body { overflow-x: hidden; }
   }
 }
 
-/* Touch targets — bands A–C (<=1023px, the touch-first widths):
-   the remaining sub-minimum controls reach the Phase B
-   --touch-min (44px). Desktop keeps its compact density.
-   - .bubble: 28px tall in the command bar -> 44px (the 56px
-     bar absorbs it; the rail already scrolls horizontally).
-   - .wm-btn: window header actions (min/max/full/close).
-   - .mti6-tab: mode/layer/screen tabs.
-   - .search-suggestion: suggestion rows. */
+/* Touch targets — bands A–C (<=1023px). */
 @media (max-width: 1023px) {
   .bubble { height: var(--touch-min); }
   .wm-btn { min-width: var(--touch-min); min-height: var(--touch-min); }
@@ -3579,13 +3464,7 @@ html, body { overflow-x: hidden; }
   .search-suggestion { min-height: var(--touch-min); }
 }
 
-/* Tribe principal slots (drawer): six-across in the 260px
-   drawer made each principal ~31px — below the directive's
-   44px minimum at EVERY width, since the drawer/sidebar is
-   always 260px. Three-across gives each principal a ~70px
-   target; the twelve lay out in four rows. (The Bot Ops
-   screen's own .tribe-card buttons were already full-width
-   and are untouched.) */
+/* Tribe principal slots (drawer). */
 .tribe-grid { grid-template-columns: repeat(3, 1fr); }
 
 /* Skip link: visually hidden until keyboard focus lands on it,
@@ -3663,6 +3542,20 @@ body.route-globe .globe-visual { border: none; border-radius: 0; }
 .globe-visual > .globe-alert-banner {
   position: absolute; top: 72px; left: 10px; right: 10px; z-index: 4;
 }
+/* World Lens package: lens tabs ride the top roll; alert-area
+   glows sit on the map at real projected points (the pulse is
+   opacity only); the coverage readout hides until a context
+   exists; the route line wraps inside the bottom roll. */
+.globe-lens-tabs { flex-wrap: nowrap; }
+.globe-lens-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--bg-2); margin: 10px 0; display: flex; flex-direction: column; gap: 6px; }
+.globe-glow-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 1; }
+.globe-alert-glow { position: absolute; width: 26px; height: 26px; border-radius: 50%; transform: translate(-50%, -50%); background: radial-gradient(circle, rgba(255,60,60,0.85) 0%, rgba(255,60,60,0.32) 45%, rgba(255,60,60,0) 72%); box-shadow: 0 0 18px 6px rgba(255,40,40,0.45); animation: globe-glow-pulse 2s ease-in-out infinite; }
+@keyframes globe-glow-pulse { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
+.globe-coverage--hidden { display: none; }
+.globe-coverage--focus { outline: 1px solid var(--cyan); outline-offset: 4px; border-radius: 8px; }
+.globe-roll__route { flex: 1 1 100%; white-space: normal; }
+.globe-routes__line { margin-top: 6px; }
+@media (prefers-reduced-motion: reduce) { .globe-alert-glow { animation: none; } }
 
 /* Direction 3: phone landscape = big globe. */
 @media (max-width: 767px) and (orientation: landscape) {
