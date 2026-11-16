@@ -6,13 +6,16 @@
  * overlay (StarOverlay.open -> WindowManager) — STAR itself is not
  * rebuilt or moved, only its launcher.
  *
- * Colour has meaning (directive §44): the launcher rests PURPLE
- * (STAR's idle identity). While STAR is actively producing a reply —
- * the chat panel's own status dot carries .star-status-thinking for
- * exactly that interval — the launcher switches to the ELECTRIC-BLUE
- * talking glow. The mirror is a MutationObserver over the document
- * (event-driven; no polling, no timers), so the glow can never claim
- * STAR is talking when the panel says it is not.
+ * Colour has meaning (owner ruling 2026-11-16, superseding the
+ * Phase C / directive §44 rule): the launcher rests ELECTRIC BLUE.
+ * While STAR is actively producing a reply — the chat panel's own
+ * status dot carries .star-status-thinking for exactly that
+ * interval — the launcher switches to the GREEN talking glow
+ * (.star-talking) and stays green and glowing until the reply
+ * completes, then returns to electric blue. The mirror is a
+ * MutationObserver over the document (event-driven; no polling, no
+ * timers), so the glow can never claim STAR is talking when the
+ * panel says it is not.
  */
 (function (global) {
   "use strict";

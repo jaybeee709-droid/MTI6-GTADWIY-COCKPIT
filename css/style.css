@@ -103,12 +103,15 @@
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
-  /* State colors — semantics, not decoration (directive §6/§44):
-     electric blue = operational; purple = STAR at rest; red = a
-     genuine, confirmed alarm in ONE category only. */
+  /* State colors — semantics, not decoration (directive §6/§44;
+     STAR colours superseded by owner ruling 2026-11-16):
+     electric blue = operational and STAR at rest; green = STAR
+     talking (glowing, until the reply completes); purple remains
+     the INTELLIGENCE accent; red = a genuine, confirmed alarm in
+     ONE category only. */
   --state-operational: var(--mti6-blue-electric);
-  --state-star-idle: var(--mti6-purple-ai);
-  --state-star-active: var(--mti6-blue-electric);
+  --state-star-idle: var(--mti6-blue-electric);
+  --state-star-active: var(--green);
   --state-alarm: var(--mti6-red-alarm);
   /* Z-index scale — values MATCH the current stacking exactly:
      topbar 50, scrim 55, drawer 60, search results 80, search menu 85,
@@ -2874,7 +2877,12 @@ html, body { overflow-x: hidden; }
 .bubble--alarm { border-color: var(--state-alarm); background: rgba(255, 60, 60, 0.14); }
 .bubble--alarm .bubble-dot { background: var(--state-alarm); width: auto; min-width: 14px; height: 14px; border-radius: 7px; }
 
-/* ---- STAR launcher: bottom-right, purple at rest ---- */
+/* ---- STAR launcher: bottom-right — electric blue at rest, green
+   glow while STAR talks (owner ruling 2026-11-16, superseding the
+   Phase C purple-at-rest / blue-while-talking rule). The talking
+   glow pulses for the whole reply and ends with it; under reduced
+   motion the Phase H net collapses the pulse and the static green
+   glow remains. ---- */
 #star-launcher {
   position: fixed;
   right: max(16px, var(--safe-right));
@@ -2884,16 +2892,21 @@ html, body { overflow-x: hidden; }
   height: 56px;
   border-radius: 50%;
   border: 2px solid var(--state-star-idle);
-  background: radial-gradient(circle at 35% 30%, #3b2070, #1c0f38);
+  background: radial-gradient(circle at 35% 30%, #0d4a6e, #07273d);
   font-size: 24px;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(139, 92, 246, 0.35);
+  box-shadow: 0 4px 16px rgba(0, 212, 255, 0.35);
   transition: box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease;
 }
 #star-launcher.star-talking {
   border-color: var(--state-star-active);
-  background: radial-gradient(circle at 35% 30%, #0d4a6e, #07273d);
-  box-shadow: 0 0 20px 4px rgba(0, 212, 255, 0.55);
+  background: radial-gradient(circle at 35% 30%, #14663c, #07331d);
+  box-shadow: 0 0 22px 6px rgba(40, 209, 124, 0.55);
+  animation: star-launcher-glow 1.5s ease-in-out infinite alternate;
+}
+@keyframes star-launcher-glow {
+  from { box-shadow: 0 0 14px 3px rgba(40, 209, 124, 0.45); }
+  to { box-shadow: 0 0 28px 9px rgba(40, 209, 124, 0.8); }
 }
 @media (prefers-reduced-motion: reduce) {
   #star-launcher { transition: none; }
