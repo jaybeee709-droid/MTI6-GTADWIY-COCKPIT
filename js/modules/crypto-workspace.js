@@ -802,6 +802,221 @@
     return panel("Primary — Arbitrage Structure & Spread State (CW-4)", kids);
   }
 
+  // ---- CW-5 yield & capital workspace depth --------------------------
+  //
+  // Workspace-specific primary content for the YIELD group
+  // (registry §5, CW-5), rendered from CryptoWorkspace's yield
+  // derivations over the same canonical records — no new data, no
+  // new stores, no per-workspace page forks (§91). The discipline
+  // of this group is rates: there is NO connected yield source
+  // (DefiLlama's free yield endpoints moved to its paid plan on
+  // 2026-11-13 — the §22 capability gap), so every panel renders
+  // its rate state as NOT_CONNECTED and its venue layer exactly
+  // as recorded — including the workspaces where the recorded
+  // venue layer is measured to be absent. View levels change how
+  // much of the SAME records is shown, never which truth (F-12).
+
+  function yieldPanel(ws, data, level) {
+    var core = data.core || {};
+    if (!core.yield) return null;
+    switch (ws.workspaceId) {
+      case "liquidity": return yieldLiquidityPanel(core, level);
+      case "yield-farming": return yieldFarmingPanel(core, level);
+      case "staking": return yieldStakingPanel(core, level);
+      case "liquid-staking": return yieldLiquidStakingPanel(core, level);
+      case "restaking": return yieldRestakingPanel(core, level);
+      case "lending": return yieldLendingPanel(core, level);
+      case "borrowing": return yieldBorrowingPanel(core, level);
+      case "vaults": return yieldVaultsPanel(core, level);
+      case "yield-aggregation": return yieldAggregationPanel(core, level);
+      case "yield-trading": return yieldTradingPanel(core, level);
+      case "structured-credit": return yieldStructuredCreditPanel(core, level);
+      default: return null;
+    }
+  }
+
+  // Recorded venue linkage, major by major: how many of the 19
+  // canonical protocols record each primary major among their own
+  // activities. Zero is a measured result, rendered as itself.
+  function yieldLinkage(y) {
+    var kids = [U.el("h4", {}, "Recorded venue linkage by major")];
+    y.majors.forEach(function (m) {
+      kids.push(row(m.record.title || m.record.id,
+        m.protocolHits ? m.protocolHits + " of " + y.universeProtocols + " protocols record it"
+          : "no protocol records it — taxonomy only"));
+    });
+    var unlinked = y.majors.filter(function (m) { return m.protocolHits === 0; });
+    if (unlinked.length && unlinked.length < y.majors.length) {
+      kids.push(meta("The unlinked majors are recorded taxonomy with no recorded venue: the strategies exist as knowledge; no protocol in the Entity Universe records performing them, and none is attached by name matching."));
+    }
+    return kids;
+  }
+
+  // The one rate section every yield workspace shares, worded per
+  // workspace: rates are NOT_CONNECTED (the §22 yields capability
+  // gap), opportunities carry no return figures by design, and
+  // positions are counted from the record system — never figured.
+  function yieldRateState(y, rateLabel) {
+    var kids = [U.el("h4", {}, "Rate & yield observation state")];
+    kids.push(row(rateLabel,
+      "NOT_CONNECTED — no yield data source is connected: DefiLlama's free yield endpoints moved to its paid plan on 2026-11-13 (the recorded §22 capability gap), and no other approved free provider covers yields. No rate is shown, estimated or implied anywhere in this workspace"));
+    kids.push(row("Recorded opportunities in this workspace's scope",
+      String(y.scopeOpportunityCount) + " — opportunity records forbid numeric return fields by design, so no rate can attach to one, and an unobserved rate never becomes an opportunity record"));
+    kids.push(row("Recorded positions",
+      y.positionsLoaded
+        ? String(y.positionsCount) + " — no deposit, balance or earnings figure exists on record to show"
+        : "NOT LOADED — the position record system did not load"));
+    if (y.scopeProtocols > 0) {
+      kids.push(meta("Protocol TVL observations — a provider aggregate under DefiLlama's own methodology, NOT a yield and NOT a balance — load on explicit tap in the Live Data panel below through the Capability Router. The yields capability itself renders there as the §22 capability-gap card (\"Yields live data\")."));
+    } else {
+      kids.push(meta("The Live Data panel below carries the yields capability as the §22 capability-gap card (\"Yields live data\") — there are no recorded protocols in this workspace's scope to observe."));
+    }
+    return kids;
+  }
+
+  function yieldTotals(y) {
+    var t = 0, s = 0;
+    y.majors.forEach(function (m) { t += m.typeCount; s += m.strategyCount; });
+    return { types: t, strategies: s };
+  }
+
+  function yieldLiquidityPanel(core, level) {
+    var y = core.yield, tot = yieldTotals(y);
+    var kids = [meta(y.primaryVenues.length + " canonical protocols record liquidity provision among their own activities (of " +
+      y.universeProtocols + " protocols), covering " + y.linkedMajorCount + " of this workspace's " + y.majors.length +
+      " primary majors (" + tot.types + " Types · " + tot.strategies + " Strategies across them). A venue appears only through its own recorded activityRefs — presence is an identity record, not a live integration, and no pool state is observed anywhere in the app.")];
+    kids.push(U.el("h4", {}, "Recorded liquidity venues"));
+    y.primaryVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    yieldLinkage(y).forEach(function (k) { kids.push(k); });
+    return panel("Primary — Liquidity Venues & Pool State (CW-5)", kids.concat(yieldRateState(y, "Pool fee / LP yield observations")));
+  }
+
+  function yieldFarmingPanel(core, level) {
+    var y = core.yield, tot = yieldTotals(y);
+    var kids = [meta("Measured absence at the primary layer: 0 of " + y.universeProtocols +
+      " canonical protocols record either primary major of this workspace among their activities — Stablecoin Yield Strategies and Yield Farming & Liquidity Mining are recorded taxonomy in full (" +
+      tot.types + " Types · " + tot.strategies + " Strategies) with NO recorded venue. The protocols below stand in this workspace's recorded scope only through its secondary majors, and are labelled as such — none of them is presented as a farming venue.")];
+    kids.push(U.el("h4", {}, "In recorded scope through secondary majors only — not farming venues"));
+    y.secondaryOnlyVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    yieldLinkage(y).forEach(function (k) { kids.push(k); });
+    return panel("Primary — Farming Structure & Venue State (CW-5)", kids.concat(yieldRateState(y, "Farm reward / APY observations")));
+  }
+
+  function yieldStakingPanel(core, level) {
+    var y = core.yield, tot = yieldTotals(y);
+    var kids = [meta(y.primaryVenues.length + " of " + y.universeProtocols +
+      " protocols records a primary major of this workspace — Babylon records Native Staking among its own activities (its other recorded activity is the BTCFi major). The liquid-staking and restaking venues enter through this workspace's secondary majors (their own primary workspaces hold them); Protocol Token Staking is recorded taxonomy (" +
+      tot.types + " Types · " + tot.strategies + " Strategies across the two primary majors) that no protocol records performing.")];
+    kids.push(U.el("h4", {}, "Recorded staking venues (primary majors)"));
+    y.primaryVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    kids.push(U.el("h4", {}, "In recorded scope through secondary majors"));
+    y.secondaryOnlyVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    yieldLinkage(y).forEach(function (k) { kids.push(k); });
+    return panel("Primary — Staking Venues & Rate State (CW-5)", kids.concat(yieldRateState(y, "Staking reward observations")));
+  }
+
+  function yieldLiquidStakingPanel(core, level) {
+    var y = core.yield;
+    var kids = [meta(y.primaryVenues.length + " canonical protocols record Liquid Staking among their own activities — Lido on Ethereum, Jito on Solana. The third protocol in scope enters through the secondary Liquid Restaking major and is labelled by its own record.")];
+    kids.push(U.el("h4", {}, "Recorded liquid staking venues"));
+    y.primaryVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    if (y.secondaryOnlyVenues.length) {
+      kids.push(U.el("h4", {}, "In recorded scope through the secondary major"));
+      y.secondaryOnlyVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    }
+    kids.push(U.el("h4", {}, "Receipt-token state — measured"));
+    kids.push(row("Liquid-staking receipt tokens recorded as canonical assets",
+      y.receiptScan.hits + " of " + y.receiptScan.scanned + " — a title/id scan of the canonical asset universe finds no receipt-token identity; the assets recorded in scope are the UNDERLYING assets (Ether, Solana). A receipt token is never invented to complete the picture"));
+    yieldLinkage(y).forEach(function (k) { kids.push(k); });
+    return panel("Primary — Liquid Staking Venues & Receipt State (CW-5)", kids.concat(yieldRateState(y, "Liquid staking rate observations")));
+  }
+
+  function yieldRestakingPanel(core, level) {
+    var y = core.yield, tot = yieldTotals(y);
+    var kids = [meta("1 of " + y.universeProtocols + " protocols is the entire recorded venue layer of this workspace: EigenLayer records BOTH primary majors (Restaking and Liquid Restaking, " +
+      tot.types + " Types · " + tot.strategies + " Strategies) among its own activities, on one recorded network (Ethereum).")];
+    kids.push(U.el("h4", {}, "Recorded restaking venue"));
+    y.primaryVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    if (y.eigenAsset) {
+      kids.push(row("The venue's own token, recorded as a canonical asset",
+        (y.eigenAsset.title || y.eigenAsset.id) + " — an identity record in this workspace's scope; no price, rate or balance is attached to it here"));
+    }
+    yieldLinkage(y).forEach(function (k) { kids.push(k); });
+    kids.push(meta("Restaking's recorded risk dimensions for this workspace (Protocol · Liquidation · Dependency · Smart-contract) render in the Risks panel below with NO RECORDED PROFILE — the added slashing exposure of restaking is a property of the recorded activity, and no risk figure is computed or implied here."));
+    return panel("Primary — Restaking Venue & Rate State (CW-5)", kids.concat(yieldRateState(y, "Restaking reward observations")));
+  }
+
+  function yieldLendingPanel(core, level) {
+    var y = core.yield, tot = yieldTotals(y);
+    var kids = [meta("The largest taxonomy in Crypto World: " + y.majors.length + " primary majors · " + tot.types + " Types · " + tot.strategies +
+      " Strategies. " + y.primaryVenues.length + " of " + y.universeProtocols + " protocols record Asset Lending among their activities — the recorded venues cover " +
+      y.linkedMajorCount + " of the " + y.majors.length + " primary majors.")];
+    kids.push(U.el("h4", {}, "Recorded lending venues"));
+    y.primaryVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    kids.push(U.el("h4", {}, "In recorded scope — not recorded as lending venues"));
+    y.secondaryOnlyVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    kids.push(meta("Sky records Collateralized Borrowing only — its own activityRefs name no lending major (that major's primary workspace is Borrowing). Babylon enters through the secondary BTCFi major. Each is shown by its own record, never relabelled as a lending venue."));
+    yieldLinkage(y).forEach(function (k) { kids.push(k); });
+    kids.push(meta("Atomic & Flash Credit (5 Types · 10 Strategies) is recorded in full and is the recorded capital dependency of Flash-Capital Arbitrage — yet no protocol records performing it: the dependency is taxonomy-level, exactly as the CW-4 Arbitrage panel states it from its side."));
+    return panel("Primary — Lending Venues & Rate State (CW-5)", kids.concat(yieldRateState(y, "Supply / borrow rate observations")));
+  }
+
+  function yieldBorrowingPanel(core, level) {
+    var y = core.yield, tot = yieldTotals(y);
+    var kids = [meta(y.primaryVenues.length + " of " + y.universeProtocols +
+      " protocols record Collateralized Borrowing among their own activities — every venue in this workspace's recorded scope records the primary borrowing major (" +
+      tot.types + " Types · " + tot.strategies + " Strategies across the two primary majors). Isolated-Market Borrowing is recorded taxonomy with no recorded venue.")];
+    kids.push(U.el("h4", {}, "Recorded borrowing venues"));
+    y.primaryVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    yieldLinkage(y).forEach(function (k) { kids.push(k); });
+    kids.push(U.el("h4", {}, "Liquidation state"));
+    kids.push(row("Collateral / health-factor / liquidation observations",
+      "NO_DATA — " + y.positionsCount + " positions are recorded, so there is no collateral to observe and no liquidation state exists; none is modelled or simulated here"));
+    return panel("Primary — Borrowing Venues & Rate State (CW-5)", kids.concat(yieldRateState(y, "Borrow rate observations")));
+  }
+
+  function yieldVaultsPanel(core, level) {
+    var y = core.yield, tot = yieldTotals(y);
+    var kids = [meta("1 of " + y.universeProtocols + " protocols records a primary major of this workspace — Yearn records Automated Strategy Vaults. Structured Product Vaults (" +
+      tot.types + " Types · " + tot.strategies + " Strategies across the two primary majors) is recorded taxonomy with no recorded venue.")];
+    kids.push(U.el("h4", {}, "Recorded vault venue"));
+    y.primaryVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    yieldLinkage(y).forEach(function (k) { kids.push(k); });
+    return panel("Primary — Vault Venues & Rate State (CW-5)", kids.concat(yieldRateState(y, "Vault APY observations")));
+  }
+
+  function yieldAggregationPanel(core, level) {
+    var y = core.yield;
+    var kids = [meta("1 of " + y.universeProtocols + " protocols records aggregation itself — Yearn (recorded category VAULT_YIELD) names Yield Aggregation & Auto-Compounding among its own activities. The lending protocols below stand in scope through the secondary Asset Lending major as the recorded underlying venues an aggregator would route over; they are not aggregators and are never presented as such.")];
+    kids.push(U.el("h4", {}, "Recorded aggregator"));
+    y.primaryVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    kids.push(U.el("h4", {}, "Underlying venues in scope through secondary majors — not aggregators"));
+    y.secondaryOnlyVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    yieldLinkage(y).forEach(function (k) { kids.push(k); });
+    return panel("Primary — Aggregation Venue & Rate State (CW-5)", kids.concat(yieldRateState(y, "Aggregated yield observations")));
+  }
+
+  function yieldTradingPanel(core, level) {
+    var y = core.yield, tot = yieldTotals(y);
+    var kids = [meta("Measured absence: the taxonomy is recorded in full — " + y.majors.length + " primary majors · " + tot.types + " Types · " + tot.strategies +
+      " Strategies — and 0 of " + y.universeProtocols + " canonical protocols record either major among their activities. " +
+      y.scopeNetworks + " networks and " + y.scopeAssets + " assets stand in recorded scope: this workspace has knowledge and no venue layer.")];
+    yieldLinkage(y).forEach(function (k) { kids.push(k); });
+    kids.push(U.el("h4", {}, "Knowledge gap"));
+    kids.push(meta("KNOWLEDGE GAP — FIXED-RATE / YIELD-TOKENIZATION VENUES: no venue protocol is recorded for this workspace, and none can be derived from the taxonomy. A venue enters the Entity Universe only through the governed discovery pipeline (discover → dedupe → classify → resolve → owner freeze → gated import) — never through a screen build and never by name matching. Until then this workspace shows the recorded taxonomy above and this gap — no venue, rate or market is invented."));
+    return panel("Primary — Yield-Trading Structure & Venue State (CW-5)", kids.concat(yieldRateState(y, "Fixed-rate / yield-token market observations")));
+  }
+
+  function yieldStructuredCreditPanel(core, level) {
+    var y = core.yield, tot = yieldTotals(y);
+    var kids = [meta("Measured absence across the whole recorded scope: Structured Credit & Tranche Finance is recorded taxonomy (" + tot.types + " Types · " + tot.strategies +
+      " Strategies) that 0 of " + y.universeProtocols + " protocols record — and none of its three secondary majors (Credit Delegation & Undercollateralized Credit · Real-World Asset Finance · Structured Product Vaults) is recorded by any protocol either. The entire scope is knowledge without a venue layer.")];
+    yieldLinkage(y).forEach(function (k) { kids.push(k); });
+    kids.push(U.el("h4", {}, "Knowledge gap"));
+    kids.push(meta("KNOWLEDGE GAP — STRUCTURED-CREDIT VENUES: no credit protocol, tranche platform or RWA venue is recorded for this workspace. A venue enters the Entity Universe only through the governed discovery pipeline (discover → dedupe → classify → resolve → owner freeze → gated import) — never through a screen build and never by name matching. Until then this workspace shows the recorded taxonomy above and this gap — no venue, tranche, rate or credit figure is invented."));
+    return panel("Primary — Structured Credit Structure & Venue State (CW-5)", kids.concat(yieldRateState(y, "Credit yield observations")));
+  }
+
   // ---- context panels --------------------------------------------------------
 
   function entityPanel(kindLabel, records, totals, ws) {
@@ -1225,6 +1440,11 @@
     // the trading workspaces (registry §5); null elsewhere.
     var trading4Panel = tradingPanel(ws, data, level);
     if (trading4Panel) root.appendChild(trading4Panel);
+
+    // CW-5 yield depth: workspace-specific primary content for
+    // the yield workspaces (registry §5); null elsewhere.
+    var yield5Panel = yieldPanel(ws, data, level);
+    if (yield5Panel) root.appendChild(yield5Panel);
 
     // CONTEXT + INTELLIGENCE — STANDARD shows the F-9 essentials;
     // ADVANCED/ALL show every panel. Same data at every level.

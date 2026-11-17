@@ -632,6 +632,76 @@
       core.trading = tradingCore;
     }
 
+    // -- CW-5 yield & capital depth: workspace-specific derivations
+    //    for the YIELD group (registry §5 / CW-5) over the same
+    //    handed-in records. The yield taxonomy is the largest in
+    //    the encyclopedia, and its venue layer exists only where a
+    //    protocol's own activityRefs record it — measured here,
+    //    never filled by name or ticker matching. Rates are the
+    //    sharp edge: NO yield observation source is connected
+    //    (DefiLlama's free yield endpoints moved to its paid plan
+    //    on 2026-11-13 — the recorded §22 capability gap), so no
+    //    APY, rate or earnings figure is derived anywhere below;
+    //    the panels render the NOT_CONNECTED / NO_DATA states.
+    if (ws.group === "yield") {
+      var yTwinMap = {};
+      arr(inputs.protocolTwins).forEach(function (t) { if (t && str(t.protocolId)) yTwinMap[t.protocolId] = t; });
+      function yieldVenueEntry(p) {
+        var twin = yTwinMap[p.id] || null;
+        return { record: p, twin: twin,
+          category: twin && str(twin.category) ? twin.category : null,
+          networks: arr(p.networkRefs).map(function (id) { return byId[id] || null; }).filter(Boolean),
+          activities: arr(p.activityRefs).map(function (id) {
+            var res = REG ? REG.resolveMajor(id) : null;
+            return { record: byId[id] || null, workspaceId: res ? res.primary : null };
+          }),
+          primaryHits: arr(p.activityRefs).filter(function (a) { return ws.majorIds.indexOf(a) !== -1; }) };
+      }
+      function yieldMajorSummary(tree) {
+        return { record: tree.record, typeCount: tree.typeCount, strategyCount: tree.strategyCount,
+          types: tree.types.map(function (t) {
+            return { record: t.record, strategyCount: t.strategies.length };
+          }),
+          protocolHits: entityRecords.protocols.filter(function (p) {
+            return arr(p.activityRefs).indexOf(tree.record.id) !== -1;
+          }).length };
+      }
+      var yVenues = protocols.map(yieldVenueEntry);
+      var yMajorSummaries = majors.map(yieldMajorSummary);
+      var yieldCore = {
+        universeProtocols: entityRecords.protocols.length,
+        scopeProtocols: protocols.length,
+        majors: yMajorSummaries,
+        linkedMajorCount: yMajorSummaries.filter(function (m) { return m.protocolHits > 0; }).length,
+        venues: yVenues,
+        primaryVenues: yVenues.filter(function (v) { return v.primaryHits.length > 0; }),
+        secondaryOnlyVenues: yVenues.filter(function (v) { return v.primaryHits.length === 0; }),
+        scopeAssets: assets.length,
+        scopeNetworks: networks.length,
+        scopeOpportunityCount: opportunities.length,
+        positionsCount: positions.length,
+        positionsLoaded: !!loaded.positions
+      };
+      if (ws.workspaceId === "liquid-staking") {
+        // Measured absence, the CW-4 title-scan method applied to
+        // the canonical asset universe: no recorded asset IS a
+        // liquid-staking receipt token — the recorded assets in
+        // scope are the underlying assets, and no receipt identity
+        // is invented to complete the picture.
+        yieldCore.receiptScan = {
+          hits: entityRecords.assets.filter(function (a) {
+            return /liquid|staked|\blst\b/i.test((a.title || "") + " " + a.id);
+          }).length,
+          scanned: entityRecords.assets.length };
+      }
+      if (ws.workspaceId === "restaking") {
+        // The restaking protocol's own token, where it stands in
+        // this workspace's recorded asset scope — identity only.
+        yieldCore.eigenAsset = assets.filter(function (a) { return a.id === "eigen-ethereum"; })[0] || null;
+      }
+      core.yield = yieldCore;
+    }
+
     return {
       found: true, workspace: ws,
       core: core,
