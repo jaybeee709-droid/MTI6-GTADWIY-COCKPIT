@@ -1009,7 +1009,10 @@
     if (/\bkeep (?:my |the )?screen (?:on|awake|lit)\b/.test(t)) return false;
     if (/\bturn (?:the )?screen lock off\b/.test(t)) return false;
     if (/\bscreen lock off\b/.test(t)) return false;
-    if (/\brelease (?:the )?screen(?: lock)?\b/.test(t)) return false;
+    // Owner clarification 2026-11-17 (v112): "release screen" releases
+    // the MTI6 wake lock and allows normal sleep — Screen Lock ON.
+    // The v111 build had this backwards (OFF, screen stays awake).
+    if (/\brelease (?:the )?screen(?: lock)?\b/.test(t)) return true;
     if (/\bturn (?:the )?screen lock on\b/.test(t)) return true;
     if (/\bscreen lock on\b/.test(t)) return true;
     if (/\ballow (?:the )?screen to sleep\b/.test(t)) return true;
@@ -1203,7 +1206,7 @@
       "“cockpit status” (the five Globe layers + World Engine graph), “how many records / majors / strategies” (encyclopedia + entity counts), " +
       "“opportunities” (recorded pipeline), “entity candidates” or “entity pipeline” (candidate stages, owner gate queue, frozen batches), “alerts” or “security status”, “bots / assignments” (workforce records), or “wallets” (connection + execution state). " +
       "Ask about one thing (WE-5, from the World Engine query surface, with its basis): “what does MTI6 know about Uniswap”, “what does Ethereum depend on”, “what depends on Ethereum”, “what strategies use Aave”, “why is X unverified”, “how fresh is X”, “show the path from X to Y”, “what bots are investigating X”, “what alerts concern X”, “show everything connected to X” — an ambiguous name is asked back, never guessed; reply with just the kind, like “asset”, to pick one. " +
-      "Screen Lock: “Keep screen on” or “Turn screen lock off” keeps the screen awake while the cockpit is visible; “Turn screen lock on” or “Allow screen to sleep” releases it so the device sleeps normally — the same Screen Lock as Settings, and the two stay in sync. " +
+      "Screen Lock: “Keep screen on” or “Turn screen lock off” keeps the screen awake while the cockpit is visible; “Turn screen lock on”, “Allow screen to sleep”, or “Release screen” releases it so the device sleeps normally — the same Screen Lock as Settings, and the two stay in sync. " +
       "Crypto World context (CW-9): open a Crypto World workspace and ask “current context”, “why is this shown”, “how fresh is this”, “what does this depend on”, “what source failed” or “simulate this” — every answer comes from the selection STAR is keeping, with the WHY chain Canonical Activity → Asset → Network → Protocol → Strategy → Source Observation → Cost → Risk → Freshness → Dependency. " +
       "“Bring Judah” (or any of the twelve Tribe principals) opens that principal in a separate participant window. " +
       "Prices still go to the Price Scouts and news/GitHub activity to the Knowledge Scouts. Anything that would change something outside this device needs your approval and is not executed here. " + FOOTER;
