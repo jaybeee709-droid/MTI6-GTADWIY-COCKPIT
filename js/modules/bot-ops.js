@@ -734,6 +734,167 @@
     };
   }
 
+  // ---- Resource Engine summary (pure data) -----
+  // The single source is ResourceEngine.summary (the same derivation
+  // StarWorld answers from), so this panel and STAR can never
+  // disagree. Unavailable when the module is not loaded: the panel
+  // then states UNKNOWN and claims nothing. The §36 owner decision
+  // cards act through the engine's owner functions only — this panel
+  // holds no approval logic of its own, and nothing here can connect
+  // a provider (§35: automatic production integration NO).
+  var RESOURCE_OWNER_ACTOR = { type: "OWNER", ref: "owner" };
+  async function buildResourceEngine() {
+    var RE = global.ResourceEngine;
+    if (!RE || typeof RE.summary !== "function") {
+      return { available: false, note: "Resource Engine module is not loaded, so no resource state can be verified." };
+    }
+    var s = null;
+    try { s = await RE.summary(); } catch (e) { s = null; }
+    if (!s) {
+      return { available: false, note: "Resource Engine state could not be read, so no resource state is claimed." };
+    }
+    var prepared = [];
+    try { prepared = await RE.listCandidates({ stage: "PREPARED" }); } catch (e) { prepared = []; }
+    return { available: true, summary: s, prepared: prepared };
+  }
+
+  function resourceTestResult(c) {
+    var evs = (c.evidence || []).filter(function (ev) { return ev && (ev.kind === "TEST" || ev.kind === "ENDPOINT_PROBE"); });
+    if (!evs.length) return "No capability test recorded.";
+    var last = evs[evs.length - 1];
+    return (last.note || last.ref || "Recorded test.") + "";
+  }
+
+  // Renders (and re-renders after an owner decision) the body of the
+  // Resource Engine panel. Decisions persist through the engine's
+  // owner functions with date + reason/note; the panel then re-reads
+  // the same summary derivation, so what it shows is always the
+  // recorded state, never a local guess.
+  async function renderResourcePanel(body, statusNote) {
+    while (body.firstChild) body.removeChild(body.firstChild);
+    var data = await buildResourceEngine();
+    if (!data.available) {
+      body.appendChild(U.el("div", { class: "api-meta" }, "Resource state: UNKNOWN — " + data.note));
+      return;
+    }
+    var s = data.summary;
+    if (statusNote) {
+      body.appendChild(U.el("div", { class: "api-meta" }, statusNote));
+    }
+    if (s.total === 0 && s.gapsTotal === 0) {
+      body.appendChild(U.el("div", { class: "api-meta" }, "Candidates: 0 — no resource candidates have been recorded. Nothing is invented to fill the registry."));
+      return;
+    }
+    body.appendChild(U.el("div", { class: "api-meta" },
+      "Candidates: " + s.total + " (" + s.workingCount + " in the working pipeline, " +
+      s.connectedCount + " connected with recorded wiring evidence, " + s.degradedCount + " degraded)."));
+    var stageParts = [];
+    (s.stageOrder || []).forEach(function (st) {
+      var n = s.counts ? (s.counts[st] || 0) : 0;
+      if (n > 0) stageParts.push(st + " " + n);
+    });
+    if (stageParts.length) {
+      body.appendChild(U.el("div", { class: "api-meta" }, "By stage: " + stageParts.join(", ") + "."));
+    }
+    // Measured health (router-wired candidates only; else UNKNOWN).
+    var measured = [];
+    if (s.health && s.health.byCandidate) {
+      Object.keys(s.health.byCandidate).forEach(function (id) {
+        var h = s.health.byCandidate[id];
+        if (h && h.measured) measured.push(h.provider + " " + h.state);
+      });
+    }
+    body.appendChild(U.el("div", { class: "api-meta" }, measured.length
+      ? "Router-measured provider health: " + measured.join(" · ") + ". All other candidates: UNKNOWN (no measured feed — never assumed)."
+      : "Provider health: UNKNOWN for every candidate — no router outcomes recorded this session. Health is measured or UNKNOWN, never assumed."));
+    // Capability gaps.
+    body.appendChild(U.el("div", { class: "api-meta" },
+      "Open capability gaps: " + s.openGapCount + " of " + s.gapsTotal + " recorded. A gap is a statement about MTI6's coverage, not about the world."));
+    (s.openGaps || []).forEach(function (g) {
+      body.appendChild(U.el("div", { class: "status-row" }, [
+        U.el("span", {}, g.title + " (" + g.capability + ")"),
+        U.el("span", { class: "status-value" }, g.currentState)
+      ]));
+    });
+    body.appendChild(U.el("div", { class: "api-meta" },
+      "Stale candidates (working stage, unreviewed for over " + ((global.ResourceEngine && global.ResourceEngine.STALE_DAYS) || 90) + " days): " + s.staleCount +
+      ". Terminal history: " + s.terminalCount + " (" + s.rejectedCount + " rejected, " + s.supersededCount +
+      " superseded) — retained as resource memory, not pipeline-active."));
+    // §36 owner fast-approval cards for PREPARED candidates.
+    if (data.prepared.length) {
+      body.appendChild(U.el("div", { class: "api-meta" }, "Waiting for the owner's decision (PREPARED) — §36 approval cards. Approving authorizes integration planning; connection still requires real wiring, recorded separately. Nothing auto-connects."));
+      data.prepared.forEach(function (c) {
+        body.appendChild(buildResourceDecisionCard(c, body));
+      });
+    } else {
+      body.appendChild(U.el("div", { class: "api-meta" }, "Owner decision queue: empty — no candidate is at PREPARED."));
+    }
+    if (s.decisions && s.decisions.length) {
+      body.appendChild(U.el("div", { class: "api-meta" }, "Recent recorded decisions (a recorded actor stands behind every decision):"));
+      s.decisions.slice(0, 5).forEach(function (d) {
+        body.appendChild(U.el("div", { class: "status-row" }, [
+          U.el("span", {}, d.name + " — " + d.from + " → " + d.to),
+          U.el("span", { class: "status-value" }, d.actor + (d.at ? " · " + String(d.at).slice(0, 10) : ""))
+        ]));
+      });
+    } else {
+      body.appendChild(U.el("div", { class: "api-meta" }, "Owner decisions: none recorded yet."));
+    }
+  }
+
+  function buildResourceDecisionCard(c, body) {
+    var RE = global.ResourceEngine;
+    var card = U.el("div", { class: "resource-card" }, [
+      U.el("div", { class: "api-meta" }, "WHAT: " + c.name + " — " + (c.capabilities || []).join(", ") + " (" + (c.domain || "UNKNOWN") + ")."),
+      U.el("div", { class: "api-meta" }, "WHY: " + (c.expectedBenefit || "No benefit statement recorded.")),
+      U.el("div", { class: "api-meta" }, "SOURCE: " + (c.provider || "UNKNOWN") + (c.documentation ? " · " + c.documentation : "")),
+      U.el("div", { class: "api-meta" }, "FREE/PAID: " + (c.freeState || "UNKNOWN") + (c.catalogCostState ? " (catalog: " + c.catalogCostState + ")" : "")),
+      U.el("div", { class: "api-meta" }, "KEY?: " + (c.apiKeyRequired
+        ? "Yes — " + (c.credentialState || "UNKNOWN") + (c.credentialCustody ? ". Custody: " + c.credentialCustody : ". No key value is ever recorded.")
+        : (c.oauthRequired ? "OAuth2 token — " + (c.credentialState || "UNKNOWN") + "." : "No key required."))),
+      U.el("div", { class: "api-meta" }, "SECURITY: security review " + ((c.securityReview && c.securityReview.status) || "NOT_REVIEWED") +
+        " · terms review " + ((c.termsReview && c.termsReview.status) || "NOT_REVIEWED") + " · license " + (c.license || "UNKNOWN") + "."),
+      U.el("div", { class: "api-meta" }, "BENEFIT: " + ((c.benefitLabels || []).join(", ") || "No benefit labels recorded.")),
+      U.el("div", { class: "api-meta" }, "BACKS UP / REPLACES: " + (c.existingProviderOverlap || "Nothing recorded.") +
+        ((c.possibleFallbackFor || []).length ? " Fallback for: " + c.possibleFallbackFor.join(", ") + "." : "") +
+        ((c.possibleReplacementFor || []).length ? " Replaces: " + c.possibleReplacementFor.join(", ") + "." : "")),
+      U.el("div", { class: "api-meta" }, "TEST RESULT: " + resourceTestResult(c))
+    ]);
+    if (c.stageNote) {
+      card.appendChild(U.el("div", { class: "api-meta" }, "NOTE: " + c.stageNote));
+    }
+    var noteIn = U.el("input", { type: "text", class: "input", placeholder: "Note (APPROVE / LATER) or reason (REJECT — required)" });
+    var approveBtn = U.el("button", { type: "button", class: "btn btn-primary btn-sm" }, "APPROVE");
+    var rejectBtn = U.el("button", { type: "button", class: "btn btn-danger-text btn-sm" }, "REJECT");
+    var laterBtn = U.el("button", { type: "button", class: "btn btn-secondary btn-sm" }, "LATER");
+    function act(fn, okText) {
+      return function () {
+        var note = (noteIn.value || "").trim();
+        fn(note).then(function (r) {
+          if (r && r.ok) {
+            renderResourcePanel(body, okText);
+          } else {
+            renderResourcePanel(body, "Decision NOT recorded: " + ((r && r.errors) || ["unknown error"]).join(" "));
+          }
+        }).catch(function (e) {
+          renderResourcePanel(body, "Decision NOT recorded: " + (e && e.message ? e.message : "unknown error"));
+        });
+      };
+    }
+    approveBtn.addEventListener("click", act(function (note) {
+      return RE.approveCandidate(c.id, { actor: RESOURCE_OWNER_ACTOR, note: note || undefined });
+    }, "Recorded: " + c.name + " APPROVED by the owner. It is now OWNER_APPROVED — connection still requires real wiring recorded by the engine."));
+    rejectBtn.addEventListener("click", act(function (note) {
+      return RE.rejectCandidate(c.id, { actor: RESOURCE_OWNER_ACTOR, reason: note });
+    }, "Recorded: " + c.name + " REJECTED by the owner — retained as resource memory with its reason and date."));
+    laterBtn.addEventListener("click", act(function (note) {
+      return RE.deferCandidate(c.id, { actor: RESOURCE_OWNER_ACTOR, note: note || undefined });
+    }, "Recorded: " + c.name + " deferred (LATER) by the owner — it stays PREPARED in the queue."));
+    var actions = U.el("div", { class: "resource-card-actions" }, [noteIn, approveBtn, rejectBtn, laterBtn]);
+    card.appendChild(actions);
+    return card;
+  }
+
   // ---- HUD aggregate (pure data — the .botops-hud grid reads this) -----
   // Every figure comes from the same real data the sections below
   // read: buildDrawerPrincipals, buildPrincipalDetail,
@@ -1743,6 +1904,23 @@
     }
     root.appendChild(pipelinePanel);
 
+    // ---- RESOURCE ENGINE (governed source candidates + gaps) ----
+    // Same governance family as the Entity Pipeline panel above and
+    // read the same way: counts + gaps come from the single
+    // ResourceEngine.summary derivation (which STAR also answers
+    // from). Rendering writes nothing; seeding happens at boot
+    // (app.js -> ResourceEngine.ensureSeeds). The §36 cards are the
+    // ONLY write path in this panel, and they go through the
+    // engine's owner functions.
+    var resourcePanel = U.el("div", { class: "api-panel" }, [
+      U.el("h3", {}, "Resource Engine"),
+      U.el("div", { class: "api-meta" }, "Governed source candidates and capability gaps (Resource Engine Directive §3/§5). Discovery never connects: a candidate walks the pipeline, the owner decides at PREPARED, and CONNECTED is recorded only when real wiring exists. Secrets are never recorded — a record may state that a key exists and where it is held, never its value.")
+    ]);
+    var resourceBody = U.el("div", {});
+    resourcePanel.appendChild(resourceBody);
+    root.appendChild(resourcePanel);
+    await renderResourcePanel(resourceBody);
+
     // ---- LIVE WORK ----
     var liveWork = U.el("div", { class: "api-panel" + (mode === "theater" ? " botops-theater" : ""), id: "botops-live-work" });
     liveWork.appendChild(U.el("h3", {}, "Live Work"));
@@ -1767,6 +1945,7 @@
     buildHud: buildHud,
     buildTaskQueue: buildTaskQueue,
     buildEntityPipeline: buildEntityPipeline,
+    buildResourceEngine: buildResourceEngine,
     bringPrincipal: bringPrincipal,
     participantsAvailable: participantsAvailable,
     principalPresenceLines: principalPresenceLines,

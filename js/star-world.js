@@ -144,6 +144,54 @@
     return lines.join("\n");
   }
 
+  // Resource Engine visibility. READ-ONLY — the numbers come from
+  // ResourceEngine.summary (the same single derivation the Bot
+  // Operations panel renders), computed from the real candidate and
+  // gap records at answer time. Candidates are governed proposals,
+  // not connections: a provider is CONNECTED only when the record
+  // carries wiring evidence, and health is measured or UNKNOWN.
+  async function resourceAnswer() {
+    var RE = global.ResourceEngine;
+    var s = null;
+    if (RE && typeof RE.summary === "function") {
+      try { s = await RE.summary(); } catch (e) { s = null; }
+    }
+    if (!s) {
+      return "The Resource Engine could not be read — the resource module is not loaded, so no resource state is claimed. " + FOOTER;
+    }
+    if (!s.total && !s.gapsTotal) {
+      return "Resource Engine: 0 source candidates and 0 capability gaps recorded. Nothing is invented to fill the registry; " +
+        "candidates enter through governed discovery and connect only after the owner's approval and real wiring. " + FOOTER;
+    }
+    var lines = ["Resource Engine: " + s.total + " source candidate record(s) — governed proposals, not connections. " +
+      s.connectedCount + " CONNECTED with recorded wiring evidence; health is measured by the Capability Router or UNKNOWN, never assumed."];
+    var stageParts = [];
+    (s.stageOrder || []).forEach(function (st) {
+      var n = s.counts ? (s.counts[st] || 0) : 0;
+      if (n > 0 && st !== "REJECTED" && st !== "SUPERSEDED") stageParts.push(st + " " + n);
+    });
+    if (stageParts.length) lines.push("• By stage: " + stageParts.join(", ") + ".");
+    lines.push("• Waiting for the owner's decision (PREPARED): " + s.awaitingDecisionCount +
+      (s.awaitingDecisionCount ? " (" + s.awaitingDecision.map(function (a) { return a.name; }).join(", ") + ")" : "") +
+      ". Approving is the owner's act; nothing auto-connects.");
+    lines.push("• Open capability gaps: " + s.openGapCount +
+      (s.openGapCount ? " (" + s.openGaps.map(function (g) { return g.title; }).join(", ") + ")" : "") +
+      ". A gap is a statement about MTI6's coverage, not about the world.");
+    lines.push("• Stale candidates (working stage, unreviewed for over " + ((global.ResourceEngine && global.ResourceEngine.STALE_DAYS) || 90) + " days): " + s.staleCount +
+      ". Terminal history: " + s.terminalCount + " (" + s.rejectedCount + " rejected, " + s.supersededCount +
+      " superseded) — retained as resource memory, not pipeline-active.");
+    if (s.decisions && s.decisions.length) {
+      var d = s.decisions[0];
+      lines.push("• Most recent recorded decision: " + d.name + " — " + d.from + " → " + d.to + " by " + d.actor +
+        (d.at ? " (" + String(d.at).slice(0, 10) + ")" : "") + ".");
+    } else {
+      lines.push("• No owner decisions have been recorded yet.");
+    }
+    lines.push("The Resource Engine is managed in Bot Operations; this answer only reports it.");
+    lines.push(FOOTER);
+    return lines.join("\n");
+  }
+
   function opportunitiesAnswer() {
     var OI = global.OpportunityIntelligence;
     if (!OI || typeof OI.listOpportunities !== "function") {
@@ -228,6 +276,14 @@
       if (/\b(what can you (answer|tell|do)|what do you know|your knowledge)\b/.test(t)) return helpAnswer();
       if (/\b(cockpit status|globe status|layer status|world engine status|system status)\b/.test(t) ||
           (/^\s*(status|status\?)\s*$/.test(t))) return await statusAnswer();
+      // Resource Engine route — sits BEFORE the entity pipeline
+      // route because "resource candidates" contains "candidate".
+      // Narrow triggers: resource-engine / resource-candidate /
+      // capability-gap phrasing, so encyclopedia, entity and
+      // opportunity questions keep their existing routes.
+      if (/\bresource engine\b/.test(t) || /\bresource (candidates|pipeline|gaps)\b/.test(t) ||
+          /\b(api|provider) candidates\b/.test(t) || /\bcapability gaps\b/.test(t) ||
+          /\bwhat apis\b/.test(t)) return await resourceAnswer();
       // P5: the entity candidate pipeline route sits BEFORE the
       // generic counts route — "how many entity candidates…" would
       // otherwise match countsAnswer on "entit". The trigger stays

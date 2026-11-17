@@ -169,8 +169,15 @@
       // FROZEN_ENTITY_BATCH artifacts (js/entity-gate.js) are the
       // gate's frozen-batch records — reviewable provenance, not
       // canonical knowledge — and are excluded at the same point.
+      // The Resource Engine foundation adds the third and fourth
+      // bookkeeping kinds at the same single point: RESOURCE_CANDIDATE
+      // and RESOURCE_GAP records (js/resource-engine.js) are governed
+      // source proposals and capability gaps — never canonical
+      // knowledge — so canonical counts, the World Engine graph and
+      // the Globe layers are byte-identical with them present.
       return (records || []).filter(function (r) {
-        return !r || (r.recordKind !== "ENTITY_CANDIDATE" && r.recordKind !== "FROZEN_ENTITY_BATCH");
+        return !r || (r.recordKind !== "ENTITY_CANDIDATE" && r.recordKind !== "FROZEN_ENTITY_BATCH" &&
+          r.recordKind !== "RESOURCE_CANDIDATE" && r.recordKind !== "RESOURCE_GAP");
       });
     }).catch(function () { return []; });
   }

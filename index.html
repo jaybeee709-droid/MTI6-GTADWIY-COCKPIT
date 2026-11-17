@@ -199,10 +199,18 @@
   <script src="./js/data/encyclopedia-batch-b.js"></script>
   <script src="./js/data/entity-batch-1.js"></script>
   <script src="./js/data/entity-batch-2.js"></script>
+  <script src="./js/data/resource-seeds.js"></script>
   <script src="./js/data/bot-naming-pool.js"></script>
   <script src="./js/encyclopedia-import.js"></script>
   <script src="./js/entity-candidates.js"></script>
   <script src="./js/entity-gate.js"></script>
+  <!-- Resource Engine foundation: governed source candidates +
+       capability gaps (recordKind RESOURCE_CANDIDATE / RESOURCE_GAP in
+       the cryptoWorld store, excluded from canonical views at the
+       single CryptoWorld.getAllRecords filter). Loads after the
+       entity pipeline it mirrors and after provider-router.js, whose
+       measured health it reads. Seeds import at boot (app.js). -->
+  <script src="./js/resource-engine.js"></script>
   <script src="./js/modules/prices.js"></script>
   <script src="./js/modules/api-health.js"></script>
   <script src="./js/modules/scouts.js"></script>

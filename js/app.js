@@ -592,6 +592,12 @@
     if (global.EncyclopediaImport && typeof global.EncyclopediaImport.importAll === "function") {
       global.EncyclopediaImport.importAll().catch(function () {});
     }
+    // Resource Engine seed import (FREE-RESOURCE-CATALOG candidates +
+    // capability gaps): idempotent by id, never overwrites a living
+    // governed record, background like the encyclopedia import.
+    if (global.ResourceEngine && typeof global.ResourceEngine.ensureSeeds === "function") {
+      global.ResourceEngine.ensureSeeds().catch(function () {});
+    }
     registerServiceWorker();
     wireInstallPrompt();
   }
