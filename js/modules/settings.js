@@ -34,7 +34,8 @@
     root.appendChild(section("Device Permissions / Connections", [
       el("div", { id: "perm-rows" }, "Checking…"),
       field("STAR connection", el("div", { class: "api-meta" }, global.StarBackend && typeof global.StarBackend.getStatusLabel === "function" ? global.StarBackend.getStatusLabel() : "Demo mode — no AI backend connected")),
-      field("Device connection", el("div", { class: "api-meta" }, navigator.onLine ? "Online" : "Offline"))
+      field("Device connection", el("div", { class: "api-meta" }, navigator.onLine ? "Online" : "Offline")),
+      field("Screen Lock", wakeLockField())
     ]));
 
     root.appendChild(starBackendSection());
@@ -272,6 +273,58 @@
   function setSearchStatus(text) {
     const node = document.getElementById("settings-search-status");
     if (node) node.textContent = text;
+  }
+
+  // Screen Lock (v111, corrected owner language): the toggle is
+  // the OWNER PREFERENCE — Screen Lock ON means the device may dim
+  // or sleep on its normal timeout; OFF means MTI6 keeps the screen
+  // awake while this tab is visible. The ACTUAL WAKE LOCK STATE is
+  // a separate fact from the preference: a lock is only ACTIVE when
+  // one is actually held. The module owns the state; this row only
+  // renders it and flips the persisted choice through the one
+  // central setScreenLock capability STAR commands use too.
+  function screenLockPreferenceText(s) {
+    if (!s) return "Screen Lock: UNKNOWN — preference is not available.";
+    return s.screenLockOn
+      ? "Screen Lock: ON — the screen may dim or sleep normally."
+      : "Screen Lock: OFF — the screen stays awake while this tab is visible.";
+  }
+
+  function wakeLockStateText(s) {
+    if (!s) return "Wake lock: UNKNOWN — wake-lock state is not available.";
+    if (s.state === "ACTIVE") return "Wake lock: ACTIVE — a lock is held, so the screen is being kept lit while this tab is visible.";
+    if (s.state === "RELEASED") return "Wake lock: RELEASED — no lock is held.";
+    if (s.state === "NOT_SUPPORTED") return "Wake lock: NOT_SUPPORTED — this browser has no Wake Lock API, so the screen cannot be kept lit by the cockpit.";
+    if (s.state === "FAILED") return "Wake lock: FAILED — the wake-lock request was rejected" + (s.reason ? " (" + s.reason + ")" : "") + ".";
+    return "Wake lock: REQUESTING — a request is in flight.";
+  }
+
+  function wakeLockField() {
+    const W = global.WakeLock;
+    if (!W || typeof W.getState !== "function") {
+      return el("div", { class: "api-meta" }, "Screen lock is NOT_AVAILABLE — the wake-lock module did not load.");
+    }
+    const wrap = el("div", { class: "toggle-row" });
+    const toggle = el("button", { class: "btn btn-secondary", id: "settings-wake-lock-toggle", type: "button" }, W.isScreenLockOn() ? "On" : "Off");
+    const prefEl = el("span", { class: "api-meta", id: "settings-screen-lock-preference" }, screenLockPreferenceText(W.getState()));
+    const stateEl = el("span", { class: "api-meta", id: "settings-wake-lock-state" }, wakeLockStateText(W.getState()));
+    toggle.addEventListener("click", () => {
+      const next = !W.isScreenLockOn();
+      W.setScreenLock(next);
+      toggle.textContent = next ? "On" : "Off";
+      prefEl.textContent = screenLockPreferenceText(W.getState());
+      stateEl.textContent = wakeLockStateText(W.getState());
+    });
+    if (typeof W.onChange === "function") {
+      W.onChange(function (s) {
+        prefEl.textContent = screenLockPreferenceText(s);
+        stateEl.textContent = wakeLockStateText(s);
+      });
+    }
+    wrap.appendChild(toggle);
+    wrap.appendChild(prefEl);
+    wrap.appendChild(stateEl);
+    return wrap;
   }
 
   // ---- STAR & Tribe Appearance / Sound & Voice / Permissions (Build 1) ----

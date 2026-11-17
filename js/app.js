@@ -586,6 +586,13 @@
     if (!location.hash) location.hash = "#/globe";
     wireChrome();
     wireConnectivityIndicator();
+    // Screen Lock: Screen Lock OFF (the default) asks the browser
+    // to keep the screen lit while viewing the cockpit; ON releases
+    // the wake lock and lets the device sleep normally. No-op where
+    // the browser has no Wake Lock API — Settings says NOT_SUPPORTED.
+    if (global.WakeLock && typeof global.WakeLock.init === "function") {
+      global.WakeLock.init();
+    }
     await renderRoute();
     // Encyclopedia content imports (approved batches only): idempotent,
     // runs in the background, never blocks boot or the first render.

@@ -607,7 +607,8 @@
         (others.length ? " — same entity as " + others.join(", ") : ""));
     });
     lines.push("Ask again naming the kind — for example “what does MTI6 " +
-      "know about the network ethereum?”.");
+      "know about the network ethereum?” — or just reply with the kind " +
+      "itself, like “asset”.");
     return lines.join("\n");
   }
 
@@ -975,12 +976,99 @@
     return null;
   }
 
+  // WE-5 follow-up (v110): the last disambiguation STAR asked, kept
+  // session-only in memory — never stored, never a canonical write.
+  // A reply that names ONLY the kind of one of the offered entities
+  // resolves the question exactly as if the kind had been in the
+  // query (the same resolveEntity call, the same WorldQuery answer).
+  // Anything else clears it: a new question starts fresh and never
+  // answers a stale disambiguation.
+  var pendingAmbiguity = null;
+
+  // A bare kind word ("asset", "the protocol") — nothing else in
+  // the message. Returns { word, kindCtx } or null. Only the kind
+  // words STAR already understands in a question (KIND_WORDS).
+  function matchKindFollowUp(t) {
+    var s = String(t || "").trim().toLowerCase()
+      .replace(/[?.,!]+$/, "").trim().replace(/^the\s+/, "");
+    if (!s || !KIND_WORDS[s]) return null;
+    return { word: s, kindCtx: KIND_WORDS[s] };
+  }
+
+  // Screen Lock (v111, corrected owner language): STAR routes
+  // through the SAME central WakeLock capability as Settings — one
+  // source of truth, synchronized both ways. Screen Lock ON =
+  // release the wake lock, normal device sleep. Screen Lock OFF =
+  // request the wake lock, keep the screen awake while visible.
+  // Text commands only; no voice work in this package. Returns
+  // true (Screen Lock ON), false (OFF), or null (not a Screen Lock
+  // command). Deliberately narrow: "turn off the screen" means the
+  // opposite and never matches, and a bare "screen lock" with no
+  // on/off is a question, not a command.
+  function matchScreenLock(t) {
+    if (/\bkeep (?:my |the )?screen (?:on|awake|lit)\b/.test(t)) return false;
+    if (/\bturn (?:the )?screen lock off\b/.test(t)) return false;
+    if (/\bscreen lock off\b/.test(t)) return false;
+    if (/\brelease (?:the )?screen(?: lock)?\b/.test(t)) return false;
+    if (/\bturn (?:the )?screen lock on\b/.test(t)) return true;
+    if (/\bscreen lock on\b/.test(t)) return true;
+    if (/\ballow (?:the )?screen to sleep\b/.test(t)) return true;
+    if (/\blet (?:the )?screen sleep\b/.test(t)) return true;
+    return null;
+  }
+
+  // Screen Lock command: set the central preference and report the
+  // preference AND the actual lock state honestly — if the browser
+  // denied or released the lock, the reply says so; ACTIVE is only
+  // claimed when a lock is actually held. Never touches the graph
+  // or any record: the preference is localStorage only. A command
+  // is not an entity answer, so a pending disambiguation is
+  // cleared — a new question starts fresh (v110 invariant).
+  async function screenLockAnswer(t) {
+    var on = matchScreenLock(t);
+    if (on === null) return null;
+    pendingAmbiguity = null;
+    var W = global.WakeLock;
+    if (!W || typeof W.setScreenLock !== "function" ||
+        typeof W.getState !== "function") {
+      return "Screen lock is NOT_AVAILABLE — the wake-lock module did not load, so I cannot change it. Nothing was changed. " + FOOTER;
+    }
+    var s = await W.setScreenLock(on);
+    var body;
+    if (s.screenLockOn) {
+      body = "Screen lock is ON — the wake lock is released, so the screen can dim or sleep normally. Wake lock: " + s.state + ".";
+    } else if (s.state === "ACTIVE") {
+      body = "Screen lock is OFF — the screen stays awake while this tab is visible. Wake lock: ACTIVE.";
+    } else if (s.state === "NOT_SUPPORTED") {
+      body = "Screen lock is OFF — I asked the browser to keep the screen awake, but this browser has no Wake Lock API. Wake lock: NOT_SUPPORTED — the screen cannot be kept lit by the cockpit.";
+    } else if (s.state === "FAILED") {
+      body = "Screen lock is OFF — I asked the browser to keep the screen awake, but the request was rejected" + (s.reason ? " (" + s.reason + ")" : "") + ". Wake lock: FAILED — the screen may still dim or sleep.";
+    } else {
+      body = "Screen lock is OFF — the wake lock was requested. Wake lock: " + s.state + " — it will be held while this tab is visible.";
+    }
+    return body + " " + FOOTER;
+  }
+
   // The WE-5 dispatcher: match, collect, fail-closed check,
   // resolve, render. Returns a reply string, or null when the
   // text is not a per-entity intent (the caller then falls through
   // to the aggregate and context routes).
   async function entityAnswer(t) {
-    var m = matchEntityIntent(t);
+    // WE-5 follow-up (v110): a bare kind word answers the pending
+    // disambiguation. A follow-up with no pending question falls
+    // through to normal matching (and answers nothing), and any
+    // other message clears the pending question first.
+    var followUp = matchKindFollowUp(t);
+    var m = null;
+    var pending = null;
+    if (followUp && pendingAmbiguity) {
+      pending = pendingAmbiguity;
+      m = { intent: pending.intent, phrase: pending.phrase,
+        phrase2: pending.phrase2 || null };
+    } else {
+      pendingAmbiguity = null;
+      m = matchEntityIntent(t);
+    }
     if (!m) return null;
     var c = await collectFull();
     if (c.error) return c.error + " " + FOOTER;
@@ -994,10 +1082,47 @@
     if (m.intent === "stale") {
       return renderStaleRecords(c) + "\n" + basisText(c) + "\n" + FOOTER;
     }
+    // The follow-up kind selects among the offered groups. Zero
+    // matches is an honest no; two or more is still ambiguous and
+    // the question is asked again over the narrowed set — never a
+    // guess. Exactly one proceeds below, re-resolved through
+    // resolveEntity with the kind, so the answer is identical to
+    // asking with the kind in the query.
+    if (followUp && pending) {
+      var narrowed = pending.groups.filter(function (gr) {
+        return gr.nodeIds.some(function (id) {
+          var n = c.graph.nodes[id];
+          return n && nodeMatchesKind(n, followUp.kindCtx);
+        });
+      });
+      if (narrowed.length === 0) {
+        var offered = pending.groups.map(function (gr) { return gr.kind; })
+          .sort().join(", ");
+        var pendingPhrase = pending.phrase;
+        pendingAmbiguity = null;
+        return "“" + followUp.word + "” is not one of the kinds I " +
+          "offered for “" + pendingPhrase + "” — the options were " +
+          offered + ". Ask again naming one of those kinds, or ask " +
+          "about a different name.\n" + basisText(c) + "\n" + FOOTER;
+      }
+      if (narrowed.length > 1) {
+        pendingAmbiguity = { intent: pending.intent, phrase: pending.phrase,
+          phrase2: pending.phrase2 || null, side: pending.side,
+          groups: narrowed };
+        return ambiguityText(pending.phrase, { groups: narrowed }) +
+          "\n" + basisText(c) + "\n" + FOOTER;
+      }
+      pendingAmbiguity = null;
+    }
     var stripped = stripKind(m.phrase);
-    var phrase = stripped.phrase, kindCtx = stripped.kindCtx;
+    var phrase = stripped.phrase;
+    var kindCtx = stripped.kindCtx;
+    if (followUp && pending && pending.side === "phrase") kindCtx = followUp.kindCtx;
     var resolved = resolveEntity(c.graph, phrase, kindCtx);
     if (resolved.status === "ambiguous") {
+      pendingAmbiguity = { intent: m.intent, phrase: phrase,
+        phrase2: m.phrase2 || null, side: "phrase",
+        groups: resolved.groups };
       return ambiguityText(phrase, resolved) + "\n" + basisText(c) + "\n" + FOOTER;
     }
     if (resolved.status !== "ok") {
@@ -1005,8 +1130,12 @@
     }
     if (m.intent === "path") {
       var stripped2 = stripKind(m.phrase2);
-      var to = resolveEntity(c.graph, stripped2.phrase, stripped2.kindCtx);
+      var toKindCtx = stripped2.kindCtx;
+      if (followUp && pending && pending.side === "phrase2") toKindCtx = followUp.kindCtx;
+      var to = resolveEntity(c.graph, stripped2.phrase, toKindCtx);
       if (to.status === "ambiguous") {
+        pendingAmbiguity = { intent: "path", phrase: phrase,
+          phrase2: stripped2.phrase, side: "phrase2", groups: to.groups };
         return ambiguityText(stripped2.phrase, to) + "\n" + basisText(c) + "\n" + FOOTER;
       }
       if (to.status !== "ok") {
@@ -1073,7 +1202,8 @@
     return "In demo mode I answer from the cockpit's real records — no AI backend is connected. Ask me: " +
       "“cockpit status” (the five Globe layers + World Engine graph), “how many records / majors / strategies” (encyclopedia + entity counts), " +
       "“opportunities” (recorded pipeline), “entity candidates” or “entity pipeline” (candidate stages, owner gate queue, frozen batches), “alerts” or “security status”, “bots / assignments” (workforce records), or “wallets” (connection + execution state). " +
-      "Ask about one thing (WE-5, from the World Engine query surface, with its basis): “what does MTI6 know about Uniswap”, “what does Ethereum depend on”, “what depends on Ethereum”, “what strategies use Aave”, “why is X unverified”, “how fresh is X”, “show the path from X to Y”, “what bots are investigating X”, “what alerts concern X”, “show everything connected to X” — an ambiguous name is asked back, never guessed. " +
+      "Ask about one thing (WE-5, from the World Engine query surface, with its basis): “what does MTI6 know about Uniswap”, “what does Ethereum depend on”, “what depends on Ethereum”, “what strategies use Aave”, “why is X unverified”, “how fresh is X”, “show the path from X to Y”, “what bots are investigating X”, “what alerts concern X”, “show everything connected to X” — an ambiguous name is asked back, never guessed; reply with just the kind, like “asset”, to pick one. " +
+      "Screen Lock: “Keep screen on” or “Turn screen lock off” keeps the screen awake while the cockpit is visible; “Turn screen lock on” or “Allow screen to sleep” releases it so the device sleeps normally — the same Screen Lock as Settings, and the two stay in sync. " +
       "Crypto World context (CW-9): open a Crypto World workspace and ask “current context”, “why is this shown”, “how fresh is this”, “what does this depend on”, “what source failed” or “simulate this” — every answer comes from the selection STAR is keeping, with the WHY chain Canonical Activity → Asset → Network → Protocol → Strategy → Source Observation → Cost → Risk → Freshness → Dependency. " +
       "“Bring Judah” (or any of the twelve Tribe principals) opens that principal in a separate participant window. " +
       "Prices still go to the Price Scouts and news/GitHub activity to the Knowledge Scouts. Anything that would change something outside this device needs your approval and is not executed here. " + FOOTER;
@@ -1085,6 +1215,11 @@
   async function answer(text) {
     var t = " " + String(text || "").toLowerCase().replace(/\s+/g, " ").trim() + " ";
     try {
+      // Screen Lock (v111): device-setting commands go before the
+      // WE-5 entity dispatcher — they are not entity questions, and
+      // they never touch the graph or any record.
+      var screenLockReply = await screenLockAnswer(t);
+      if (screenLockReply) return screenLockReply;
       // WE-5: per-entity intents go first — "what do you know about
       // X" would otherwise match the help route, and "what is in
       // the entity pipeline?" must keep falling through to the
