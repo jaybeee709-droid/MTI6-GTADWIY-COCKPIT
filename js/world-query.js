@@ -73,12 +73,15 @@
  *
  * TRUTH / PROVENANCE / FRESHNESS ACCOMPANY RESULTS (§6.3, §6.4):
  * getEvidence returns the §5.3 provenance projection; getFreshness
- * returns UNKNOWN until a real freshness policy exists (WE-3) —
- * never computed from vibes; getAlerts carries the §4.4 (truth,
- * alarm) projection per alert. This module is self-contained: where
- * it needs a projection that steps 5–8 already implemented, it
- * calls the shipped module when loaded (Provenance.project,
- * TruthProjection.projectAlertState) and falls back to a faithful
+ * delegates to FreshnessPolicy (WE-3, contract §4/§6) and returns
+ * CURRENT / STALE / UNKNOWN with a stated basis — never computed
+ * from vibes (no window for the record's source class, or no
+ * recorded attestation time, means UNKNOWN with the reason);
+ * getAlerts carries the §4.4 (truth, alarm) projection per alert.
+ * This module is self-contained: where it needs a projection that
+ * steps 5–8 already implemented, it calls the shipped module when
+ * loaded (Provenance.project, TruthProjection.projectAlertState,
+ * FreshnessPolicy.assessEntity) and falls back to a faithful
  * inline implementation of the same tables otherwise, so its
  * behavior is identical in every load context. The harness
  * cross-checks both paths for equality on the real graph.
@@ -87,11 +90,12 @@
  * when the detector actually ran. Counts here are measured by
  * running over the graph: unresolvedCount comes from
  * graph.unresolved (buildGraph's link() measures it); conflictCount
- * and staleCount are never reported by this surface at all — no
- * conflict model and no freshness policy exist, so there is no
- * detector capable of measuring either, and this module does not
- * invent one. Where a count cannot be measured (e.g. a graph with
- * no stats / no unresolved list), the field is null, never 0.
+ * and staleCount are never reported by this surface at all — the
+ * WE-3 detectors that measure them live in FreshnessPolicy and
+ * are reported by the integrity engine, and this module does not
+ * invent a second count. Where a count cannot be measured (e.g. a
+ * graph with no stats / no unresolved list), the field is null,
+ * never 0.
  *
  * related() IS RETAINED (Ruling 4.7): WorldEngine.related stays
  * the compatibility primitive. This surface is an evolution of it;
@@ -797,17 +801,24 @@
     return projectProvenance(node ? node.record : null);
   }
 
-  // { state, basis }: until WE-3 defines per-source-class freshness
-  // windows, the only honest state is UNKNOWN (no policy, no
-  // observation times) — or the record's own recorded lastChecked
-  // where it exists, reported with its basis. A freshness answer
-  // must never be computed from vibes: no policy ⇒ UNKNOWN. The
-  // lastChecked is evidence carried in the answer, never a
-  // freshness verdict.
+  // { state, basis, ... }: WE-3 freshness policy
+  // (js/freshness-policy.js). The entity's MATCHES twins are one
+  // entity (§6.0 header): the verdict is assessed over the twin
+  // set, the latest attestation governing, and the basis names
+  // the twin it was assessed from. A freshness answer is still
+  // never computed from vibes: where the policy has no window
+  // for the record's source class, or the record carries no
+  // recorded attestation time, the answer is UNKNOWN with the
+  // reason stated. When FreshnessPolicy is not loaded in this
+  // context, the answer is UNKNOWN with the no-policy basis —
+  // the pre-WE-3 behavior, preserved as the honest fallback.
+  // options.now (ISO / Date / ms) fixes the evaluation time;
+  // default is the real current time.
   function getFreshness(graph, entityId, options) {
     var r = resolveId(graph, entityId, kindOf(options));
     if (r.status === "ambiguous") return ambiguityResult(r);
     if (r.status !== "ok") return null;
+    var twins = twinNodeIds(graph, r.nodeId);
     var node = graph.nodes[r.nodeId];
     var rec = node ? node.record : null;
     var lastChecked = null;
@@ -818,15 +829,44 @@
         lastChecked = rec.freshness.lastChecked;
       }
     }
-    var basis = "No freshness policy exists (WE-3); freshness is " +
-      "UNKNOWN until one does.";
-    if (lastChecked) {
-      basis += " Record lastChecked: " + lastChecked +
-        " (reported, not judged — no window exists to judge it by).";
-    } else {
-      basis += " No lastChecked recorded on this record.";
+    var FP = global.FreshnessPolicy;
+    if (!FP || typeof FP.assessEntity !== "function") {
+      var basis = "No freshness policy exists (WE-3); freshness is " +
+        "UNKNOWN until one does.";
+      if (lastChecked) {
+        basis += " Record lastChecked: " + lastChecked +
+          " (reported, not judged — no window exists to judge it by).";
+      } else {
+        basis += " No lastChecked recorded on this record.";
+      }
+      return { state: "UNKNOWN", basis: basis, lastChecked: lastChecked };
     }
-    return { state: "UNKNOWN", basis: basis, lastChecked: lastChecked };
+    var entries = twins.map(function (nodeId) {
+      var n = graph.nodes[nodeId];
+      return { nodeId: nodeId, record: n ? n.record : null };
+    });
+    var verdict = FP.assessEntity(entries,
+      { now: options && options.now !== undefined ? options.now : undefined });
+    var assessedNode = graph.nodes[verdict.assessedFrom];
+    var assessedRec = assessedNode ? assessedNode.record : null;
+    var assessedLC = null;
+    if (isPlainObject(assessedRec)) {
+      if (isString(assessedRec.lastChecked)) assessedLC = assessedRec.lastChecked;
+      else if (isPlainObject(assessedRec.freshness) &&
+          isString(assessedRec.freshness.lastChecked)) {
+        assessedLC = assessedRec.freshness.lastChecked;
+      }
+    }
+    return {
+      state: verdict.state,
+      basis: verdict.basis,
+      lastChecked: assessedLC,
+      sourceType: verdict.sourceType,
+      attestedAt: verdict.attestedAt,
+      windowMs: verdict.windowMs,
+      ageMs: verdict.ageMs,
+      assessedFrom: verdict.assessedFrom
+    };
   }
 
   // ASSIGNMENT nodes and ASSIGNED_TO edges touching the entity, in

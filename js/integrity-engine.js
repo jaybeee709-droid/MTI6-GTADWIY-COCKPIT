@@ -26,15 +26,23 @@
  *
  * MEASURED-ZERO RULE (binding, Ruling 5): a zero is reported only
  * when the detector actually ran. This module enforces it in code:
- *   - conflictCount / staleCount are null with computed: false.
- *     No conflict model exists until WE-3 and no freshness policy
- *     exists, so there is no detector capable of measuring either.
- *     The §7.1 example shape shows literal 0s for these fields;
- *     this module deliberately deviates from that literal example
- *     and reports null instead, because the binding ruling says a
- *     count "reports computed: false, not a measured-looking 0" —
- *     a 0 with computed: false would still read as a measured zero
- *     to any consumer that does not check the flag.
+ *   - conflictCount / staleCount are MEASURED by the WE-3
+ *     detectors in js/freshness-policy.js (twin-field agreement
+ *     for conflicts; per-source-class freshness windows for
+ *     staleness) whenever that module is loaded — assessCollection
+ *     calls it through global.FreshnessPolicy when present. When
+ *     the module is NOT loaded (a load context without it), both
+ *     counts stay null with computed: false: no detector ran, so
+ *     there is no measured zero to report. A 0 with computed:
+ *     false would still read as a measured zero to any consumer
+ *     that does not check the flag.
+ *   - The WE-3 detectors are additive diagnostics: they never
+ *     change the Tier 1 / Tier 2 status semantics of §7.2.
+ *     Staleness is reported (staleCount + the `freshness` detail),
+ *     not a degradation trigger — §7.2's DEGRADED conditions are
+ *     unresolved references, NOT_LOADED/ERROR sources, and
+ *     required checks that did not run. A stale record is due a
+ *     re-check, not a system failure.
  *   - duplicateIds is null with computed: false when no snapshot
  *     was supplied: buildGraph silently dedupes duplicate node ids
  *     (addNode drops the second), so a duplicate can never be
@@ -90,7 +98,19 @@
  * CostIntelligence.records, which does not exist (the module
  * exposes getCosts()); the cost source is therefore never loaded
  * into any collection. The engine reports the measured state; the
- * wiring fix belongs to a future package, not this one.
+ * wiring fix belongs to a future package, not this one. (v106
+ * shipped that fix; the baseline is OK from v106 on.)
+ *
+ * WE-3 (cache v108) measures the two counts this header used to
+ * report as unmeasured: staleCount via FreshnessPolicy.assessGraph
+ * (0 on the real baseline — the harness collection was just
+ * imported, so the 48 OWNER_SEED records are within their 90-day
+ * window and the 826 SYSTEM_IMPORT records have no window at
+ * all) and conflictCount via FreshnessPolicy.detectConflicts (0
+ * over 91 compared twin fields on the real baseline). See
+ * js/freshness-policy.js for the harness/live divergence note:
+ * the live profile's pre-v104 records carry no attestation time
+ * and are UNKNOWN there, not CURRENT.
  *
  * Pure functions only: no DOM, no network, no secrets, no storage.
  * Same discipline as js/truth.js and js/truth-projection.js.
@@ -409,9 +429,11 @@
   //     (optional; without it the report cannot speak about source
   //     health and reports computed: false for that check).
   //   options: { head, cacheVersion, dbVersion, nodeKinds,
-  //     edgeTypes, requiredChecks } — requiredChecks names computed
+  //     edgeTypes, requiredChecks, now } — requiredChecks names computed
   //     flags a consumer depends on; a required check that did not
-  //     run degrades the report.
+  //     run degrades the report. `now` (ISO string / Date / ms) is
+  //     the evaluation time for the WE-3 freshness detector;
+  //     default is the real current time.
   // Throws TypeError when no graph is supplied: no collection, no
   // report — silence would be the fake-green state §7 forbids.
   function assessCollection(input, options) {
@@ -438,6 +460,23 @@
     var cycles = checkParentCycles(graph);
     var matches = checkMatches(graph);
     var sources = normalizeSourceStates(sourceStates);
+
+    // WE-3 detectors (js/freshness-policy.js): staleness by
+    // per-source-class freshness windows over the canonical
+    // records, conflicts by twin-field agreement. Both run only
+    // when the module is loaded; without it the counts stay
+    // unmeasured (null, computed: false) — the pre-WE-3 behavior,
+    // preserved as the honest fallback. `now` is injectable via
+    // options.now for reproducible assessments; the default is
+    // the real current time.
+    var FP = global.FreshnessPolicy;
+    var freshness = { computed: false };
+    var conflicts = { computed: false };
+    if (FP && typeof FP.assessGraph === "function" &&
+        typeof FP.detectConflicts === "function") {
+      freshness = FP.assessGraph(graph, { now: options.now });
+      conflicts = FP.detectConflicts(graph);
+    }
 
     // byKind / byEdgeType: measured from the graph, every known
     // kind/type present (0 for empty), unknown kinds/types still
@@ -530,8 +569,8 @@
 
     var computed = {
       orphanCount: true,
-      conflictCount: false,
-      staleCount: false,
+      conflictCount: conflicts.computed === true,
+      staleCount: freshness.computed === true,
       duplicateIds: duplicates.computed,
       contamination: true,
       parentCycle: true,
@@ -564,10 +603,15 @@
       relationshipCount: edges.length,
       unresolvedCount: unresolved.count,
       orphanCount: orphans.count,
-      // No conflict model exists until WE-3; no freshness policy
-      // exists. These are null (unmeasured), never a 0.
-      conflictCount: null,
-      staleCount: null,
+      // WE-3 measures both counts when FreshnessPolicy is loaded;
+      // without it they are null (unmeasured), never a 0. The
+      // `freshness` / `conflicts` detail objects carry the full
+      // census so a 0 is interpretable (how many were UNKNOWN, how
+      // many twin fields were actually compared).
+      conflictCount: conflicts.computed === true ? conflicts.conflictCount : null,
+      staleCount: freshness.computed === true ? freshness.stale : null,
+      freshness: freshness,
+      conflicts: conflicts,
       byKind: byKind,
       byEdgeType: byEdgeType,
       unresolved: unresolved.list,

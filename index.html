@@ -234,6 +234,12 @@
   <script src="./js/opportunity-intelligence.js"></script>
   <script src="./js/globe-intelligence.js"></script>
   <script src="./js/world-engine.js"></script>
+  <!-- WE-3 freshness policy + conflict model (contract §4/§6/§7,
+       v108): the WE-3 detectors the integrity engine and the query
+       surface's getFreshness delegate to. Loads before both, so
+       both measure in the live app; without it they fall back to
+       the honest unmeasured behavior. -->
+  <script src="./js/freshness-policy.js"></script>
   <!-- WE-2 integrity surfacing (contract §7, v107): the integrity
        engine + query surface load here — their first consumer is the
        World Engine Health panel on the dashboard. -->
