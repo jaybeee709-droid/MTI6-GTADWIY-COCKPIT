@@ -1323,6 +1323,161 @@
     return panel("Primary — DePIN (CW-7)", kids.concat(infraObservationState(c, "DePIN observations", "no DePIN capacity, throughput or earnings feed is wired into the app")));
   }
 
+  // ---- CW-8 specialized depth -------------------------------------------
+  //
+  // Workspace-specific primary panels for the nine non-gated
+  // specialized workspaces (registry §5). Same honesty rules as
+  // CW-3/4/5/6/7: a venue is named only because the protocol's
+  // own activityRefs record the major; a zero is a measured
+  // result; no price, probability, premium, NAV, voting-power or
+  // earnings figure exists anywhere in the app, so none is
+  // derived or rendered. BTC is never collapsed into WBTC. RWA
+  // tokens are never presented as the real-world claim itself.
+  // The two expansion-gated seats (gamefi, socialfi) return
+  // null: the frame renders their seat state.
+
+  function specPanel(ws, data, level) {
+    var core = data.core;
+    if (!core.cw8) return null;
+    switch (ws.workspaceId) {
+      case "btcfi": return specBtcfiPanel(core, level);
+      case "rwa": return specRwaPanel(core, level);
+      case "nftfi": return specNftfiPanel(core, level);
+      case "prediction": return specPredictionPanel(core, level);
+      case "oracle": return specOraclePanel(core, level);
+      case "insurance": return specInsurancePanel(core, level);
+      case "governance": return specGovernancePanel(core, level);
+      case "gauges": return specGaugesPanel(core, level);
+      case "payments": return specPaymentsPanel(core, level);
+      default: return null;
+    }
+  }
+
+  function specLinkage(c) {
+    var out = [];
+    c.majors.forEach(function (m) {
+      out.push(U.el("h4", {}, m.record.title + " (" + m.typeCount + " Types · " + m.strategyCount + " Strategies)"));
+      out.push(row("Protocols recording this major", m.protocolHits + " of " + c.universeProtocols));
+    });
+    return out;
+  }
+
+  function specSecondaryLinkage(c) {
+    var out = [];
+    c.secondaryMajors.forEach(function (m) {
+      out.push(U.el("h4", {}, "Secondary — " + m.record.title + " (" + m.typeCount + " Types · " + m.strategyCount + " Strategies)"));
+      out.push(row("Protocols recording this major", m.protocolHits + " of " + c.universeProtocols));
+    });
+    return out;
+  }
+
+  function specObservationState(c, label, feedNote) {
+    return [
+      U.el("h4", {}, label + " — observation state"),
+      row("Feed status", "NOT_CONNECTED — " + feedNote),
+      row("Recorded observations", "0"),
+      row("Positions", String(c.positionsCount) + (c.positionsLoaded ? " recorded" : " (position store not loaded)")),
+      row("Opportunities", String(c.scopeOpportunityCount) + " recorded")
+    ];
+  }
+
+  function specBtcfiPanel(core, level) {
+    var c = core.cw8;
+    var kids = [meta("BTCFi is the one specialized workspace with a recorded venue: Babylon's own activityRefs record the BTCFi major, so Babylon stands in recorded scope — with " + c.scopeNetworks + " network (bitcoin-mainnet) and " + c.scopeAssets + " asset (btc-bitcoin), the Babylon protocol record's own networkRefs, nothing inferred.")];
+    if (c.venues.length) {
+      kids.push(U.el("h4", {}, "Protocols in recorded scope"));
+      c.venues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    }
+    specLinkage(c).forEach(function (k) { kids.push(k); });
+    specSecondaryLinkage(c).forEach(function (k) { kids.push(k); });
+    kids.push(meta("Identity separation is strict here: the asset in scope is btc-bitcoin, native BTC on bitcoin-mainnet. " + (c.wbtcRecorded
+      ? "Wrapped Bitcoin (wbtc-ethereum) is a separate recorded identity — a wrapped representation of BTC on Ethereum, never a match for btc-bitcoin — and it is NOT in this workspace's scope" + (c.wbtcInScope ? "" : " (verified: not in scope)") + ". No BTCFi position, yield or settlement figure is computed or implied — the Costs and Risks panels below render UNKNOWN / NO RECORDED PROFILE for this workspace."
+      : "No wrapped-BTC record stands in scope either.")));
+    return panel("Primary — BTCFi (CW-8)", kids.concat(specObservationState(c, "BTCFi observations", "no BTCFi yield, staking or settlement feed is wired into the app")));
+  }
+
+  function specRwaPanel(core, level) {
+    var c = core.cw8;
+    var kids = [meta("Real-World Asset Finance is recorded taxonomy and nothing else: " + c.universeProtocols +
+      " protocols in the universe and NONE of them records the Real-World Asset Finance major, so no RWA issuer, token or market is listed — one would appear here only if a protocol's own activityRefs recorded it.")];
+    specLinkage(c).forEach(function (k) { kids.push(k); });
+    specSecondaryLinkage(c).forEach(function (k) { kids.push(k); });
+    kids.push(meta("The real-world reference and the on-chain representation are kept separate by design: no RWA token record exists in the canonical universe, so nothing here is presented as a claim on a real-world asset, and no NAV, price or yield figure is computed or implied — the Costs and Risks panels below render UNKNOWN / NO RECORDED PROFILE for this workspace."));
+    return panel("Primary — RWA (CW-8)", kids.concat(specObservationState(c, "RWA observations", "no RWA registry, NAV or price feed is wired into the app")));
+  }
+
+  function specNftfiPanel(core, level) {
+    var c = core.cw8;
+    var kids = [meta("NFT-Fi is recorded taxonomy and nothing else: " + c.universeProtocols +
+      " protocols in the universe and NONE of them records the NFT-Fi major, so no NFT lending, rental, fractionalisation or index venue is listed — one would appear here only if a protocol's own activityRefs recorded it.")];
+    specLinkage(c).forEach(function (k) { kids.push(k); });
+    kids.push(meta("No NFT price, floor, rental-rate or portfolio figure is computed or implied — the Costs and Risks panels below render UNKNOWN / NO RECORDED PROFILE for this workspace."));
+    return panel("Primary — NFT-Fi (CW-8)", kids.concat(specObservationState(c, "NFT-Fi observations", "no NFT price or lending feed is wired into the app")));
+  }
+
+  function specPredictionPanel(core, level) {
+    var c = core.cw8;
+    var kids = [meta("Prediction & Oracle Markets is recorded taxonomy and nothing else: " + c.universeProtocols +
+      " protocols in the universe and NONE of them records the Prediction & Oracle Markets major, so no prediction market is listed — one would appear here only if a protocol's own activityRefs recorded it.")];
+    specLinkage(c).forEach(function (k) { kids.push(k); });
+    kids.push(meta("No outcome probability, odds or payout figure is invented anywhere: a market with no recorded venue has no recorded probability. The Costs and Risks panels below render UNKNOWN / NO RECORDED PROFILE for this workspace."));
+    return panel("Primary — Prediction Markets (CW-8)", kids.concat(specObservationState(c, "Prediction observations", "no prediction-market price or probability feed is wired into the app")));
+  }
+
+  function specOraclePanel(core, level) {
+    var c = core.cw8;
+    var kids = [meta("This workspace has NO primary Major Activity of its own — it is an intelligence surface over the two secondary majors below, and over the two recorded oracle networks. The dependency question is answered from recorded data, and the answer is a measured absence: no protocol, strategy, position or opportunity in the canonical records stands as a recorded dependent of either oracle network.")];
+    specSecondaryLinkage(c).forEach(function (k) { kids.push(k); });
+    kids.push(U.el("h4", {}, "Oracle networks — what depends on them"));
+    if (c.oracleProtocols.length) {
+      c.oracleProtocols.forEach(function (o) {
+        kids.push(row(o.title + " (" + o.id + ")", "ORACLE-category protocol identity · " + o.activityCount + " recorded activities · 0 recorded dependents"));
+      });
+    }
+    kids.push(meta("Chainlink and Pyth are recorded as identities with intentionally empty activityRefs: no canonical-60 major directly names oracle data provision, so no activity relationship is fabricated to fill the field — that is the recorded taxonomy gap, not a missing feed. Their tokens are distinct recorded entities (LINK is link-ethereum, PYTH is pyth-solana), never the protocol itself. Feed observations for either oracle network: NOT_CONNECTED — no oracle price feed is wired into the app."));
+    return panel("Primary — Oracle Intelligence (CW-8)", kids.concat(specObservationState(c, "Oracle observations", "no oracle price or feed-status feed is wired into the app")));
+  }
+
+  function specInsurancePanel(core, level) {
+    var c = core.cw8;
+    var kids = [meta("Insurance & Risk Underwriting is recorded taxonomy and nothing else: " + c.universeProtocols +
+      " protocols in the universe and NONE of them records the Insurance & Risk Underwriting major, so no cover, underwriting pool or risk-sharing pool is listed — one would appear here only if a protocol's own activityRefs recorded it.")];
+    specLinkage(c).forEach(function (k) { kids.push(k); });
+    kids.push(meta("No premium, cover amount or payout figure is computed or implied — the Costs and Risks panels below render UNKNOWN / NO RECORDED PROFILE for this workspace."));
+    return panel("Primary — Insurance / Risk Underwriting (CW-8)", kids.concat(specObservationState(c, "Insurance observations", "no insurance cover or premium feed is wired into the app")));
+  }
+
+  function specGovernancePanel(core, level) {
+    var c = core.cw8;
+    var kids = [meta("Governance Participation is recorded taxonomy and nothing else: " + c.universeProtocols +
+      " protocols in the universe and NONE of them records the Governance Participation major, so no DAO, delegate or proposal is listed — one would appear here only if a protocol's own activityRefs recorded it.")];
+    specLinkage(c).forEach(function (k) { kids.push(k); });
+    specSecondaryLinkage(c).forEach(function (k) { kids.push(k); });
+    kids.push(meta("Voting authority is separate and disabled: nothing on this screen casts, delegates or counts a vote, and no voting-power or quorum figure is computed or implied — the Costs and Risks panels below render UNKNOWN / NO RECORDED PROFILE for this workspace."));
+    return panel("Primary — Governance (CW-8)", kids.concat(specObservationState(c, "Governance observations", "no governance proposal or voting feed is wired into the app")));
+  }
+
+  function specGaugesPanel(core, level) {
+    var c = core.cw8;
+    var kids = [meta("Gauge & Incentive Markets is recorded taxonomy and nothing else: " + c.universeProtocols +
+      " protocols in the universe and NONE of them records the Gauge & Incentive Markets major, so no gauge, emission market or vote-incentive market is listed — one would appear here only if a protocol's own activityRefs recorded it.")];
+    specLinkage(c).forEach(function (k) { kids.push(k); });
+    specSecondaryLinkage(c).forEach(function (k) { kids.push(k); });
+    kids.push(meta("No emission, gauge-weight or incentive figure is computed or implied — the Costs and Risks panels below render UNKNOWN / NO RECORDED PROFILE for this workspace."));
+    return panel("Primary — Gauge / Incentive Markets (CW-8)", kids.concat(specObservationState(c, "Gauge observations", "no gauge, emission or incentive feed is wired into the app")));
+  }
+
+  function specPaymentsPanel(core, level) {
+    var c = core.cw8;
+    var kids = [meta("Payments & Settlement is recorded taxonomy with a recorded shape of its own: " + (c.majors[0] ? c.majors[0].typeCount : 8) +
+      " Types and " + (c.majors[0] ? c.majors[0].strategyCount : 0) + " Strategies — the taxonomy records the payment Types and no Strategy under them yet, and that 0 is rendered as itself, not filled. " + c.universeProtocols +
+      " protocols in the universe and NONE of them records the Payments & Settlement major, so no payment venue or route is listed — one would appear here only if a protocol's own activityRefs recorded it.")];
+    specLinkage(c).forEach(function (k) { kids.push(k); });
+    specSecondaryLinkage(c).forEach(function (k) { kids.push(k); });
+    kids.push(meta("No payment volume, fee or settlement-time figure is computed or implied — the Costs and Risks panels below render UNKNOWN / NO RECORDED PROFILE for this workspace."));
+    return panel("Primary — Payments & Settlement (CW-8)", kids.concat(specObservationState(c, "Payments observations", "no payments volume or settlement feed is wired into the app")));
+  }
+
   // ---- context panels --------------------------------------------------------
 
   function entityPanel(kindLabel, records, totals, ws) {
@@ -1764,6 +1919,13 @@
     // everywhere else.
     var infraPanelEl = infraPanel(ws, data, level);
     if (infraPanelEl) root.appendChild(infraPanelEl);
+
+    // CW-8 specialized depth: workspace-specific primary
+    // content for the nine non-gated specialized workspaces
+    // (registry §5); null for the two gated seats (gamefi,
+    // socialfi) and everywhere else.
+    var specPanelEl = specPanel(ws, data, level);
+    if (specPanelEl) root.appendChild(specPanelEl);
 
     // CONTEXT + INTELLIGENCE — STANDARD shows the F-9 essentials;
     // ADVANCED/ALL show every panel. Same data at every level.

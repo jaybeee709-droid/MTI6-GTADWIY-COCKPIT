@@ -849,6 +849,82 @@
       core.infra = infraCore;
     }
 
+    // -- CW-8 specialized depth: workspace-specific
+    //    derivations for the SPECIALIZED group (registry §5 /
+    //    CW-8) over the same handed-in records. One workspace
+    //    has a recorded venue (BTCFi, via Babylon); the other
+    //    eight frame workspaces have NO recorded protocol at
+    //    all. Oracle is the taxonomy-gap workspace: Chainlink
+    //    and Pyth are recorded ORACLE-category protocol
+    //    identities whose activityRefs are intentionally empty
+    //    — no canonical-60 major names oracle data provision —
+    //    so the dependency graph answers 0 recorded dependents.
+    //    BTC is never collapsed into WBTC: wbtc-ethereum is a
+    //    distinct recorded identity and is NOT in BTCFi scope.
+    //    The two expansion-gated seats (gamefi, socialfi) get
+    //    no panel here: the frame renders their seat state.
+    if (ws.group === "specialized") {
+      var sTwinMap = {};
+      arr(inputs.protocolTwins).forEach(function (t) { if (t && str(t.protocolId)) sTwinMap[t.protocolId] = t; });
+      function specVenueEntry(p) {
+        var twin = sTwinMap[p.id] || null;
+        return { record: p, twin: twin,
+          category: twin && str(twin.category) ? twin.category : null,
+          networks: arr(p.networkRefs).map(function (id) { return byId[id] || null; }).filter(Boolean),
+          activities: arr(p.activityRefs).map(function (id) {
+            var res = REG ? REG.resolveMajor(id) : null;
+            return { record: byId[id] || null, workspaceId: res ? res.primary : null };
+          }),
+          primaryHits: arr(p.activityRefs).filter(function (a) { return ws.majorIds.indexOf(a) !== -1; }) };
+      }
+      function specMajorSummary(tree) {
+        return { record: tree.record, typeCount: tree.typeCount, strategyCount: tree.strategyCount,
+          types: tree.types.map(function (t) {
+            return { record: t.record, strategyCount: t.strategies.length };
+          }),
+          protocolHits: entityRecords.protocols.filter(function (p) {
+            return arr(p.activityRefs).indexOf(tree.record.id) !== -1;
+          }).length };
+      }
+      var sVenues = protocols.map(specVenueEntry);
+      var sMajorSummaries = majors.map(specMajorSummary);
+      var sSecondarySummaries = ws.secondaryMajorIds.map(function (mid) {
+        var tr = treeFor(mid, ws.typeScope ? ws.typeScope[mid] : null);
+        return tr ? specMajorSummary(tr) : null;
+      }).filter(Boolean);
+      var specCore = {
+        universeProtocols: entityRecords.protocols.length,
+        scopeProtocols: protocols.length,
+        majors: sMajorSummaries,
+        secondaryMajors: sSecondarySummaries,
+        linkedMajorCount: sMajorSummaries.filter(function (m) { return m.protocolHits > 0; }).length,
+        venues: sVenues,
+        primaryVenues: sVenues.filter(function (v) { return v.primaryHits.length > 0; }),
+        secondaryOnlyVenues: sVenues.filter(function (v) { return v.primaryHits.length === 0; }),
+        scopeAssets: assets.length,
+        scopeNetworks: networks.length,
+        scopeOpportunityCount: opportunities.length,
+        positionsCount: positions.length,
+        positionsLoaded: !!loaded.positions,
+        // Oracle-category protocol identities in the universe,
+        // with their recorded activity counts (both 0 by design:
+        // the taxonomy gap is recorded in the protocol records).
+        // Identified by canonical record id — the imported
+        // record carries no category field; the title and the
+        // activity count are read from the record itself.
+        oracleProtocols: ["protocol-chainlink", "protocol-pyth"].map(function (id) {
+          var p = byId[id] || null;
+          return p ? { id: p.id, title: p.title, activityCount: arr(p.activityRefs).length } : null;
+        }).filter(Boolean),
+        // WBTC is a distinct recorded identity from native BTC;
+        // it is NOT in BTCFi scope and must never be presented
+        // as BTC.
+        wbtcRecorded: !!byId["wbtc-ethereum"],
+        wbtcInScope: assets.some(function (a) { return a.id === "wbtc-ethereum"; })
+      };
+      core.cw8 = specCore;
+    }
+
     return {
       found: true, workspace: ws,
       core: core,
