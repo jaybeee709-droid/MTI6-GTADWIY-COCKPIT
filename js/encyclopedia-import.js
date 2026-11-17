@@ -95,6 +95,22 @@
         if (!recordsEqual(stored[k], c.set[k])) { next[k] = c.set[k]; changed = true; }
       });
       if (!changed) continue;
+      // A correction is a governed transformation (§5.2): it appends
+      // one entry to the record's provenance history (creating the
+      // block, with acquiredAt null, when the record has none — a
+      // correction is not an acquisition). Earlier entries are never
+      // rewritten.
+      var P = global.Provenance;
+      if (P && typeof P.appendTransformation === "function") {
+        var stamped = P.appendTransformation(next, {
+          at: new Date().toISOString(),
+          actor: "SYSTEM:encyclopedia-import",
+          action: "correction",
+          note: "Owner-approved correction applied to " +
+            Object.keys(c.set).join(", ") + "."
+        });
+        if (stamped.ok) next = stamped.record;
+      }
       try { await writeRecord(next); } catch (e) { continue; }
       for (var k2 = 0; k2 < existing.length; k2++) {
         if (existing[k2] && existing[k2].id === c.id) existing[k2] = next;
@@ -787,6 +803,7 @@
       var d2 = check.dispositions[j];
       if (d2.alreadyPresent) { out.alreadyPresent++; continue; }
       try {
+        stampPromotionProvenance(batch, d2.rec);
         await writeRecord(d2.rec);
         existing.push(d2.rec);
         out.imported++;
@@ -824,9 +841,46 @@
     return Promise.resolve([]);
   }
 
+  // ---- Writer-side provenance (contract §5, Ruling 3.4) ------------
+  // A governed write stamps a §5.2 provenance block built ONLY from
+  // facts the writer knows at write time (the record's own source,
+  // its batch, the write time). A record that already carries a block
+  // is left entirely alone — a later write never rewrites earlier
+  // provenance, and a blocked/failed import writes nothing at all.
+  // If the Provenance module is not loaded, writes proceed without a
+  // block (never failing a write for want of provenance).
+  function stampImportProvenance(rec) {
+    var P = global.Provenance;
+    if (!P || typeof P.buildBlockForImport !== "function") return;
+    if (!rec || typeof rec !== "object" || rec.provenance) return;
+    var made = P.buildBlockForImport(rec, { now: new Date().toISOString() });
+    if (made.ok) rec.provenance = made.block;
+  }
+
+  // Gate promotions: a batch carrying validated owner freeze
+  // provenance (frozenBy + frozenAt, enabled via
+  // enableOwnerFrozenBatch) is a promotion, not a seed import. Its
+  // records get the CANDIDATE_PROMOTION block — freeze entry from
+  // the batch's recorded facts, import entry at write time. Static
+  // entity batches carry no frozenBy/frozenAt and fall through to
+  // the plain import block in writeRecord.
+  function stampPromotionProvenance(batch, rec) {
+    var P = global.Provenance;
+    if (!P || typeof P.buildBlockForPromotion !== "function") return;
+    if (!batch || typeof batch.frozenBy !== "string" || !batch.frozenAt ||
+        isNaN(Date.parse(batch.frozenAt))) return;
+    if (!rec || typeof rec !== "object" || rec.provenance) return;
+    var made = P.buildBlockForPromotion(rec, {
+      frozenBy: batch.frozenBy, frozenAt: batch.frozenAt,
+      batchId: batch.batch, now: new Date().toISOString()
+    });
+    if (made.ok) rec.provenance = made.block;
+  }
+
   function writeRecord(rec) {
     var d = db();
     if (!d || typeof d.put !== "function") return Promise.reject(new Error("CockpitDB.put is not available."));
+    stampImportProvenance(rec);
     return d.put("cryptoWorld", rec);
   }
 

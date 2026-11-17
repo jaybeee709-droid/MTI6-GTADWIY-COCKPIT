@@ -202,6 +202,12 @@
   <script src="./js/data/entity-batch-2.js"></script>
   <script src="./js/data/resource-seeds.js"></script>
   <script src="./js/data/bot-naming-pool.js"></script>
+  <!-- Record-level provenance (contract §5, v104): the import gate
+       and entity gate adopt it at write time, so it loads before
+       them. Unlike the truth projection (v101) and the integrity
+       engine (v103), which no runtime surface adopts, the writers
+       ARE the runtime adoption here. -->
+  <script src="./js/provenance.js"></script>
   <script src="./js/encyclopedia-import.js"></script>
   <script src="./js/entity-candidates.js"></script>
   <script src="./js/entity-gate.js"></script>
