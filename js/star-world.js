@@ -314,6 +314,720 @@
     return SC.sourceState() + "\n" + FOOTER;
   }
 
+  // WE-5: STAR per-entity intents (contract §6, Ruling 4 — the
+  // STAR-facing use, contract §10 Decision 4). Every intent below
+  // answers ONLY through WorldQuery: the reply is a prose rendering
+  // of the getter's own result for the same entity — same nodeIds,
+  // same order, same values. STAR adds no private re-implementation
+  // of any question and no hard-coded count. The name in the
+  // question is resolved to a node by resolveEntity (below); a
+  // bare name that matches more than one entity is asked back,
+  // never guessed (the Standing Anchor Rule, §6.0); a name that
+  // matches nothing is a measured absence. Every answer carries
+  // its basis (graph counts, integrity status, source states) and
+  // the demo footer. On a FAILED collection (§7.2) no entity data
+  // is presented as current — the failures are the deliverable.
+  //
+  // Phrases that name the aggregate domains STAR already answers
+  // (pipeline, candidates, resources, opportunities) are NOT
+  // entity intents — they fall through to those routes. Phrases
+  // that name the current selection ("this", "it", "selected")
+  // are NOT entity intents either — they fall through to the CW-9
+  // context routes, which answer from the selection STAR keeps.
+
+  var CONTEXT_PHRASES = ["this", "it", "that", "selected",
+    "the context", "my context", "the current context",
+    "this asset", "this protocol", "this workspace",
+    "the selection", "my selection"];
+  // Words that route to STAR's aggregate answers, never to an
+  // entity intent — checked inside the extracted phrase.
+  var SKIP_WORDS = ["pipeline", "candidate", "frozen", "resource",
+    "capability gap", "opportunit"];
+
+  // Kind words a question may carry ("the network ethereum",
+  // "the asset bitcoin"): stripped from the phrase and used as
+  // the resolution context. Strategy / type / major / family are
+  // CRYPTO_RECORD levels, not kinds.
+  var KIND_WORDS = {
+    protocol: { kind: "PROTOCOL" }, asset: { kind: "ASSET" },
+    network: { kind: "NETWORK" }, opportunity: { kind: "OPPORTUNITY" },
+    wallet: { kind: "WALLET" }, principal: { kind: "PRINCIPAL" },
+    strategy: { kind: "CRYPTO_RECORD", level: "STRATEGY" },
+    type: { kind: "CRYPTO_RECORD", level: "TYPE" },
+    major: { kind: "CRYPTO_RECORD", level: "MAJOR_ACTIVITY" },
+    family: { kind: "CRYPTO_RECORD", level: "FAMILY" }
+  };
+
+  function cleanPhrase(raw) {
+    if (!raw) return null;
+    var p = String(raw).trim().replace(/\s+/g, " ")
+      .replace(/[?.,!]+$/, "").trim();
+    if (!p) return null;
+    var low = p.toLowerCase();
+    if (CONTEXT_PHRASES.indexOf(low) !== -1) return null;
+    if (/^(this|that|it)\b/.test(low)) return null;
+    for (var i = 0; i < SKIP_WORDS.length; i++) {
+      if (low.indexOf(SKIP_WORDS[i]) !== -1) return null;
+    }
+    return p;
+  }
+
+  function stripKind(phrase) {
+    var p = String(phrase || "").trim();
+    var low = p.toLowerCase().replace(/^the\s+/, "");
+    var first = low.split(" ")[0];
+    var kw = KIND_WORDS[first];
+    if (!kw) return { phrase: p, kindCtx: null };
+    var rest = low.slice(first.length).trim();
+    if (!rest) return { phrase: p, kindCtx: null };
+    return { phrase: rest, kindCtx: kw };
+  }
+
+  function nodeMatchesKind(node, kindCtx) {
+    if (!kindCtx) return true;
+    if (kindCtx.kind && node.kind !== kindCtx.kind) return false;
+    if (kindCtx.level && node.level !== kindCtx.level) return false;
+    return true;
+  }
+
+  // Resolves a name to one entity in the graph. Candidates match
+  // on exact nodeId, exact rawId, exact label, or exact record
+  // title (all case-insensitive) — never a substring, never a
+  // guess. Candidates are grouped into entities by MATCHES twin
+  // edges: the twins of one entity are one answer, not an
+  // ambiguity. Returns { status: "ok", nodeId, group } (nodeId is
+  // the anchor: the CRYPTO_RECORD twin when one exists, else the
+  // first nodeId), { status: "ambiguous", groups } (each group an
+  // anchor { label, kind, nodeId, nodeIds }), or
+  // { status: "not_found", phrase }. Exposed on StarWorld as the
+  // harness seam and for future consumers (Search) — the
+  // resolution itself is STAR's, the answers are WorldQuery's.
+  function resolveEntity(graph, phrase, kindCtx) {
+    var p = String(phrase || "").trim().toLowerCase();
+    if (!graph || !isPlainObject(graph.nodes) || !p) {
+      return { status: "not_found", phrase: phrase };
+    }
+    var candidates = [];
+    if (p.indexOf(":") !== -1) {
+      if (graph.nodes[p]) candidates.push(p);
+      else {
+        var lower = p.toLowerCase();
+        Object.keys(graph.nodes).forEach(function (id) {
+          if (id.toLowerCase() === lower) candidates.push(id);
+        });
+      }
+    } else {
+      Object.keys(graph.nodes).forEach(function (id) {
+        var n = graph.nodes[id];
+        if (!n) return;
+        var raw = String(n.rawId || "").toLowerCase();
+        var label = String(n.label || "").toLowerCase();
+        var title = n.record && String(n.record.title || "").toLowerCase();
+        if (raw === p || label === p || title === p) candidates.push(id);
+      });
+    }
+    candidates.sort();
+    if (!candidates.length) return { status: "not_found", phrase: phrase };
+    // Group by MATCHES twin edges: union-find over the candidate
+    // set, so one entity's twins never read as an ambiguity.
+    var parent = {};
+    candidates.forEach(function (id) { parent[id] = id; });
+    function find(x) {
+      while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+      return x;
+    }
+    (graph.edges || []).forEach(function (e) {
+      if (!e || e.type !== "MATCHES") return;
+      if (parent.hasOwnProperty(e.from) && parent.hasOwnProperty(e.to)) {
+        var a = find(e.from), b = find(e.to);
+        if (a !== b) parent[a] = b;
+      }
+    });
+    var groups = {};
+    candidates.forEach(function (id) {
+      var root = find(id);
+      (groups[root] = groups[root] || []).push(id);
+    });
+    var groupList = Object.keys(groups).sort().map(function (root) {
+      var ids = groups[root].slice().sort();
+      var anchor = ids[0];
+      ids.forEach(function (id) {
+        if (graph.nodes[id] && graph.nodes[id].kind === "CRYPTO_RECORD") anchor = id;
+      });
+      var an = graph.nodes[anchor];
+      return { label: nodeLabel(an), kind: an.kind, nodeId: anchor, nodeIds: ids };
+    });
+    if (kindCtx) {
+      // A kind word selects WHICH entity and which anchor — it
+      // never amputates the twin set: the group qualifies when any
+      // member matches, and the anchor becomes the matching member.
+      groupList = groupList.filter(function (g) {
+        return g.nodeIds.some(function (id) {
+          return nodeMatchesKind(graph.nodes[id], kindCtx);
+        });
+      });
+      groupList.forEach(function (g) {
+        var match = g.nodeIds.filter(function (id) {
+          return nodeMatchesKind(graph.nodes[id], kindCtx);
+        }).sort();
+        if (match.length) {
+          g.nodeId = match[0];
+          g.kind = graph.nodes[match[0]].kind;
+          g.label = nodeLabel(graph.nodes[match[0]]);
+        }
+      });
+      if (!groupList.length) return { status: "not_found", phrase: phrase };
+    }
+    // NodeId-sorted groups, so the disambiguation question is
+    // deterministic.
+    groupList.sort(function (a, b) { return a.nodeId < b.nodeId ? -1 : 1; });
+    if (groupList.length === 1) {
+      return { status: "ok", nodeId: groupList[0].nodeId,
+        group: groupList[0].nodeIds, label: groupList[0].label,
+        kind: groupList[0].kind };
+    }
+    return { status: "ambiguous", groups: groupList, phrase: phrase };
+  }
+
+  function isPlainObject(v) {
+    return v !== null && typeof v === "object" && !Array.isArray(v);
+  }
+
+  function nodeLabel(n) {
+    if (!n) return "?";
+    return n.label || (n.record && n.record.title) || n.nodeId;
+  }
+
+  function nodeRef(n) {
+    return nodeLabel(n) + " (" + n.kind + ", " + n.nodeId + ")";
+  }
+
+  // NodeId-sorted list lines, capped with "+N more" (the getters
+  // already sort; the cap keeps a long answer readable and the
+  // count always states the full total).
+  function nodeList(nodes, cap) {
+    var limit = cap || 10;
+    var shown = (nodes || []).slice(0, limit).map(nodeRef);
+    if ((nodes || []).length > limit) {
+      shown.push("+" + ((nodes || []).length - limit) + " more");
+    }
+    return shown;
+  }
+
+  // A fresh collection with the snapshot (so the integrity report's
+  // duplicate check can run) plus the integrity report itself.
+  // Returns { graph, snapshot, sourceStates, report } or
+  // { error } — the error is itself an honest answer, never a
+  // silent fall-through.
+  async function collectFull() {
+    var WE = global.WorldEngine;
+    var WQ = global.WorldQuery;
+    if (!WE || typeof WE.collect !== "function" ||
+        typeof WE.buildGraph !== "function") {
+      return { error: "WorldEngine is NOT LOADED, so no entity can be read from the graph right now." };
+    }
+    if (!WQ) {
+      return { error: "WorldQuery is NOT LOADED, so no per-entity question can be answered from the query surface right now." };
+    }
+    var snap = null;
+    try { snap = await WE.collect(); } catch (e) {
+      return { error: "The World Engine collection failed (" + (e && e.message ? e.message : "unknown error") + "), so no entity answer is available." };
+    }
+    var graph = null;
+    try { graph = WE.buildGraph(snap.snapshot); } catch (e) {
+      return { error: "The World Engine graph could not be built (" + (e && e.message ? e.message : "unknown error") + "), so no entity answer is available." };
+    }
+    var report = null;
+    var IE = global.IntegrityEngine;
+    if (IE && typeof IE.assessCollection === "function") {
+      try {
+        report = IE.assessCollection({ graph: graph, snapshot: snap.snapshot,
+          sourceStates: snap.sourceStates });
+      } catch (e) { report = null; }
+    }
+    return { graph: graph, snapshot: snap.snapshot,
+      sourceStates: snap.sourceStates, report: report };
+  }
+
+  // The §8 basis every per-entity answer carries: graph counts,
+  // integrity status, source states. Uncomputed checks are never
+  // rendered as 0 here either — the integrity line says UNKNOWN
+  // when the engine did not load.
+  function basisText(c) {
+    var st = (c.graph && c.graph.stats) || {};
+    var lines = ["Graph: " + (st.nodeCount || 0) + " nodes / " +
+      (st.edgeCount || 0) + " relationships / " +
+      (st.unresolvedCount || 0) + " unresolved."];
+    if (c.report) {
+      if (c.report.status === "OK") lines.push("Integrity: OK.");
+      else if (c.report.status === "DEGRADED") {
+        lines.push("Integrity: DEGRADED — " +
+          (c.report.degradationReasons || []).join("; ") + ".");
+      } else {
+        lines.push("Integrity: FAILED — " +
+          (c.report.failures || []).join("; ") + ".");
+      }
+    } else {
+      lines.push("Integrity: UNKNOWN (integrity engine not loaded).");
+    }
+    var states = c.sourceStates || {};
+    var names = Object.keys(states).sort();
+    if (!names.length) {
+      lines.push("Sources: UNKNOWN (no collection state).");
+    } else {
+      var bad = names.filter(function (k) {
+        var s = states[k] && states[k].state;
+        return s === "NOT_LOADED" || s === "ERROR";
+      });
+      if (!bad.length) lines.push("Sources: all " + names.length + " LOADED.");
+      else {
+        lines.push("Sources: " + bad.map(function (k) {
+          return k + " " + states[k].state;
+        }).join(", ") + " — this answer is partial.");
+      }
+    }
+    return "Basis: " + lines.join(" ");
+  }
+
+  function notFoundText(phrase, c) {
+    var st = (c.graph && c.graph.stats) || {};
+    return "“" + phrase + "” is not recorded in the World Engine graph — " +
+      "no node matches that name, raw id, or title. The collection ran (" +
+      (st.nodeCount || 0) + " nodes); this is a measured absence, not a " +
+      "lookup failure. Check the spelling, or name the kind — for example " +
+      "“what does MTI6 know about the network ethereum?”.";
+  }
+
+  function ambiguityText(phrase, resolved) {
+    var lines = ["“" + phrase + "” names more than one thing in the graph, " +
+      "so I will not guess. Which one did you mean?"];
+    resolved.groups.forEach(function (g) {
+      var others = g.nodeIds.filter(function (id) { return id !== g.nodeId; });
+      lines.push("• " + g.label + " (" + g.kind + ", " + g.nodeId + ")" +
+        (others.length ? " — same entity as " + others.join(", ") : ""));
+    });
+    lines.push("Ask again naming the kind — for example “what does MTI6 " +
+      "know about the network ethereum?”.");
+    return lines.join("\n");
+  }
+
+  function asArray(v) { return Array.isArray(v) ? v : []; }
+
+  // Neighbours of the ENTITY (its MATCHES twin set), not of one
+  // node: getNeighbors is node-level (§6.0), so the consumer
+  // composes it over the twin set — the union of the getter's own
+  // results, nodeId-sorted, twins excluded (a twin is the entity
+  // itself, not a neighbour). The MATCHES link itself stays
+  // visible in the relationships section below.
+  function entityNeighbors(c, resolved) {
+    var WQ = global.WorldQuery, g = c.graph;
+    var seen = {}, out = [];
+    resolved.group.forEach(function (id) {
+      asArray(WQ.getNeighbors(g, id)).forEach(function (n) {
+        if (resolved.group.indexOf(n.nodeId) !== -1) return;
+        if (seen[n.nodeId]) return;
+        seen[n.nodeId] = true;
+        out.push(n);
+      });
+    });
+    out.sort(function (a, b) {
+      return a.nodeId < b.nodeId ? -1 : a.nodeId > b.nodeId ? 1 : 0;
+    });
+    return out;
+  }
+
+  // Relationships touching the ENTITY: the union of
+  // getRelationships over the twin set, deduped by (from, to,
+  // type), sorted by (from, to, type) like the getter. The role
+  // is relative to the anchor node.
+  function entityRelationships(c, resolved) {
+    var WQ = global.WorldQuery, g = c.graph;
+    var seen = {}, out = [];
+    resolved.group.forEach(function (id) {
+      asArray(WQ.getRelationships(g, id)).forEach(function (e) {
+        var key = e.from + "|" + e.to + "|" + e.type;
+        if (seen[key]) return;
+        seen[key] = true;
+        out.push({ from: e.from, to: e.to, type: e.type,
+          verificationStatus: e.verificationStatus !== undefined
+            ? e.verificationStatus : null,
+          role: e.from === resolved.nodeId ? "out" : "in",
+          otherNodeId: e.from === resolved.nodeId ? e.to : e.from });
+      });
+    });
+    out.sort(function (a, b) {
+      if (a.from !== b.from) return a.from < b.from ? -1 : 1;
+      if (a.to !== b.to) return a.to < b.to ? -1 : 1;
+      if (a.type !== b.type) return a.type < b.type ? -1 : 1;
+      return 0;
+    });
+    return out;
+  }
+
+  function renderKnow(c, resolved) {
+    var WQ = global.WorldQuery;
+    var g = c.graph;
+    var node = g.nodes[resolved.nodeId];
+    var neighbors = entityNeighbors(c, resolved);
+    var rels = entityRelationships(c, resolved);
+    var strategies = asArray(WQ.getStrategies(g, resolved.nodeId));
+    var fresh = WQ.getFreshness(g, resolved.nodeId) || null;
+    var byType = {};
+    rels.forEach(function (e) { byType[e.type] = (byType[e.type] || 0) + 1; });
+    var typeParts = Object.keys(byType).sort().map(function (k) {
+      return k + " " + byType[k];
+    });
+    var lines = ["What MTI6 records about " + nodeLabel(node) +
+      " (" + node.kind + ", " + node.nodeId + "):"];
+    lines.push("• Verification: " + (node.verificationStatus || "UNKNOWN") +
+      (node.verificationStatus === "UNVERIFIED" ? " — imported is not verified." : "."));
+    lines.push("• Connected: " + neighbors.length + " neighbour(s)" +
+      (neighbors.length ? ": " + nodeList(neighbors, 8).join("; ") : " — none recorded."));
+    lines.push("• Relationships: " + rels.length + " recorded edge(s)" +
+      (rels.length ? " — " + typeParts.join(", ") + "." : "."));
+    lines.push("• Strategies using it: " + strategies.length +
+      (strategies.length ? ": " + nodeList(strategies, 8).join("; ") : " — none recorded."));
+    lines.push("• Freshness: " + (fresh ? fresh.state : "UNKNOWN") +
+      (fresh && fresh.basis ? " — " + fresh.basis : " — no freshness verdict available."));
+    return lines.join("\n");
+  }
+
+  function renderConnected(c, resolved) {
+    var WQ = global.WorldQuery;
+    var g = c.graph;
+    var node = g.nodes[resolved.nodeId];
+    var neighbors = entityNeighbors(c, resolved);
+    var rels = entityRelationships(c, resolved);
+    var byKind = {};
+    neighbors.forEach(function (n) {
+      (byKind[n.kind] = byKind[n.kind] || []).push(n);
+    });
+    var byType = {};
+    rels.forEach(function (e) { byType[e.type] = (byType[e.type] || 0) + 1; });
+    var lines = ["Everything connected to " + nodeLabel(node) +
+      " (" + node.kind + ", " + node.nodeId + ") — " +
+      neighbors.length + " neighbour(s), nodeId-sorted:"];
+    Object.keys(byKind).sort().forEach(function (k) {
+      lines.push("• " + k + " (" + byKind[k].length + "): " +
+        nodeList(byKind[k], 10).join("; "));
+    });
+    if (!neighbors.length) lines.push("• No neighbours recorded.");
+    lines.push("• Relationships by edge type: " +
+      (rels.length ? Object.keys(byType).sort().map(function (k) {
+        return k + " " + byType[k];
+      }).join(", ") : "none recorded") + ".");
+    return lines.join("\n");
+  }
+
+  function renderDependencies(c, resolved) {
+    var WQ = global.WorldQuery;
+    var g = c.graph;
+    var node = g.nodes[resolved.nodeId];
+    var deps = asArray(WQ.getDependencies(g, resolved.nodeId));
+    var lines = ["What " + nodeLabel(node) + " (" + node.kind + ", " + node.nodeId + ") depends on " +
+      "(recorded dependencies, shortest-path depth):"];
+    if (!deps.length) {
+      lines.push("• No recorded dependencies — nothing in the graph records " +
+        "a dependency for this entity (MATCHES twins are the same entity, " +
+        "not dependencies).");
+    } else {
+      deps.forEach(function (d) {
+        lines.push("• " + nodeRef(d) + " — depth " + d.depth + ".");
+      });
+    }
+    return lines.join("\n");
+  }
+
+  function renderDependents(c, resolved) {
+    var WQ = global.WorldQuery;
+    var g = c.graph;
+    var node = g.nodes[resolved.nodeId];
+    var deps = asArray(WQ.getDependents(g, resolved.nodeId));
+    var lines = ["What depends on " + nodeLabel(node) + " (" + node.kind + ", " + node.nodeId + ")" +
+      " (recorded dependents, shortest-path depth):"];
+    if (!deps.length) {
+      lines.push("• Nothing recorded depends on this entity.");
+    } else {
+      deps.forEach(function (d) {
+        lines.push("• " + nodeRef(d) + " — depth " + d.depth + ".");
+      });
+    }
+    return lines.join("\n");
+  }
+
+  function renderPath(c, from, to) {
+    var WQ = global.WorldQuery;
+    var g = c.graph;
+    var fn = g.nodes[from.nodeId];
+    var tn = g.nodes[to.nodeId];
+    var path = WQ.getPath(g, from.nodeId, to.nodeId);
+    var head = "Recorded path from " + nodeLabel(fn) + " (" + fn.kind + ", " + fn.nodeId + ") to " +
+      nodeLabel(tn) + " (" + tn.kind + ", " + tn.nodeId + ") (graph path — explicitly NOT transaction routing):";
+    if (!path) {
+      return head + "\n• No path in the recorded graph between these two " +
+        "entities — a fact, not an error. No route is invented.";
+    }
+    if (path.nodes.length === 1) {
+      return head + "\n• The two names resolve to the same node (" +
+        nodeRef(fn) + ") — the path is zero-length.";
+    }
+    var parts = [];
+    path.nodes.forEach(function (id, i) {
+      parts.push(nodeLabel(g.nodes[id]));
+      if (i < path.edges.length) parts.push("—" + path.edges[i].type + "→");
+    });
+    return head + "\n• " + parts.join(" ") + "\n• Hops: " + path.edges.length +
+      " (" + path.edges.map(function (e) { return e.type; }).join(", ") + ").";
+  }
+
+  function renderStrategies(c, resolved) {
+    var WQ = global.WorldQuery;
+    var g = c.graph;
+    var node = g.nodes[resolved.nodeId];
+    var strategies = asArray(WQ.getStrategies(g, resolved.nodeId));
+    var lines = ["Strategies using " + nodeLabel(node) + " (" + node.kind + ", " + node.nodeId + "): " +
+      strategies.length + " recorded."];
+    if (!strategies.length) {
+      lines.push("• None recorded — getStrategies returned a measured empty.");
+    } else {
+      nodeList(strategies, 10).forEach(function (s) { lines.push("• " + s); });
+    }
+    return lines.join("\n");
+  }
+
+  function renderEvidence(c, resolved) {
+    var WQ = global.WorldQuery;
+    var g = c.graph;
+    var node = g.nodes[resolved.nodeId];
+    var ev = WQ.getEvidence(g, resolved.nodeId) || {};
+    var lines = ["Why " + nodeLabel(node) + " (" + node.kind + ", " + node.nodeId + ") is " +
+      (node.verificationStatus || "UNKNOWN") + " — the evidence MTI6 " +
+      "actually holds:"];
+    lines.push("• Source: " + (ev.source || "UNKNOWN") +
+      " (origin " + (ev.origin || "UNKNOWN") + ", sourceType " +
+      (ev.sourceType || "UNKNOWN") + ").");
+    lines.push("• Acquired: " + (ev.acquiredAt || "not recorded") +
+      "; retrieved: " + (ev.retrievedAt || "not recorded") +
+      "; observed: " + (ev.observedAt || "not recorded") + ".");
+    if (ev.evidence && ev.evidence.length) {
+      lines.push("• Evidence items: " + ev.evidence.length + " — " +
+        ev.evidence.map(function (e) {
+          return (e.kind || "?") + " " + (e.ref || "?");
+        }).join("; ") + ".");
+    } else {
+      lines.push("• Evidence items: none — no evidence recorded, which is " +
+        "exactly why the record is UNVERIFIED.");
+    }
+    var hist = ev.transformationHistory || [];
+    lines.push("• Transformation history: " + hist.length +
+      (hist.length ? " entr" + (hist.length === 1 ? "y" : "ies") + " — " +
+        hist.map(function (h) {
+          return (h.action || "?") + " by " + (h.actor || "?") +
+            (h.at ? " (" + String(h.at).slice(0, 10) + ")" : "");
+        }).join("; ") + "." : " — none recorded."));
+    lines.push("Provenance explains; it never promotes — this record stays " +
+      (node.verificationStatus || "UNKNOWN") + ".");
+    return lines.join("\n");
+  }
+
+  function renderFreshness(c, resolved) {
+    var WQ = global.WorldQuery;
+    var g = c.graph;
+    var node = g.nodes[resolved.nodeId];
+    var f = WQ.getFreshness(g, resolved.nodeId) || null;
+    if (!f) {
+      return "Freshness of " + nodeLabel(node) + " (" + node.kind + ", " + node.nodeId + "): UNKNOWN — no freshness " +
+        "verdict is available for this entity.";
+    }
+    var lines = ["Freshness of " + nodeLabel(node) + " (" + node.kind + ", " + node.nodeId + "): " + f.state + "."];
+    lines.push(f.basis || "No basis recorded.");
+    if (f.assessedFrom && f.assessedFrom !== resolved.nodeId) {
+      lines.push("Assessed from twin " + f.assessedFrom +
+        " (the queried record carries no later attestation).");
+    }
+    lines.push("Last checked: " + (f.lastChecked || "none recorded") + ".");
+    return lines.join("\n");
+  }
+
+  function renderStaleRecords(c) {
+    var rep = c.report;
+    if (!rep) {
+      return "Stale records: UNMEASURED — the integrity engine is not " +
+        "loaded, so staleness has not been computed.";
+    }
+    if (!rep.computed || !rep.computed.staleCount) {
+      return "Stale records: UNMEASURED — no freshness policy is loaded " +
+        "(WE-3), so no staleness count exists.";
+    }
+    var fr = rep.freshness || {};
+    var lines = ["Stale records (measured): " + (rep.staleCount || 0) +
+      " of " + (fr.total || 0) + " canonical records are STALE; " +
+      (fr.current || 0) + " CURRENT, " + (fr.unknown || 0) +
+      " UNKNOWN (no recorded attestation time)."];
+    var staleIds = fr.staleNodeIds || [];
+    if (!staleIds.length) {
+      lines.push("• No stale records — none of the canonical records is " +
+        "past its freshness window.");
+    } else {
+      lines.push("• Stale: " + staleIds.slice(0, 10).map(function (id) {
+        var n = c.graph.nodes[id];
+        return n ? nodeRef(n) : id;
+      }).join("; ") + (staleIds.length > 10
+        ? " (+" + (staleIds.length - 10) + " more)" : ""));
+    }
+    return lines.join("\n");
+  }
+
+  function renderAssignments(c, resolved) {
+    var WQ = global.WorldQuery;
+    var g = c.graph;
+    var node = g.nodes[resolved.nodeId];
+    var list = asArray(WQ.getAssignments(g, resolved.nodeId));
+    var lines = ["Bots investigating " + nodeLabel(node) + " (" + node.kind + ", " + node.nodeId + "): " +
+      list.length + " recorded assignment(s)."];
+    if (!list.length) {
+      lines.push("• No assignments recorded for this entity — no bot is " +
+        "recorded as investigating it, and no worker runtime exists.");
+    } else {
+      list.forEach(function (a) {
+        var other = g.nodes[a.otherNodeId];
+        lines.push("• " + (a.assignment ? nodeLabel(a.assignment)
+          : "(no assignment node)") + " — " + a.direction + " via " +
+          a.edge.type + " to " + (other ? nodeRef(other) : a.otherNodeId) + ".");
+      });
+    }
+    lines.push("Workers active: 0 — NOT_CONNECTED. No worker runtime " +
+      "exists; these are recorded assignments only, not live work.");
+    return lines.join("\n");
+  }
+
+  function renderAlerts(c, resolved) {
+    var WQ = global.WorldQuery;
+    var g = c.graph;
+    var node = g.nodes[resolved.nodeId];
+    var list = asArray(WQ.getAlerts(g, resolved.nodeId));
+    var lines = ["Alerts concerning " + nodeLabel(node) + " (" + node.kind + ", " + node.nodeId + "): " +
+      list.length + " recorded."];
+    if (!list.length) {
+      lines.push("• No alerts recorded for this entity.");
+    } else {
+      list.forEach(function (a) {
+        lines.push("• " + nodeLabel(a.alert) + " — lifecycle " +
+          (a.lifecycleState || "UNKNOWN") + ", truth " + a.truth +
+          ", alarm " + (a.alarm ? "yes" : "no") + ".");
+      });
+    }
+    return lines.join("\n");
+  }
+
+  // Matches one per-entity intent in the (padded, lowercased) text.
+  // Returns { intent, phrase } / { intent: "path", phrase, phrase2 } /
+  // { intent: "stale" } / null. A matched pattern whose phrase is a
+  // context word or an aggregate-domain word is NOT an entity intent
+  // — the matcher keeps looking, so the CW-9 context routes and the
+  // aggregate routes still win those questions.
+  function matchEntityIntent(t) {
+    var m, p, p2;
+    m = /what does (?:mti6|the cockpit) know about (.+?)\s*$/.exec(t);
+    if (m && (p = cleanPhrase(m[1]))) return { intent: "know", phrase: p };
+    m = /tell me about (.+?)\s*$/.exec(t);
+    if (m && (p = cleanPhrase(m[1]))) return { intent: "know", phrase: p };
+    m = /what do you know about (.+?)\s*$/.exec(t);
+    if (m && (p = cleanPhrase(m[1]))) return { intent: "know", phrase: p };
+    m = /(?:show (?:me )?(?:the )?)?path from (.+?) to (.+?)\s*$/.exec(t);
+    if (m) {
+      p = cleanPhrase(m[1]); p2 = cleanPhrase(m[2]);
+      if (p && p2) return { intent: "path", phrase: p, phrase2: p2 };
+    }
+    m = /what is (.+?)\s*$/.exec(t);
+    if (m && (p = cleanPhrase(m[1]))) return { intent: "know", phrase: p };
+    m = /what does (.+?) depend on\s*\??\s*$/.exec(t);
+    if (m && (p = cleanPhrase(m[1]))) return { intent: "dependencies", phrase: p };
+    m = /what(?:'s| is) dependent on (.+?)\s*$/.exec(t);
+    if (m && (p = cleanPhrase(m[1]))) return { intent: "dependents", phrase: p };
+    m = /what depends on (.+?)\s*$/.exec(t);
+    if (m && (p = cleanPhrase(m[1]))) return { intent: "dependents", phrase: p };
+    m = /(?:how many|what|which) strategies (?:use|involve|are (?:based|built) on) (.+?)\s*$/.exec(t);
+    if (m && (p = cleanPhrase(m[1]))) return { intent: "strategies", phrase: p };
+    m = /why is (.+?) (?:marked )?unverified\s*\??\s*$/.exec(t);
+    if (m && (p = cleanPhrase(m[1]))) return { intent: "evidence", phrase: p };
+    m = /which sources support (.+?)\s*$/.exec(t);
+    if (m && (p = cleanPhrase(m[1]))) return { intent: "evidence", phrase: p };
+    m = /what evidence (?:is there )?(?:for|supports?) (.+?)\s*$/.exec(t);
+    if (m && (p = cleanPhrase(m[1]))) return { intent: "evidence", phrase: p };
+    m = /where did (.+?) come from\s*\??\s*$/.exec(t);
+    if (m && (p = cleanPhrase(m[1]))) return { intent: "evidence", phrase: p };
+    m = /how fresh is (.+?)\s*$/.exec(t);
+    if (m && (p = cleanPhrase(m[1]))) return { intent: "freshness", phrase: p };
+    m = /is (.+?) stale\s*\??\s*$/.exec(t);
+    if (m && (p = cleanPhrase(m[1]))) return { intent: "freshness", phrase: p };
+    if (/show (?:me )?(?:the )?stale records\s*$/.test(t)) return { intent: "stale" };
+    m = /(?:what|which) bots are (?:investigating|assigned to|working on|looking into) (.+?)\s*$/.exec(t);
+    if (m && (p = cleanPhrase(m[1]))) return { intent: "assignments", phrase: p };
+    m = /who is (?:investigating|assigned to|working on|looking into) (.+?)\s*$/.exec(t);
+    if (m && (p = cleanPhrase(m[1]))) return { intent: "assignments", phrase: p };
+    m = /(?:what|which) alerts (?:concern|are (?:about|for)|for) (.+?)\s*$/.exec(t);
+    if (m && (p = cleanPhrase(m[1]))) return { intent: "alerts", phrase: p };
+    m = /show (?:me )?everything connected to (.+?)\s*$/.exec(t);
+    if (m && (p = cleanPhrase(m[1]))) return { intent: "connected", phrase: p };
+    m = /what(?:'s| is) connected to (.+?)\s*$/.exec(t);
+    if (m && (p = cleanPhrase(m[1]))) return { intent: "connected", phrase: p };
+    return null;
+  }
+
+  // The WE-5 dispatcher: match, collect, fail-closed check,
+  // resolve, render. Returns a reply string, or null when the
+  // text is not a per-entity intent (the caller then falls through
+  // to the aggregate and context routes).
+  async function entityAnswer(t) {
+    var m = matchEntityIntent(t);
+    if (!m) return null;
+    var c = await collectFull();
+    if (c.error) return c.error + " " + FOOTER;
+    if (c.report && c.report.status === "FAILED") {
+      return "The World Engine collection is FAILED — " +
+        (c.report.failures || []).join("; ") +
+        ". No entity answer is given while the graph is structurally " +
+        "invalid: graph-derived state is not presented as current " +
+        "(contract §7.2). " + FOOTER;
+    }
+    if (m.intent === "stale") {
+      return renderStaleRecords(c) + "\n" + basisText(c) + "\n" + FOOTER;
+    }
+    var stripped = stripKind(m.phrase);
+    var phrase = stripped.phrase, kindCtx = stripped.kindCtx;
+    var resolved = resolveEntity(c.graph, phrase, kindCtx);
+    if (resolved.status === "ambiguous") {
+      return ambiguityText(phrase, resolved) + "\n" + basisText(c) + "\n" + FOOTER;
+    }
+    if (resolved.status !== "ok") {
+      return notFoundText(phrase, c) + "\n" + basisText(c) + "\n" + FOOTER;
+    }
+    if (m.intent === "path") {
+      var stripped2 = stripKind(m.phrase2);
+      var to = resolveEntity(c.graph, stripped2.phrase, stripped2.kindCtx);
+      if (to.status === "ambiguous") {
+        return ambiguityText(stripped2.phrase, to) + "\n" + basisText(c) + "\n" + FOOTER;
+      }
+      if (to.status !== "ok") {
+        return notFoundText(stripped2.phrase, c) + "\n" + basisText(c) + "\n" + FOOTER;
+      }
+      return renderPath(c, resolved, to) + "\n" + basisText(c) + "\n" + FOOTER;
+    }
+    var body = null;
+    if (m.intent === "know") body = renderKnow(c, resolved);
+    else if (m.intent === "connected") body = renderConnected(c, resolved);
+    else if (m.intent === "dependencies") body = renderDependencies(c, resolved);
+    else if (m.intent === "dependents") body = renderDependents(c, resolved);
+    else if (m.intent === "strategies") body = renderStrategies(c, resolved);
+    else if (m.intent === "evidence") body = renderEvidence(c, resolved);
+    else if (m.intent === "freshness") body = renderFreshness(c, resolved);
+    else if (m.intent === "assignments") body = renderAssignments(c, resolved);
+    else if (m.intent === "alerts") body = renderAlerts(c, resolved);
+    if (body === null) return null;
+    return body + "\n" + basisText(c) + "\n" + FOOTER;
+  }
+
   // CW-9: STAR summons a Tribe principal into its own separate
   // movable/resizable participant window. The principal is named by
   // its canonical identity (JUDAH … BENJAMIN, or tribe-judah …);
@@ -359,6 +1073,7 @@
     return "In demo mode I answer from the cockpit's real records — no AI backend is connected. Ask me: " +
       "“cockpit status” (the five Globe layers + World Engine graph), “how many records / majors / strategies” (encyclopedia + entity counts), " +
       "“opportunities” (recorded pipeline), “entity candidates” or “entity pipeline” (candidate stages, owner gate queue, frozen batches), “alerts” or “security status”, “bots / assignments” (workforce records), or “wallets” (connection + execution state). " +
+      "Ask about one thing (WE-5, from the World Engine query surface, with its basis): “what does MTI6 know about Uniswap”, “what does Ethereum depend on”, “what depends on Ethereum”, “what strategies use Aave”, “why is X unverified”, “how fresh is X”, “show the path from X to Y”, “what bots are investigating X”, “what alerts concern X”, “show everything connected to X” — an ambiguous name is asked back, never guessed. " +
       "Crypto World context (CW-9): open a Crypto World workspace and ask “current context”, “why is this shown”, “how fresh is this”, “what does this depend on”, “what source failed” or “simulate this” — every answer comes from the selection STAR is keeping, with the WHY chain Canonical Activity → Asset → Network → Protocol → Strategy → Source Observation → Cost → Risk → Freshness → Dependency. " +
       "“Bring Judah” (or any of the twelve Tribe principals) opens that principal in a separate participant window. " +
       "Prices still go to the Price Scouts and news/GitHub activity to the Knowledge Scouts. Anything that would change something outside this device needs your approval and is not executed here. " + FOOTER;
@@ -370,6 +1085,13 @@
   async function answer(text) {
     var t = " " + String(text || "").toLowerCase().replace(/\s+/g, " ").trim() + " ";
     try {
+      // WE-5: per-entity intents go first — "what do you know about
+      // X" would otherwise match the help route, and "what is in
+      // the entity pipeline?" must keep falling through to the
+      // pipeline route (the matcher refuses aggregate-domain and
+      // context words, so those questions pass through untouched).
+      var entityReply = await entityAnswer(t);
+      if (entityReply) return entityReply;
       if (/\b(what can you (answer|tell|do)|what do you know|your knowledge)\b/.test(t)) return helpAnswer();
       if (/\b(cockpit status|globe status|layer status|world engine status|system status)\b/.test(t) ||
           (/^\s*(status|status\?)\s*$/.test(t))) return await statusAnswer();
@@ -417,5 +1139,5 @@
     return null;
   }
 
-  global.StarWorld = { answer: answer };
+  global.StarWorld = { answer: answer, resolveEntity: resolveEntity };
 })(typeof window !== "undefined" ? window : this);
