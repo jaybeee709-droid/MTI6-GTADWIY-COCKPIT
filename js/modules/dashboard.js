@@ -211,6 +211,18 @@
     // Development Center panel (read-only GitHub data), after Scouts.
     appendPanel("Development Center", "Development Center", safePanel(global.DevCenterUI));
 
+    // World Engine Health (WE-2, contract §7): the v103 integrity
+    // report, surfaced. Data layers (WorldEngine, IntegrityEngine,
+    // WorldQuery) are checked as well as the UI layer: without them
+    // the panel has no report to render.
+    appendPanel("World Engine Health", "World Engine Health",
+      safePanel(global.WorldEngineHealthUI, function () {
+        return global.WorldEngine && typeof global.WorldEngine.collect === "function" &&
+          typeof global.WorldEngine.buildGraph === "function" &&
+          global.IntegrityEngine && typeof global.IntegrityEngine.assessCollection === "function" &&
+          global.WorldQuery && typeof global.WorldQuery.getWorldSummary === "function";
+      }));
+
     // Honest note when part of the dashboard could not load: counts
     // and lists below cover only what loaded, so a failed store must
     // never silently read as zero, and a skipped panel must never
