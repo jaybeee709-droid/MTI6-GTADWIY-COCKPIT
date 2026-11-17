@@ -316,7 +316,14 @@
       stateEl.textContent = wakeLockStateText(W.getState());
     });
     if (typeof W.onChange === "function") {
+      // v113: the toggle follows the SAME central change the text
+      // lines follow — a STAR-driven setScreenLock notifies here,
+      // so the button must re-render its pressed state live too,
+      // not only when it is clicked (which updates it directly).
+      // The click handler's optimistic update stays harmless: this
+      // re-asserts the same value from the central state.
       W.onChange(function (s) {
+        toggle.textContent = s.screenLockOn ? "On" : "Off";
         prefEl.textContent = screenLockPreferenceText(s);
         stateEl.textContent = wakeLockStateText(s);
       });
