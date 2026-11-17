@@ -490,7 +490,7 @@
 
     var CI = global.CostIntelligence;
     snapshot.costRecords = collectSyncPart("costRecords",
-      CI && typeof CI.records === "function" ? function () { return CI.records(); } : null, states);
+      CI && typeof CI.getCosts === "function" ? function () { return CI.getCosts(); } : null, states);
 
     var AS = global.AngelSecurity;
     snapshot.angels = collectSyncPart("angels",
