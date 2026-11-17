@@ -1213,6 +1213,116 @@
     return panel("Primary — Margin & Leverage Intelligence (CW-6)", kids.concat(cw6DerivativesState(c, "Margin / leverage observations")));
   }
 
+  // ---- CW-7 infrastructure depth ----------------------------------------
+  //
+  // Workspace-specific primary panels for the five non-gated
+  // infrastructure workspaces (registry §5). Same honesty rules
+  // as CW-3/4/5/6: every venue named below is named because the
+  // protocol's own activityRefs record the major; a zero is a
+  // measured result and is rendered as itself; no hashrate,
+  // uptime, endpoint, capacity or earnings figure exists anywhere
+  // in the app, so none is derived or rendered. The three
+  // expansion-gated seats (ai-compute, modular, identity) return
+  // null: the frame renders their seat state, as for GameFi.
+
+  function infraPanel(ws, data, level) {
+    var core = data.core;
+    if (!core.infra) return null;
+    switch (ws.workspaceId) {
+      case "mining": return infraMiningPanel(core, level);
+      case "validators": return infraValidatorsPanel(core, level);
+      case "nodes": return infraNodesPanel(core, level);
+      case "rpc-infrastructure": return infraRpcPanel(core, level);
+      case "depin": return infraDepinPanel(core, level);
+      default: return null;
+    }
+  }
+
+  function infraLinkage(c) {
+    var out = [];
+    if (!c.majors.length) return out;
+    c.majors.forEach(function (m) {
+      out.push(U.el("h4", {}, m.record.title + " (" + m.typeCount + " Types · " + m.strategyCount + " Strategies)"));
+      out.push(row("Protocols recording this major", m.protocolHits + " of " + c.universeProtocols));
+    });
+    return out;
+  }
+
+  function infraSecondaryLinkage(c) {
+    var out = [];
+    c.secondaryMajors.forEach(function (m) {
+      out.push(U.el("h4", {}, "Secondary — " + m.record.title + " (" + m.typeCount + " Types · " + m.strategyCount + " Strategies)"));
+      out.push(row("Protocols recording this major", m.protocolHits + " of " + c.universeProtocols));
+    });
+    return out;
+  }
+
+  function infraObservationState(c, label, feedNote) {
+    return [
+      U.el("h4", {}, label + " — observation state"),
+      row("Feed status", "NOT_CONNECTED — " + feedNote),
+      row("Recorded observations", "0"),
+      row("Positions", String(c.positionsCount) + (c.positionsLoaded ? " recorded" : " (position store not loaded)")),
+      row("Opportunities", String(c.scopeOpportunityCount) + " recorded")
+    ];
+  }
+
+  function infraMiningPanel(core, level) {
+    var c = core.infra;
+    var kids = [meta("Mining is recorded taxonomy and nothing else: the canonical universe holds " + c.universeProtocols +
+      " protocols and NONE of them records the Mining & Proof-of-Work Participation major, so no mining venue, pool or operator is listed — a venue would appear here only if a protocol's own activityRefs recorded it.")];
+    infraLinkage(c).forEach(function (k) { kids.push(k); });
+    kids.push(meta(c.bitcoinNetworkRecorded
+      ? "bitcoin-mainnet is a recorded network identity in the canonical universe, but no protocol in scope links it to this workspace — it is not presented as a mining venue. The Bitcoin network's participation surface is a knowledge gap: how this cockpit records a chain's miners and pools is a governed-discovery question (discover → dedupe → classify → resolve → owner freeze → gated import), not something this screen invents."
+      : "No network record links to this workspace either."));
+    kids.push(meta("Hashrate, block-reward and hardware-cost observations: no mining telemetry feed exists in the app. Hashrate and any earnings figure are not computed, estimated or implied — the Costs and Risks panels below render UNKNOWN / NO RECORDED PROFILE for this workspace."));
+    return panel("Primary — Mining / Proof-of-Work (CW-7)", kids.concat(infraObservationState(c, "Mining observations", "no hashrate, block-reward or pool telemetry feed is wired into the app")));
+  }
+
+  function infraValidatorsPanel(core, level) {
+    var c = core.infra;
+    var kids = [meta("Validator Operation is recorded taxonomy whose primary major is recorded by NO protocol — 0 of " + c.universeProtocols +
+      ". One protocol stands in recorded scope, and only through the secondary Native Staking major: Babylon, whose own activityRefs record Native Staking, and which is labelled that way below — never as a validator venue.")];
+    infraLinkage(c).forEach(function (k) { kids.push(k); });
+    if (c.venues.length) {
+      kids.push(U.el("h4", {}, "Protocols in recorded scope (through the secondary major)"));
+      c.venues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    }
+    infraSecondaryLinkage(c).forEach(function (k) { kids.push(k); });
+    kids.push(meta("Recorded scope through Babylon: " + c.scopeNetworks + " network (bitcoin-mainnet) and " + c.scopeAssets +
+      " asset (btc-bitcoin) — the Babylon protocol record's own networkRefs and the asset universe, nothing inferred. Slashing, uptime and reward observations: no validator telemetry feed exists in the app. No uptime percentage, reward figure or penalty figure is computed or implied — the Costs and Risks panels below render UNKNOWN / NO RECORDED PROFILE for this workspace."));
+    return panel("Primary — Validator Center (CW-7)", kids.concat(infraObservationState(c, "Validator observations", "no validator uptime, slashing or reward feed is wired into the app")));
+  }
+
+  function infraNodesPanel(core, level) {
+    var c = core.infra;
+    var kids = [meta("Node Operation is recorded taxonomy and nothing else: " + c.universeProtocols +
+      " protocols in the universe and NONE of them records the Node Operation major, so no node operator or endpoint is listed — a node would appear here only if a protocol's own activityRefs recorded it.")];
+    infraLinkage(c).forEach(function (k) { kids.push(k); });
+    infraSecondaryLinkage(c).forEach(function (k) { kids.push(k); });
+    kids.push(meta("The taxonomy itself names the RPC Node as one of this major's " + (c.majors[0] ? c.majors[0].typeCount : 8) +
+      " Types — that recorded Type is why RPC / Infrastructure is a separate workspace, linked to this one through the same major as its secondary. Endpoint, latency and sync observations: no node telemetry feed exists in the app. No node count, endpoint count or latency figure is computed or implied — the Costs and Risks panels below render UNKNOWN / NO RECORDED PROFILE for this workspace."));
+    return panel("Primary — Node Operations (CW-7)", kids.concat(infraObservationState(c, "Node observations", "no node endpoint, latency or sync feed is wired into the app")));
+  }
+
+  function infraRpcPanel(core, level) {
+    var c = core.infra;
+    var kids = [meta("This workspace has NO primary Major Activity of its own — it is a frame over the recorded Node Operation major, which is its one secondary major. " +
+      c.universeProtocols + " protocols in the universe and NONE of them records Node Operation, so no RPC endpoint, provider or index is listed — an endpoint would appear here only if a protocol's own activityRefs recorded that major.")];
+    infraSecondaryLinkage(c).forEach(function (k) { kids.push(k); });
+    kids.push(meta("No RPC endpoint observation exists in the app: no endpoint URL, provider, latency or availability figure is stored, computed or implied — the Costs and Risks panels below render UNKNOWN / NO RECORDED PROFILE for this workspace."));
+    return panel("Primary — RPC / Infrastructure (CW-7)", kids.concat(infraObservationState(c, "RPC / endpoint observations", "no RPC endpoint or provider feed is wired into the app")));
+  }
+
+  function infraDepinPanel(core, level) {
+    var c = core.infra;
+    var kids = [meta("DePIN & Decentralized Compute Participation is recorded taxonomy and nothing else: " + c.universeProtocols +
+      " protocols in the universe and NONE of them records the DePIN major, so no compute, storage, retrieval, connectivity, sensor, mapping or energy provider is listed — a provider would appear here only if a protocol's own activityRefs recorded it.")];
+    infraLinkage(c).forEach(function (k) { kids.push(k); });
+    kids.push(meta("The AI / Compute seat is gated and reads this same major as its secondary — it lists nothing either, for the same measured reason. Compute, storage and bandwidth observations: no DePIN telemetry feed exists in the app. No capacity, throughput or earnings figure is computed or implied — the Costs and Risks panels below render UNKNOWN / NO RECORDED PROFILE for this workspace."));
+    return panel("Primary — DePIN (CW-7)", kids.concat(infraObservationState(c, "DePIN observations", "no DePIN capacity, throughput or earnings feed is wired into the app")));
+  }
+
   // ---- context panels --------------------------------------------------------
 
   function entityPanel(kindLabel, records, totals, ws) {
@@ -1647,6 +1757,13 @@
     // (registry §5); null elsewhere.
     var cw6PanelEl = cw6Panel(ws, data, level);
     if (cw6PanelEl) root.appendChild(cw6PanelEl);
+
+    // CW-7 infrastructure depth: workspace-specific primary
+    // content for the five non-gated infrastructure workspaces
+    // (registry §5); null for the three gated seats and
+    // everywhere else.
+    var infraPanelEl = infraPanel(ws, data, level);
+    if (infraPanelEl) root.appendChild(infraPanelEl);
 
     // CONTEXT + INTELLIGENCE — STANDARD shows the F-9 essentials;
     // ADVANCED/ALL show every panel. Same data at every level.

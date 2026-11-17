@@ -783,6 +783,72 @@
       core.cw6 = cw6Core;
     }
 
+    // -- CW-7 infrastructure depth: workspace-specific
+    //    derivations for the INFRASTRUCTURE group (registry §5 /
+    //    CW-7) over the same handed-in records. The infrastructure
+    //    taxonomy is recorded in full while its venue layer is
+    //    almost entirely absent: one protocol enters one
+    //    workspace through a secondary major, and the other four
+    //    frame workspaces have NO recorded protocol at all.
+    //    Venue linkage exists only where a protocol's own
+    //    activityRefs record a major — measured here, never
+    //    filled by name or ticker matching. Hashrate, uptime,
+    //    endpoint and capacity observations have NO connected
+    //    feed anywhere in the app; the panels render those
+    //    states, never figures. The three expansion-gated seats
+    //    (ai-compute, modular, identity) get no panel here: the
+    //    frame renders their seat state, as it does for GameFi.
+    if (ws.group === "infrastructure") {
+      var iTwinMap = {};
+      arr(inputs.protocolTwins).forEach(function (t) { if (t && str(t.protocolId)) iTwinMap[t.protocolId] = t; });
+      function infraVenueEntry(p) {
+        var twin = iTwinMap[p.id] || null;
+        return { record: p, twin: twin,
+          category: twin && str(twin.category) ? twin.category : null,
+          networks: arr(p.networkRefs).map(function (id) { return byId[id] || null; }).filter(Boolean),
+          activities: arr(p.activityRefs).map(function (id) {
+            var res = REG ? REG.resolveMajor(id) : null;
+            return { record: byId[id] || null, workspaceId: res ? res.primary : null };
+          }),
+          primaryHits: arr(p.activityRefs).filter(function (a) { return ws.majorIds.indexOf(a) !== -1; }) };
+      }
+      function infraMajorSummary(tree) {
+        return { record: tree.record, typeCount: tree.typeCount, strategyCount: tree.strategyCount,
+          types: tree.types.map(function (t) {
+            return { record: t.record, strategyCount: t.strategies.length };
+          }),
+          protocolHits: entityRecords.protocols.filter(function (p) {
+            return arr(p.activityRefs).indexOf(tree.record.id) !== -1;
+          }).length };
+      }
+      var iVenues = protocols.map(infraVenueEntry);
+      var iMajorSummaries = majors.map(infraMajorSummary);
+      var iSecondarySummaries = ws.secondaryMajorIds.map(function (mid) {
+        var tr = treeFor(mid, ws.typeScope ? ws.typeScope[mid] : null);
+        return tr ? infraMajorSummary(tr) : null;
+      }).filter(Boolean);
+      var infraCore = {
+        universeProtocols: entityRecords.protocols.length,
+        scopeProtocols: protocols.length,
+        majors: iMajorSummaries,
+        secondaryMajors: iSecondarySummaries,
+        linkedMajorCount: iMajorSummaries.filter(function (m) { return m.protocolHits > 0; }).length,
+        venues: iVenues,
+        primaryVenues: iVenues.filter(function (v) { return v.primaryHits.length > 0; }),
+        secondaryOnlyVenues: iVenues.filter(function (v) { return v.primaryHits.length === 0; }),
+        scopeAssets: assets.length,
+        scopeNetworks: networks.length,
+        scopeOpportunityCount: opportunities.length,
+        positionsCount: positions.length,
+        positionsLoaded: !!loaded.positions,
+        // bitcoin-mainnet is a recorded network identity in the
+        // canonical universe, whether or not it stands in this
+        // workspace's protocol-linked scope.
+        bitcoinNetworkRecorded: !!byId["bitcoin-mainnet"]
+      };
+      core.infra = infraCore;
+    }
+
     return {
       found: true, workspace: ws,
       core: core,
