@@ -36,13 +36,22 @@
  *     treated as "loaded and empty" by collectGraph callers who read
  *     sourceStates, and never allowed to crash the collection.
  *   - No DOM, no network, no storage, no secrets, no execution path.
+ *
+ * PROTOCOL nodes (v102, §66 Ruling 1 / Path B): ProtocolIntelligence
+ * protocols appear as their own kind with MATCHES twins to their
+ * canonical records — a view change, not data growth (957 → 976
+ * nodes, MATCHES 29 → 48, edges 1007 → 1026, store 878). No other
+ * protocol edges are created here: protocol→network (58 recorded
+ * refs), protocol→asset (7 asset-side refs), and protocol→activity
+ * (31 recorded refs) stay unedged, each a separate future decision.
+ * WorldEngine.VERSION stays 1 (contract §0.7; no consumer reads it).
  */
 (function (global) {
   "use strict";
 
   var VERSION = 1;
 
-  var NODE_KINDS = ["CRYPTO_RECORD", "ASSET", "ASSET_CLASS", "NETWORK", "WALLET",
+  var NODE_KINDS = ["CRYPTO_RECORD", "ASSET", "ASSET_CLASS", "NETWORK", "PROTOCOL", "WALLET",
     "OPPORTUNITY", "POSITION", "PRINCIPAL", "ASSIGNMENT",
     "RISK_PROFILE", "COST", "ANGEL", "ALERT"];
 
@@ -145,6 +154,14 @@
       if (!id) return;
       addNode(makeNode("NETWORK", id, str(r.name) || str(r.title), r));
     });
+    // v102 PROTOCOL (Ruling 1): mirrors the assets loop. Id from
+    // protocolId || id; label from name. ProtocolIntelligence records
+    // carry no registry/level, so those stay null per makeNode.
+    arr(snapshot.protocols).forEach(function (r) {
+      var id = r && (str(r.protocolId) || str(r.id));
+      if (!id) return;
+      addNode(makeNode("PROTOCOL", id, str(r.name) || str(r.title), r));
+    });
     arr(snapshot.wallets).forEach(function (r) {
       var id = r && (str(r.walletId) || str(r.id));
       if (!id) return;
@@ -202,6 +219,13 @@
       if (n.kind === "CRYPTO_RECORD" && n.registry === "assets" &&
           nodes["asset:" + n.rawId]) {
         addEdge(nodeId, "asset:" + n.rawId, "MATCHES", n.verificationStatus);
+      }
+      // v102 PROTOCOL (Ruling 1): a CRYPTO_RECORD with registry
+      // "protocols" and an existing protocol:<rawId> node gets its
+      // MATCHES twin, identical in form to the chains/assets branches.
+      if (n.kind === "CRYPTO_RECORD" && n.registry === "protocols" &&
+          nodes["protocol:" + n.rawId]) {
+        addEdge(nodeId, "protocol:" + n.rawId, "MATCHES", n.verificationStatus);
       }
     });
 
@@ -432,6 +456,13 @@
     snapshot.networks = collectSyncPart("networks",
       NI && typeof NI.listNetworks === "function" ? function () { return NI.listNetworks(); }
         : (NI && Array.isArray(NI.EXAMPLE_NETWORKS) ? function () { return NI.EXAMPLE_NETWORKS; } : null), states);
+
+    // v102 PROTOCOL (Ruling 1): ProtocolIntelligence protocols join
+    // the snapshot so buildGraph can mint PROTOCOL nodes + twins.
+    // Absent module → NOT_LOADED with count 0, like every other part.
+    var PR = global.ProtocolIntelligence;
+    snapshot.protocols = collectSyncPart("protocols",
+      PR && typeof PR.listProtocols === "function" ? function () { return PR.listProtocols(); } : null, states);
 
     var WI = global.WalletIntelligence;
     snapshot.wallets = collectSyncPart("wallets",
