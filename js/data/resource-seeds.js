@@ -3793,7 +3793,7 @@
    "freeState": "FREE_KEY_REQUIRED",
    "catalogCostState": "FREE_KEYED",
    "commercialUseState": "Transitland platform terms; underlying feed data per-agency (the per-agency governance of §12.1/§12.2 still applies to the data itself).",
-   "rateLimits": "Free tier 10,000 queries/month (documented).",
+   "rateLimits": "Explorer: REST 5,000/month + Routing 1,000/month (separate quotas, documented).",
    "geographicCoverage": "Global (2,500+ agency feeds; feed-dependent).",
    "dataCoverage": "Feeds, operators, routes, stops, departures (static + realtime where agencies publish it), with stable Onestop IDs. The discovery + query layer the raw GTFS records lack.",
    "frontendDirectPossible": false,
@@ -3801,7 +3801,7 @@
    "selfHostable": false,
    "license": "proprietary-terms (free monthly quota; paid options exist)",
    "attribution": "Transitland platform terms + per-agency data attribution.",
-   "cachePolicy": "Cache within the 10k/month budget (§13 governor); §12 labeling.",
+   "cachePolicy": "Cache within the Explorer budget (REST 5,000/month + Routing 1,000/month, separate quotas; §13 governor); §12 labeling.",
    "freshnessCharacteristics": "Static + partially live (GTFS-RT-backed departures where available).",
    "securityReview": {
     "status": "NOT_REVIEWED",
@@ -3852,6 +3852,12 @@
      "ref": "FREE-RESOURCE-CATALOG.md §12.3",
      "note": "Governed catalog record (merged LIVE-WORLD-SOURCE-CATALOG + API-DISCOVERY-SWEEP-2026-11-16). MTI6 STATE in catalog: OWNER-CREDENTIAL-DECISION (Sweep D1) — free key; decision + signup are the owner's.",
      "at": "2026-11-16T00:00:00.000Z"
+    },
+    {
+     "kind": "CORRECTION",
+     "ref": "TRANSITLAND-INTEGRATION-MAP.md D7 (owner ruling 2026-11-17)",
+     "note": "Quota corrected 2026-11-17: was 'Free tier 10,000 queries/month' (stale, as read from Interline plan documentation 2026-11-16); now Explorer REST 5,000/month + Routing 1,000/month (separate quotas), verified on transit.land/plans-pricing by Daniel 2026-11-17. Pay As You Go figures (10,000 + 10,000) are a different plan and were not substituted.",
+     "at": "2026-11-17T23:10:00.000Z"
     }
    ],
    "discoveredThrough": "FREE-RESOURCE-CATALOG (LIVE-WORLD-SOURCE-CATALOG + API-DISCOVERY-SWEEP-2026-11-16)",
@@ -3862,7 +3868,7 @@
    "discoveredAt": "2026-11-16T00:00:00.000Z",
    "source": "catalog-import",
    "verificationStatus": "UNVERIFIED",
-   "lastReviewedAt": "2026-11-16",
+   "lastReviewedAt": "2026-11-17",
    "history": [
     {
      "from": null,
