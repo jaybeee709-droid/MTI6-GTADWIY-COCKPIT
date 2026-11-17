@@ -702,6 +702,87 @@
       core.yield = yieldCore;
     }
 
+    // -- CW-6 routing + derivatives depth: workspace-specific
+    //    derivations for the ROUTING and DERIVATIVES groups
+    //    (registry §5 / CW-6) over the same handed-in records.
+    //    The routing taxonomy is recorded in full while its venue
+    //    layer is two protocols; the derivatives taxonomy is
+    //    recorded in full while three of its five workspaces have
+    //    NO recorded venue at all. Venue linkage exists only
+    //    where a protocol's own activityRefs record a major —
+    //    measured here, never filled by name or ticker matching.
+    //    Quotes, routes, funding, open interest and liquidation
+    //    have NO connected feed anywhere in the app; the panels
+    //    render those states, never figures.
+    if (ws.group === "routing" || ws.group === "derivatives") {
+      var rTwinMap = {};
+      arr(inputs.protocolTwins).forEach(function (t) { if (t && str(t.protocolId)) rTwinMap[t.protocolId] = t; });
+      function cw6VenueEntry(p) {
+        var twin = rTwinMap[p.id] || null;
+        return { record: p, twin: twin,
+          category: twin && str(twin.category) ? twin.category : null,
+          networks: arr(p.networkRefs).map(function (id) { return byId[id] || null; }).filter(Boolean),
+          activities: arr(p.activityRefs).map(function (id) {
+            var res = REG ? REG.resolveMajor(id) : null;
+            return { record: byId[id] || null, workspaceId: res ? res.primary : null };
+          }),
+          primaryHits: arr(p.activityRefs).filter(function (a) { return ws.majorIds.indexOf(a) !== -1; }) };
+      }
+      function cw6MajorSummary(tree) {
+        return { record: tree.record, typeCount: tree.typeCount, strategyCount: tree.strategyCount,
+          types: tree.types.map(function (t) {
+            return { record: t.record, strategyCount: t.strategies.length };
+          }),
+          protocolHits: entityRecords.protocols.filter(function (p) {
+            return arr(p.activityRefs).indexOf(tree.record.id) !== -1;
+          }).length };
+      }
+      var cw6Venues = protocols.map(cw6VenueEntry);
+      var cw6MajorSummaries = majors.map(cw6MajorSummary);
+      var cw6SecondarySummaries = ws.secondaryMajorIds.map(function (mid) {
+        var tr = treeFor(mid, ws.typeScope ? ws.typeScope[mid] : null);
+        return tr ? cw6MajorSummary(tr) : null;
+      }).filter(Boolean);
+      var cw6Core = {
+        universeProtocols: entityRecords.protocols.length,
+        scopeProtocols: protocols.length,
+        majors: cw6MajorSummaries,
+        secondaryMajors: cw6SecondarySummaries,
+        linkedMajorCount: cw6MajorSummaries.filter(function (m) { return m.protocolHits > 0; }).length,
+        venues: cw6Venues,
+        primaryVenues: cw6Venues.filter(function (v) { return v.primaryHits.length > 0; }),
+        secondaryOnlyVenues: cw6Venues.filter(function (v) { return v.primaryHits.length === 0; }),
+        scopeAssets: assets.length,
+        scopeNetworks: networks.length,
+        scopeOpportunityCount: opportunities.length,
+        positionsCount: positions.length,
+        positionsLoaded: !!loaded.positions
+      };
+      if (ws.workspaceId === "cross-chain-routing") {
+        // Intent routing is a secondary major here: the one
+        // protocol recording it enters scope through it, and is
+        // labelled as such — never presented as a routing venue.
+        cw6Core.intentVenues = cw6Venues.filter(function (v) {
+          return arr(v.record.activityRefs).indexOf("major-intent-based-execution") !== -1;
+        });
+      }
+      if (ws.workspaceId === "perpetuals") {
+        // dYdX is three distinct canonical entities — a network,
+        // an asset and a protocol — never collapsed into one.
+        // Each is checked by its own recorded id.
+        cw6Core.dydx = { network: !!byId["dydx-mainnet"],
+          asset: !!byId["dydx-dydx-chain"], protocol: !!byId["protocol-dydx"] };
+      }
+      if (ws.workspaceId === "margin-leverage") {
+        // Liquidation is a secondary major of this workspace:
+        // recorded taxonomy whose state is NO_DATA, never a
+        // modelled liquidation figure.
+        var liqTree = treeFor("major-liquidations", null);
+        cw6Core.liquidation = liqTree ? cw6MajorSummary(liqTree) : null;
+      }
+      core.cw6 = cw6Core;
+    }
+
     return {
       found: true, workspace: ws,
       core: core,

@@ -1017,6 +1017,202 @@
     return panel("Primary — Structured Credit Structure & Venue State (CW-5)", kids.concat(yieldRateState(y, "Credit yield observations")));
   }
 
+  // ---- CW-6 routing + derivatives workspace depth ----------------------
+  //
+  // Workspace-specific primary content for the ROUTING and
+  // DERIVATIVES groups (registry §5, CW-6), rendered from
+  // CryptoWorkspace's cw6 derivations over the same canonical
+  // records — no new data, no new stores, no per-workspace page
+  // forks (§91). The discipline of this group is observation:
+  // there is NO connected routing, quote, funding, open-interest
+  // or liquidation feed anywhere in the app, so every panel
+  // renders those states as NOT_CONNECTED / NO_DATA and its
+  // venue layer exactly as recorded — including the workspaces
+  // where the recorded venue layer is measured to be absent.
+  // View levels change how much of the SAME records is shown,
+  // never which truth (F-12).
+
+  function cw6Panel(ws, data, level) {
+    var core = data.core || {};
+    if (!core.cw6) return null;
+    switch (ws.workspaceId) {
+      case "cross-chain-routing": return cw6RoutingPanel(core, level);
+      case "bridge": return cw6BridgePanel(core, level);
+      case "perpetuals": return cw6PerpetualsPanel(core, level);
+      case "futures": return cw6FuturesPanel(core, level);
+      case "options": return cw6OptionsPanel(core, level);
+      case "synthetics-cdp": return cw6SyntheticsPanel(core, level);
+      case "margin-leverage": return cw6MarginPanel(core, level);
+      default: return null;
+    }
+  }
+
+  // Recorded venue linkage, major by major: how many of the 19
+  // canonical protocols record each primary major among their own
+  // activities. Zero is a measured result, rendered as itself.
+  function cw6Linkage(c) {
+    var kids = [U.el("h4", {}, "Recorded venue linkage by major")];
+    c.majors.forEach(function (m) {
+      kids.push(row(m.record.title || m.record.id,
+        m.protocolHits ? m.protocolHits + " of " + c.universeProtocols + " protocols record it"
+          : "no protocol records it — taxonomy only"));
+    });
+    var unlinked = c.majors.filter(function (m) { return m.protocolHits === 0; });
+    if (unlinked.length && unlinked.length < c.majors.length) {
+      kids.push(meta("The unlinked majors are recorded taxonomy with no recorded venue: the strategies exist as knowledge; no protocol in the Entity Universe records performing them, and none is attached by name matching."));
+    }
+    return kids;
+  }
+
+  function cw6SecondaryLinkage(c) {
+    var kids = [U.el("h4", {}, "Recorded venue linkage by secondary major")];
+    c.secondaryMajors.forEach(function (m) {
+      kids.push(row(m.record.title || m.record.id,
+        m.protocolHits ? m.protocolHits + " of " + c.universeProtocols + " protocols record it"
+          : "no protocol records it — taxonomy only"));
+    });
+    return kids;
+  }
+
+  function cw6Totals(c) {
+    var t = 0, s = 0;
+    c.majors.forEach(function (m) { t += m.typeCount; s += m.strategyCount; });
+    return { types: t, strategies: s };
+  }
+
+  // The one observation section every routing workspace shares:
+  // routes and quotes are NOT_CONNECTED, bridge fees are
+  // UNKNOWN unless a cost is recorded, and opportunities carry
+  // no return figures by design.
+  function cw6RouteState(c, label) {
+    var kids = [U.el("h4", {}, "Route & quote observation state")];
+    kids.push(row(label,
+      "NOT_CONNECTED — no routing or quote provider is connected: no route, quote, bridge fee or output amount is shown, estimated or implied anywhere in this workspace. The OSRM demo is not a production routing source and is never used here"));
+    kids.push(row("Recorded opportunities in this workspace's scope",
+      String(c.scopeOpportunityCount) + " — opportunity records forbid numeric return fields by design, so an unobserved route never becomes an opportunity record"));
+    kids.push(row("Recorded positions",
+      c.positionsLoaded
+        ? String(c.positionsCount) + " — no deposit, balance or earnings figure exists on record to show"
+        : "NOT LOADED — the position record system did not load"));
+    return kids;
+  }
+
+  // The one observation section every derivatives workspace
+  // shares: funding, open interest and liquidation are
+  // NOT_CONNECTED / NO_DATA, and a gross figure is never shown
+  // as profit.
+  function cw6DerivativesState(c, label) {
+    var kids = [U.el("h4", {}, "Market observation state")];
+    kids.push(row(label,
+      "NOT_CONNECTED — no funding, open-interest, mark-price or liquidation feed exists in the app; no figure of any of those kinds is shown, estimated or implied anywhere in this workspace"));
+    kids.push(row("Liquidation state",
+      "NO_DATA — " + c.positionsCount + " positions are recorded, so there is no collateral to observe and no liquidation state exists; none is modelled or simulated here"));
+    kids.push(row("Recorded opportunities in this workspace's scope",
+      String(c.scopeOpportunityCount) + " — opportunity records forbid numeric return fields by design, so an unobserved market never becomes an opportunity record"));
+    kids.push(meta("Per §14, a gross figure is never displayed as profit: the Costs panel below renders UNKNOWN unless a cost is recorded, so no net figure can be computed or implied here."));
+    return kids;
+  }
+
+  function cw6RoutingPanel(core, level) {
+    var c = core.cw6, tot = cw6Totals(c);
+    var kids = [meta(c.primaryVenues.length + " canonical protocol records a primary major of this workspace — Stargate records Cross-Chain Routing & Settlement among its own activities, on " +
+      c.scopeNetworks + " recorded networks. Cross-Chain Liquidity Provision (" + tot.types + " Types · " + tot.strategies +
+      " Strategies across the two primary majors) is recorded taxonomy with NO recorded venue: no protocol records performing it.")];
+    kids.push(U.el("h4", {}, "Recorded routing venue (primary major)"));
+    c.primaryVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    if (c.secondaryOnlyVenues.length) {
+      kids.push(U.el("h4", {}, "In recorded scope through secondary majors — not a routing venue"));
+      c.secondaryOnlyVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+      kids.push(meta("Across records Bridging and Intent-Based Execution — its own activities, by its own record. It is in scope through this workspace's secondary majors and is never presented as a routing venue."));
+    }
+    if (c.intentVenues.length) {
+      kids.push(U.el("h4", {}, "Intent routing in recorded scope"));
+      kids.push(row("Protocols recording Intent-Based Execution",
+        c.intentVenues.length + " of " + c.universeProtocols + " — intent routing is recorded structure (Cross-Chain Intent Routing is one of the Routing & Settlement Types); no intent route is observed or drawn"));
+    }
+    cw6Linkage(c).forEach(function (k) { kids.push(k); });
+    cw6SecondaryLinkage(c).forEach(function (k) { kids.push(k); });
+    return panel("Primary — Routing Venues & Route State (CW-6)", kids.concat(cw6RouteState(c, "Cross-chain route & quote observations")));
+  }
+
+  function cw6BridgePanel(core, level) {
+    var c = core.cw6, tot = cw6Totals(c);
+    var kids = [meta(c.primaryVenues.length + " canonical protocols record Bridging among their own activities (of " +
+      c.universeProtocols + " protocols) — Across and Stargate, on " + c.scopeNetworks + " recorded networks between them (" +
+      tot.types + " Types · " + tot.strategies + " Strategies in the one primary major). A venue appears only through its own recorded activityRefs — presence is an identity record, not a live integration, and no bridge transfer is observed anywhere in the app.")];
+    kids.push(U.el("h4", {}, "Recorded bridge venues"));
+    c.primaryVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    cw6Linkage(c).forEach(function (k) { kids.push(k); });
+    cw6SecondaryLinkage(c).forEach(function (k) { kids.push(k); });
+    return panel("Primary — Bridge Venues & Route State (CW-6)", kids.concat(cw6RouteState(c, "Bridge route & fee observations")));
+  }
+
+  function cw6PerpetualsPanel(core, level) {
+    var c = core.cw6, tot = cw6Totals(c);
+    var kids = [meta(c.primaryVenues.length + " canonical protocols record Perpetual Trading among their own activities (of " +
+      c.universeProtocols + " protocols) — GMX on Arbitrum only, and dYdX on its own chain (" + tot.types + " Types · " + tot.strategies +
+      " Strategies in the one primary major). A venue appears only through its own recorded activityRefs — presence is an identity record, not a live integration.")];
+    kids.push(U.el("h4", {}, "Recorded perpetual venues"));
+    c.primaryVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    kids.push(U.el("h4", {}, "dYdX — three distinct canonical entities"));
+    kids.push(row("Network / asset / protocol recorded",
+      (c.dydx.network ? "dydx-mainnet" : "network not recorded") + " · " +
+      (c.dydx.asset ? "dydx-dydx-chain" : "asset not recorded") + " · " +
+      (c.dydx.protocol ? "protocol-dydx" : "protocol not recorded") +
+      " — three distinct canonical entities, never collapsed into one; the perpetual venue is the protocol record, and the network and asset records stand beside it as identities, not as positions"));
+    cw6Linkage(c).forEach(function (k) { kids.push(k); });
+    return panel("Primary — Perpetual Venues & Market State (CW-6)", kids.concat(cw6DerivativesState(c, "Funding / open-interest observations")));
+  }
+
+  function cw6FuturesPanel(core, level) {
+    var c = core.cw6, tot = cw6Totals(c);
+    var kids = [meta("Measured absence: the taxonomy is recorded in full — " + c.majors.length + " primary major · " + tot.types + " Types · " + tot.strategies +
+      " Strategies — and 0 of " + c.universeProtocols + " canonical protocols record Futures Trading among their activities. " +
+      c.scopeNetworks + " networks and " + c.scopeAssets + " assets stand in recorded scope: this workspace has knowledge and no venue layer.")];
+    cw6Linkage(c).forEach(function (k) { kids.push(k); });
+    kids.push(U.el("h4", {}, "Knowledge gap"));
+    kids.push(meta("KNOWLEDGE GAP — FUTURES VENUES: no futures protocol is recorded for this workspace, and none can be derived from the taxonomy. A venue enters the Entity Universe only through the governed discovery pipeline (discover → dedupe → classify → resolve → owner freeze → gated import) — never through a screen build and never by name matching. Until then this workspace shows the recorded taxonomy above and this gap — no venue, contract, funding rate or market is invented."));
+    return panel("Primary — Futures Structure & Venue State (CW-6)", kids.concat(cw6DerivativesState(c, "Funding / open-interest observations")));
+  }
+
+  function cw6OptionsPanel(core, level) {
+    var c = core.cw6, tot = cw6Totals(c);
+    var kids = [meta("Measured absence: the taxonomy is recorded in full — " + c.majors.length + " primary major · " + tot.types + " Types · " + tot.strategies +
+      " Strategies — and 0 of " + c.universeProtocols + " canonical protocols record Options Trading & Writing among their activities. " +
+      c.scopeNetworks + " networks and " + c.scopeAssets + " assets stand in recorded scope: this workspace has knowledge and no venue layer.")];
+    cw6Linkage(c).forEach(function (k) { kids.push(k); });
+    kids.push(U.el("h4", {}, "Knowledge gap"));
+    kids.push(meta("KNOWLEDGE GAP — OPTIONS VENUES: no options protocol is recorded for this workspace, and none can be derived from the taxonomy. A venue enters the Entity Universe only through the governed discovery pipeline (discover → dedupe → classify → resolve → owner freeze → gated import) — never through a screen build and never by name matching. Until then this workspace shows the recorded taxonomy above and this gap — no venue, contract, premium or market is invented."));
+    return panel("Primary — Options Structure & Venue State (CW-6)", kids.concat(cw6DerivativesState(c, "Premium / open-interest observations")));
+  }
+
+  function cw6SyntheticsPanel(core, level) {
+    var c = core.cw6, tot = cw6Totals(c);
+    var kids = [meta("Measured absence: the taxonomy is recorded in full — " + c.majors.length + " primary major · " + tot.types + " Types · " + tot.strategies +
+      " Strategies — and 0 of " + c.universeProtocols + " canonical protocols record Synthetic Assets & CDP Systems among their activities. " +
+      c.scopeNetworks + " networks and " + c.scopeAssets + " assets stand in recorded scope: this workspace has knowledge and no venue layer.")];
+    cw6Linkage(c).forEach(function (k) { kids.push(k); });
+    kids.push(U.el("h4", {}, "Knowledge gap"));
+    kids.push(meta("KNOWLEDGE GAP — SYNTHETIC / CDP VENUES: no synthetic-asset or CDP protocol is recorded for this workspace, and none can be derived from the taxonomy. A venue enters the Entity Universe only through the governed discovery pipeline (discover → dedupe → classify → resolve → owner freeze → gated import) — never through a screen build and never by name matching. Until then this workspace shows the recorded taxonomy above and this gap — no venue, collateral ratio, debt figure or market is invented."));
+    kids.push(meta("The oracle protocols in the Entity Universe (Chainlink, Pyth Network) record no activityRefs at all — they anchor the Oracle workspace through their recorded networkRefs, not through this workspace, and are never presented as synthetic venues here."));
+    return panel("Primary — Synthetics & CDP Structure & Venue State (CW-6)", kids.concat(cw6DerivativesState(c, "Collateral / debt observations")));
+  }
+
+  function cw6MarginPanel(core, level) {
+    var c = core.cw6;
+    var kids = [meta("This workspace has NO primary Major Activity of its own — it is an intelligence surface over the recorded leverage surface of six secondary majors. Its protocols enter scope only through those secondary majors, and are labelled by the major that brings each of them in; none is presented as a margin venue.")];
+    kids.push(U.el("h4", {}, "Protocols in recorded scope through secondary majors"));
+    c.venues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    cw6SecondaryLinkage(c).forEach(function (k) { kids.push(k); });
+    if (c.liquidation) {
+      kids.push(U.el("h4", {}, "Liquidation — recorded taxonomy, no observed state"));
+      kids.push(row("Liquidations (" + c.liquidation.typeCount + " Types · " + c.liquidation.strategyCount + " Strategies)",
+        c.liquidation.protocolHits + " of " + c.universeProtocols + " protocols record it — the taxonomy is recorded in full and no liquidation event is observed; the Borrowing workspace states the same NO_DATA from its side"));
+    }
+    kids.push(meta("Leverage here is recorded structure only: the lending protocols above record Collateralized Borrowing, the derivatives protocols record Perpetual or Futures Trading, and the recursive-lending major is recorded taxonomy. No leverage ratio, health factor, margin call or liquidation figure is computed or implied — the Costs and Risks panels below render UNKNOWN / NO RECORDED PROFILE for this workspace."));
+    return panel("Primary — Margin & Leverage Intelligence (CW-6)", kids.concat(cw6DerivativesState(c, "Margin / leverage observations")));
+  }
+
   // ---- context panels --------------------------------------------------------
 
   function entityPanel(kindLabel, records, totals, ws) {
@@ -1445,6 +1641,12 @@
     // the yield workspaces (registry §5); null elsewhere.
     var yield5Panel = yieldPanel(ws, data, level);
     if (yield5Panel) root.appendChild(yield5Panel);
+
+    // CW-6 routing + derivatives depth: workspace-specific
+    // primary content for the routing and derivatives workspaces
+    // (registry §5); null elsewhere.
+    var cw6PanelEl = cw6Panel(ws, data, level);
+    if (cw6PanelEl) root.appendChild(cw6PanelEl);
 
     // CONTEXT + INTELLIGENCE — STANDARD shows the F-9 essentials;
     // ADVANCED/ALL show every panel. Same data at every level.
