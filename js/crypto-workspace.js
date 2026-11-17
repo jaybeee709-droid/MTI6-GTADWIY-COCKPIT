@@ -523,6 +523,115 @@
         routerHealth: inputs.routerHealth || null };
     }
 
+    // -- CW-4 trading depth: workspace-specific derivations for
+    //    the TRADING group (registry §5 / CW-4) over the same
+    //    handed-in records. The trading taxonomy is structure-rich
+    //    and observation-poor: the majors/types/strategies are all
+    //    recorded, while venue links exist only where a protocol's
+    //    own activityRefs record them — measured here, never
+    //    filled by name or ticker matching. Quotes, routes and
+    //    spreads have NO connected feed anywhere in the app; the
+    //    panels render those states, never figures.
+    if (ws.group === "trading") {
+      var pTwinMap = {};
+      arr(inputs.protocolTwins).forEach(function (t) { if (t && str(t.protocolId)) pTwinMap[t.protocolId] = t; });
+      var aTwinMap = {};
+      arr(inputs.assetTwins).forEach(function (t) { if (t && str(t.assetId)) aTwinMap[t.assetId] = t; });
+      function venueEntry(p) {
+        var twin = pTwinMap[p.id] || null;
+        return { record: p, twin: twin,
+          category: twin && str(twin.category) ? twin.category : null,
+          networks: arr(p.networkRefs).map(function (id) { return byId[id] || null; }).filter(Boolean),
+          activities: arr(p.activityRefs).map(function (id) {
+            var res = REG ? REG.resolveMajor(id) : null;
+            return { record: byId[id] || null, workspaceId: res ? res.primary : null };
+          }) };
+      }
+      function majorSummary(tree) {
+        return { record: tree.record, typeCount: tree.typeCount, strategyCount: tree.strategyCount,
+          types: tree.types.map(function (t) {
+            return { record: t.record, strategyCount: t.strategies.length };
+          }) };
+      }
+      var tradingCore = {
+        universeProtocols: entityRecords.protocols.length,
+        scopeProtocols: protocols.length,
+        majors: majors.map(majorSummary),
+        scopeOpportunityCount: opportunities.length
+      };
+      if (ws.workspaceId === "swap" || ws.workspaceId === "dex-aggregation") {
+        tradingCore.venues = protocols.map(venueEntry);
+        tradingCore.scopeAssets = assets.length;
+        tradingCore.contractAssets = assets.filter(function (a) {
+          var t = aTwinMap[a.id];
+          return !!(t && str(t.contractAddress));
+        }).length;
+      }
+      if (ws.workspaceId === "swap") {
+        tradingCore.swapVenues = tradingCore.venues.filter(function (v) {
+          return arr(v.record.activityRefs).indexOf("major-token-swapping") !== -1;
+        });
+        tradingCore.intentVenues = tradingCore.venues.filter(function (v) {
+          return arr(v.record.activityRefs).indexOf("major-intent-based-execution") !== -1;
+        });
+      }
+      if (ws.workspaceId === "dex-aggregation") {
+        tradingCore.aggregators = tradingCore.venues.filter(function (v) {
+          return arr(v.record.activityRefs).indexOf("major-swap-aggregation-route-optimization") !== -1;
+        });
+        tradingCore.dexVenues = tradingCore.venues.filter(function (v) { return v.category === "DEX"; });
+        tradingCore.otherVenues = tradingCore.venues.filter(function (v) {
+          return v.category !== "DEX" && tradingCore.aggregators.indexOf(v) === -1;
+        });
+      }
+      if (ws.workspaceId === "arbitrage") {
+        var flashTree = treeFor("major-atomic-flash-credit", null);
+        tradingCore.flashCredit = flashTree ? majorSummary(flashTree) : null;
+        // The peg instruments of the Stablecoin & Peg Arbitrage
+        // major: canonical AssetIntelligence identities classified
+        // stablecoin — identity records only. No peg observation
+        // exists anywhere in the app and none is attached here.
+        tradingCore.pegAssets = entityRecords.assets.filter(function (a) {
+          var t = aTwinMap[a.id];
+          return !!(t && t.assetClass === "stablecoin");
+        }).map(function (a) {
+          var t = aTwinMap[a.id];
+          return { record: a, twin: t,
+            network: str(a.networkRef) ? (byId[a.networkRef] || null) : null,
+            hasContract: !!(t && str(t.contractAddress)) };
+        });
+      }
+      if (ws.workspaceId === "cex-intelligence") {
+        // Measured absence, the CW-1 §1B method applied to every
+        // canonical record title: a centralized-venue name occurs
+        // nowhere in the taxonomy.
+        var cexHits = records.filter(function (r) {
+          return r && /\bcex\b|centrali[sz]ed exchange/i.test(r.title || "");
+        }).length;
+        // What the taxonomy covers instead: the decentralized
+        // trading universe of the other four trading workspaces,
+        // counted from their recorded primary majors.
+        var covered = [];
+        REG.byGroup("trading").forEach(function (w2) {
+          if (w2.workspaceId === "cex-intelligence") return;
+          var tSum = 0, sSum = 0, mList = [];
+          w2.majorIds.forEach(function (m) {
+            var tr = treeFor(m, w2.typeScope ? w2.typeScope[m] : null);
+            if (tr) { tSum += tr.typeCount; sSum += tr.strategyCount; mList.push(tr.record); }
+          });
+          covered.push({ workspace: w2, majors: mList, typeCount: tSum, strategyCount: sSum });
+        });
+        var scopeTypes = 0, scopeStrats = 0;
+        majors.forEach(function (t) { scopeTypes += t.typeCount; scopeStrats += t.strategyCount; });
+        tradingCore.cex = { titleScanHits: cexHits, titlesScanned: records.length,
+          coveredInstead: covered,
+          scopeCounts: { majors: majors.length, types: scopeTypes, strategies: scopeStrats,
+            networks: entities.networks.length, assets: entities.assets.length,
+            protocols: entities.protocols.length } };
+      }
+      core.trading = tradingCore;
+    }
+
     return {
       found: true, workspace: ws,
       core: core,

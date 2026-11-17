@@ -1,4 +1,4 @@
-/* MTI6-GTADWIY-COCKPIT — Crypto Workspace Frame (CW-2; CW-3 core depth)
+/* MTI6-GTADWIY-COCKPIT — Crypto Workspace Frame (CW-2; CW-3 core depth; CW-4 trading depth)
  *
  * ONE route (crypto-ws) renders every Crypto World workspace from
  * the Screen Registry (js/crypto-workspace-registry.js) through the
@@ -41,6 +41,12 @@
  * core surfaces (home, globe, opportunities, positions, security,
  * encyclopedia, bot-ops) keep their existing dedicated screens;
  * nothing here forks them.
+ *
+ * CW-4 (registry §5) adds the TRADING workspaces' depth the same
+ * way: the trading taxonomy in full, venue links only where a
+ * protocol's recorded activityRefs create them, CEX Intelligence
+ * as a measured absence with its knowledge gap named, and quotes /
+ * routes / spreads rendered NOT_CONNECTED — never as figures.
  *
  * View level is a frame-level preference (F-12): one switch, shared
  * by all workspaces, a pure view over the same records.
@@ -593,6 +599,209 @@
     return panel("Primary — Observation Surfaces (CW-3)", kids);
   }
 
+  // ---- CW-4 trading workspace depth ----------------------------------
+  //
+  // Workspace-specific primary content for the TRADING group
+  // (registry §5, CW-4), rendered from CryptoWorkspace's trading
+  // derivations over the same canonical records. The trading
+  // workspaces are taxonomy-rich and observation-poor, and the
+  // panels say exactly that: recorded structure in full, venue
+  // links only where a protocol's own activityRefs record them,
+  // and quotes / routes / spreads rendered as their real state —
+  // NOT_CONNECTED — never as figures. View levels change how much
+  // of the SAME records is shown, never which truth (F-12).
+
+  function tradingPanel(ws, data, level) {
+    var core = data.core || {};
+    if (!core.trading) return null;
+    switch (ws.workspaceId) {
+      case "trading": return tradingTradingPanel(core, data, level);
+      case "swap": return tradingSwapPanel(core, level);
+      case "dex-aggregation": return tradingDexAggPanel(core, level);
+      case "cex-intelligence": return tradingCexPanel(core, data);
+      case "arbitrage": return tradingArbitragePanel(core, data, level);
+      default: return null;
+    }
+  }
+
+  function majorBox(summary, level, note) {
+    var major = summary.record;
+    var box = U.el("div", { class: "cw2-major" }, [
+      U.el("div", { class: "cw2-major-head" }, [
+        U.el("a", { class: "cw2-major-title", href: "#/encyclopedia/" + encodeURIComponent(major.id) },
+          major.title || major.id),
+        U.el("span", { class: "cw2-major-counts" },
+          summary.typeCount + " Types · " + summary.strategyCount + " Strategies · " + (major.verificationStatus || "UNKNOWN"))
+      ])
+    ]);
+    if (note) box.appendChild(meta(note));
+    if (level === "STANDARD") {
+      var titles = summary.types.map(function (t) { return t.record.title || t.record.id; });
+      box.appendChild(meta(titles.length ? "Types: " + titles.join(" · ") : "No Types are recorded under this Major Activity."));
+    } else {
+      summary.types.forEach(function (t) {
+        box.appendChild(U.el("div", { class: "cw2-rec cw2-rec--i1" }, [
+          U.el("a", { href: "#/encyclopedia/" + encodeURIComponent(t.record.id), class: "cw2-rec-link" },
+            t.record.title || t.record.id),
+          U.el("span", { class: "cw2-rec-state" }, t.strategyCount + " Strategies")
+        ]));
+      });
+      if (level === "ALL" && major.definition) box.appendChild(meta(major.definition));
+    }
+    return box;
+  }
+
+  function venueBox(v, level) {
+    var rec = v.record;
+    var box = U.el("div", { class: "cw2-major" }, [
+      U.el("div", { class: "cw2-major-head" }, [
+        U.el("a", { href: "#/encyclopedia/" + encodeURIComponent(rec.id), class: "cw2-rec-link" }, rec.title || rec.id),
+        U.el("span", { class: "cw2-rec-state" }, (v.category || "category not recorded") + " · " +
+          (rec.verificationStatus || "UNKNOWN") + " · " + v.networks.length + " networks")
+      ])
+    ]);
+    if (rec.formerName) {
+      box.appendChild(meta("Formerly " + rec.formerName + " — one canonical identity across the rebrand; the id never changes."));
+    }
+    box.appendChild(meta("Recorded activities: " + (v.activities.length
+      ? v.activities.map(function (a) { return a.record ? (a.record.title || a.record.id) : "not recorded"; }).join(" · ")
+      : "none recorded")));
+    box.appendChild(meta("Recorded networks: " + (v.networks.length
+      ? v.networks.map(function (n) { return n.title || n.id; }).join(" · ")
+      : "none recorded")));
+    if (level !== "STANDARD" && rec.definition) box.appendChild(meta(rec.definition));
+    return box;
+  }
+
+  function dexPairsNote(core) {
+    return meta("DEX pair observations are the one live surface behind these venues: for the " + core.contractAssets +
+      " assets in this workspace's scope with a recorded contract anchor (of " + core.scopeAssets +
+      " in scope), pair observations load on explicit tap in the Live Data panel below — DexScreener through the Capability Router, labelled with source and freshness. Observations sit beside identity and never rewrite it (F-8); no other provider wiring exists or is added here.");
+  }
+
+  function tradingTradingPanel(core, data, level) {
+    var t = core.trading;
+    var typeTotal = 0, stratTotal = 0;
+    t.majors.forEach(function (m) { typeTotal += m.typeCount; stratTotal += m.strategyCount; });
+    var kids = [meta(t.majors.length + " primary Major Activities · " + typeTotal + " Types · " + stratTotal +
+      " Strategies — counted from the canonical records. This workspace's knowledge is the trading TAXONOMY: what trading is, in recorded structure. Its venue and observation state is measured below, never assumed.")];
+    t.majors.forEach(function (m) {
+      kids.push(majorBox(m, level,
+        m.record.id === "major-decentralized-market-making"
+          ? "Its Types are quoting behaviours (registry R-5) — AMM, concentrated, intent/solver, inventory-based and RFQ/quote-based market making. Active market making is a trading discipline; passive pool provision lives in the Liquidity workspace."
+          : null));
+    });
+    kids.push(U.el("h4", {}, "Venue state — measured from the records"));
+    kids.push(row("Protocols recording an activityRef into these majors",
+      t.scopeProtocols + " of " + t.universeProtocols + " canonical protocols — the recorded entity layer links NO venue protocol to the trading majors, so no venue is attached here by name matching"));
+    kids.push(row("Venue / order-book / quote observations",
+      "NOT_CONNECTED — no venue, order-book, quote or volume feed exists in the app"));
+    kids.push(row("Price observations",
+      "Owned by PriceScout (CoinGecko → Coinbase → CoinPaprika) on the Crypto Market screen — the only market observation chain MTI6 records; it is not duplicated in this workspace"));
+    kids.push(linkBtn("#/crypto", "Open Crypto Market (PriceScout)"));
+    return panel("Primary — Trading Structure & Venue State (CW-4)", kids);
+  }
+
+  function tradingSwapPanel(core, level) {
+    var t = core.trading;
+    var kids = [meta(t.swapVenues.length + " canonical protocols record Token Swapping among their activities (of " +
+      t.universeProtocols + " protocols); " + t.intentVenues.length + " record Intent-Based Execution. A venue appears here only through its own recorded activityRefs — presence is an identity record, not a live integration.")];
+    kids.push(U.el("h4", {}, "Recorded swap venues"));
+    t.swapVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    if (t.intentVenues.length) {
+      kids.push(U.el("h4", {}, "Recorded intent execution"));
+      t.intentVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+      kids.push(meta("The intent major's own structure — Signed Trade Intent, Solver Auction, Filler-Based Execution, Batch-Auction Intent, Intent Aggregation (registry R-6) — drills down in Primary above; the venue recorded against it is the one above, by its own activityRef."));
+    }
+    kids.push(U.el("h4", {}, "Quote & route state"));
+    kids.push(row("Swap quotes", "NOT_CONNECTED — no quote provider is connected; no quote, exchange rate or output amount is shown, estimated or implied (§11)"));
+    kids.push(row("Routing", "NOT_CONNECTED — no routing feed; the routes in the taxonomy above are recorded structure, not live paths"));
+    kids.push(dexPairsNote(t));
+    return panel("Primary — Swap Venues & Quote State (CW-4)", kids);
+  }
+
+  function tradingDexAggPanel(core, level) {
+    var t = core.trading;
+    var kids = [meta("Swap Aggregation & Route Optimization over the recorded DEX universe: " + t.aggregators.length +
+      " protocol records aggregation as its own activity; " + t.dexVenues.length +
+      " recorded DEX protocols are the route sources. Aggregation here is recorded structure — no live routing stands behind it.")];
+    kids.push(U.el("h4", {}, "Recorded aggregator"));
+    t.aggregators.forEach(function (v) { kids.push(venueBox(v, level)); });
+    kids.push(U.el("h4", {}, "Recorded DEX route sources"));
+    t.dexVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+    if (t.otherVenues.length) {
+      kids.push(U.el("h4", {}, "Also in recorded scope — not a DEX"));
+      t.otherVenues.forEach(function (v) { kids.push(venueBox(v, level)); });
+      kids.push(meta("The protocol above is in scope through this workspace's secondary majors and is labelled by its own recorded category — it is not a DEX and not an aggregator, and is never presented as one."));
+    }
+    kids.push(U.el("h4", {}, "Route state"));
+    kids.push(row("DEX Routes (the §96 sub-view of this workspace)",
+      "NOT_CONNECTED — no route or quote feed is connected, so no route is drawn, ranked or priced here"));
+    kids.push(row("Route comparison",
+      "Exists only as the registry's Simulator template (Swap — route comparison); SIMULATOR NOT BUILT — see the Simulator action"));
+    kids.push(dexPairsNote(t));
+    return panel("Primary — Aggregation Universe & Route State (CW-4)", kids);
+  }
+
+  function tradingCexPanel(core, data) {
+    var t = core.trading, c = t.cex, sc = c.scopeCounts;
+    var kids = [meta("This panel measures the absence instead of papering over it (registry §1B): everything below is counted from the canonical records, not asserted.")];
+    kids.push(row("Primary Major Activities recorded for this workspace", String(sc.majors)));
+    kids.push(row("Types / Strategies recorded in scope", sc.types + " / " + sc.strategies));
+    kids.push(row("Canonical entities in scope (networks / assets / protocols)",
+      sc.networks + " / " + sc.assets + " / " + sc.protocols));
+    kids.push(row("Title scan of every canonical record",
+      c.titleScanHits + " of " + c.titlesScanned + " record titles name a centralized exchange or CEX — the taxonomy is scoped to decentralized / on-chain crypto, and no centralized venue is named in any record"));
+    kids.push(U.el("h4", {}, "What the taxonomy covers instead — the decentralized trading universe"));
+    c.coveredInstead.forEach(function (cov) {
+      kids.push(U.el("div", { class: "status-row" }, [
+        U.el("span", {}, cov.workspace.title),
+        U.el("span", { class: "status-value" }, cov.majors.length + " majors · " + cov.typeCount + " Types · " + cov.strategyCount + " Strategies")
+      ]));
+    });
+    kids.push(meta("Those workspaces hold the recorded trading knowledge MTI6 actually has. None of it is relabelled as CEX data here."));
+    kids.push(U.el("h4", {}, "Knowledge gap"));
+    kids.push(meta("KNOWLEDGE GAP — CEX VENUE & ACCOUNT OBSERVATIONS: no canonical feed exists, and none can be derived from the decentralized taxonomy. Closing this gap requires a per-provider owner authorization (CW-10); account-specific information additionally requires owner-authorized account integration (§13). Status: OWNER-GATED. Until then this workspace shows the gap and nothing else — no invented venue data, no fabricated tickers, balances or volumes."));
+    kids.push(meta("The Costs and Risks panels below render UNKNOWN / NO RECORDED PROFILE for this workspace: there is nothing recorded to price or profile, and nothing is inferred from the DEX side."));
+    return panel("Primary — The Recorded Absence (CW-4)", kids);
+  }
+
+  function tradingArbitragePanel(core, data, level) {
+    var t = core.trading;
+    var typeTotal = 0, stratTotal = 0;
+    t.majors.forEach(function (m) { typeTotal += m.typeCount; stratTotal += m.strategyCount; });
+    var kids = [meta(t.majors.length + " primary Major Activities · " + typeTotal + " Types · " + stratTotal +
+      " Strategies — the registry records this as the second-largest specialist taxonomy, after Lending (T27 · S46). The structure is recorded in full; spreads are not observed anywhere in the app, and the state below says so.")];
+    t.majors.forEach(function (m) { kids.push(majorBox(m, level, null)); });
+    kids.push(U.el("h4", {}, "Recorded dependency — flash capital"));
+    if (t.flashCredit) {
+      kids.push(row("Atomic & Flash Credit (secondary context; primary workspace: Lending)",
+        t.flashCredit.typeCount + " Types · " + t.flashCredit.strategyCount + " Strategies — the recorded capital source of Flash-Capital Arbitrage"));
+    }
+    kids.push(row("Protocols recording an activityRef into any arbitrage major or into Atomic & Flash Credit",
+      t.scopeProtocols + " of " + t.universeProtocols + " — the dependency is taxonomy-level and recorded; no lending venue is named as a flash source, because none records the link"));
+    kids.push(U.el("h4", {}, "Peg instruments — canonical identities"));
+    t.pegAssets.forEach(function (a) {
+      var rec = a.record;
+      var box = U.el("div", { class: "cw2-major" }, [
+        U.el("div", { class: "cw2-major-head" }, [
+          U.el("a", { href: "#/encyclopedia/" + encodeURIComponent(rec.id), class: "cw2-rec-link" }, rec.title || rec.id),
+          U.el("span", { class: "cw2-rec-state" }, (rec.symbol || "") + " · " + (rec.verificationStatus || "UNKNOWN"))
+        ])
+      ]);
+      box.appendChild(row("Recorded network", a.network ? (a.network.title || a.network.id) : "not recorded"));
+      box.appendChild(row("Contract anchor (recorded twin)", a.hasContract ? "recorded" : "not recorded"));
+      kids.push(box);
+    });
+    kids.push(meta("These are the recorded stablecoin identities the Stablecoin & Peg Arbitrage major operates on. Identity only: NO peg observation exists — no price-versus-peg deviation is measured or shown anywhere in this workspace."));
+    kids.push(U.el("h4", {}, "Spread state"));
+    kids.push(row("Spread observations", "NOT_CONNECTED — no spread feed exists in the app; no spread figure appears in this workspace"));
+    kids.push(row("Recorded opportunities in this workspace's scope",
+      String(t.scopeOpportunityCount) + " — an unobserved spread never becomes an opportunity record"));
+    kids.push(meta("Per §14, a gross spread is never displayed as profit: the Costs panel below renders UNKNOWN unless a cost is recorded, so no net figure can be computed or implied here."));
+    return panel("Primary — Arbitrage Structure & Spread State (CW-4)", kids);
+  }
+
   // ---- context panels --------------------------------------------------------
 
   function entityPanel(kindLabel, records, totals, ws) {
@@ -1011,6 +1220,11 @@
     // core workspaces (registry §5); null for every other workspace.
     var core3Panel = corePanel(ws, data, level);
     if (core3Panel) root.appendChild(core3Panel);
+
+    // CW-4 trading depth: workspace-specific primary content for
+    // the trading workspaces (registry §5); null elsewhere.
+    var trading4Panel = tradingPanel(ws, data, level);
+    if (trading4Panel) root.appendChild(trading4Panel);
 
     // CONTEXT + INTELLIGENCE — STANDARD shows the F-9 essentials;
     // ADVANCED/ALL show every panel. Same data at every level.
