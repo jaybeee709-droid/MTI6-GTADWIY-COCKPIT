@@ -178,6 +178,22 @@
           body.appendChild(U.el("div", { class: "api-meta" },
             "No assignment records — this principal is unassigned. Assignments are owner decisions recorded in Bot Operations; a record here would still not be live work."));
         }
+        // CW-9: the window carries STAR's current selected Crypto
+        // World context, so the summoned principal and STAR answer
+        // from the same selection. Session-only context, labelled
+        // as such; when nothing is selected the window says so.
+        var starCtx = null;
+        if (global.StarContext && typeof global.StarContext.describe === "function") {
+          try { starCtx = global.StarContext.describe(); } catch (e) { starCtx = null; }
+        }
+        if (starCtx) {
+          body.appendChild(U.el("div", { class: "api-meta" },
+            "STAR's current selected context (session only — clears on reload): " +
+            starCtx.split("\n")[0]));
+        } else {
+          body.appendChild(U.el("div", { class: "api-meta" },
+            "STAR's current selected context: none — open a Crypto World workspace and STAR will keep that selection here."));
+        }
         if (view.history.length) {
           view.history.slice(-3).forEach(function (h) {
             body.appendChild(U.el("div", { class: "api-meta" },

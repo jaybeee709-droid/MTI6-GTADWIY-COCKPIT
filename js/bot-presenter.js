@@ -44,6 +44,16 @@
   var rootEl = null;
   var currentRef = null;
   var pendingRef = null;
+  var currentMorph = null;
+
+  // CW-9 bot morphing: the five presentation morphs. A morph is a
+  // PRESENTATION frame only — it changes how the recorded state is
+  // framed on the big screen, never what STAR or the bot may do.
+  // No morph increases permissions, adds a capability, or touches
+  // execution (which stays DISABLED). The Simulator morph presents
+  // the StarContext simulation brief — SIMULATED / NOT EXECUTED —
+  // never a run outcome.
+  var MORPHS = ["Avatar", "Market Analyst", "Route / Risk / Graph Presenter", "Protocol Analyst", "Simulator"];
 
   function routeBase() {
     var hash = (location.hash || "#/globe").replace(/^#\/?/, "");
@@ -137,6 +147,26 @@
     }
     cardChildren.push(chartSlot);
 
+    // CW-9 morph frame: labelled presentation only. The Simulator
+    // morph carries the current simulation brief (SIMULATED / NOT
+    // EXECUTED) from the STAR context STAR is keeping.
+    if (currentMorph) {
+      cardChildren.push(U.el("div", { class: "api-meta" },
+        "Presenting as: " + currentMorph + " — presentation only, no additional permissions; the morph changes how the recorded state is framed, never what this bot may do."));
+      if (currentMorph === "Simulator" && global.StarContext &&
+          typeof global.StarContext.simulationBrief === "function") {
+        var brief = null;
+        try { brief = global.StarContext.simulationBrief(); } catch (e) { brief = null; }
+        if (brief) {
+          var briefBox = U.el("div", { class: "bot-presenter__lines" }, []);
+          brief.split("\n").forEach(function (line) {
+            briefBox.appendChild(U.el("div", { class: "bot-presenter__line" }, line));
+          });
+          cardChildren.push(briefBox);
+        }
+      }
+    }
+
     rootEl = U.el("div", {
       class: "bot-presenter",
       role: "dialog",
@@ -182,6 +212,20 @@
     rootEl = null;
     currentRef = null;
     pendingRef = null;
+    currentMorph = null;
+  }
+
+  // CW-9: present as one of the five morphs. An unknown morph is
+  // rejected with a reason — never silently treated as the default
+  // presentation. The morph is presentation only (see MORPHS).
+  function showAs(ref, morph) {
+    if (MORPHS.indexOf(morph) === -1) {
+      return { ok: false, reason: "Unknown presenter morph " + String(morph) + " — the morphs are: " + MORPHS.join(", ") + "." };
+    }
+    currentMorph = morph;
+    var result = show(ref);
+    if (!result || !result.ok) currentMorph = null;
+    return result;
   }
 
   function isShowing() {
@@ -203,6 +247,9 @@
 
   global.BotPresenter = {
     show: show,
+    showAs: showAs,
+    MORPHS: MORPHS.slice(),
+    currentMorph: function () { return currentMorph; },
     hide: hide,
     isShowing: isShowing,
     currentRef: function () { return currentRef; }

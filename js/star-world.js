@@ -260,10 +260,107 @@
       "Execution: " + (canExec ? "available" : "DISABLED (canExecuteTransaction() is false)") + ". " + FOOTER;
   }
 
+  // CW-9: STAR's selected Crypto World context. READ-ONLY — the
+  // context is published by the workspace screen into StarContext
+  // (session-only, in-memory); STAR only reports it, never invents
+  // a selection. Every answer below is built from that published
+  // context and the World Engine, and every one says the context
+  // clears on reload.
+  function contextAnswer() {
+    var SC = global.StarContext;
+    if (!SC || typeof SC.describe !== "function") {
+      return "STAR context is NOT LOADED — the context keeper did not load, so no selection can be reported. " + FOOTER;
+    }
+    return SC.describe() + "\n" + FOOTER;
+  }
+
+  function whyAnswer() {
+    var SC = global.StarContext;
+    if (!SC || typeof SC.whyChain !== "function") {
+      return "STAR context is NOT LOADED — the context keeper did not load, so no WHY chain can be built. " + FOOTER;
+    }
+    return SC.whyChain() + "\n" + FOOTER;
+  }
+
+  function freshnessAnswer() {
+    var SC = global.StarContext;
+    if (!SC || typeof SC.freshness !== "function") {
+      return "STAR context is NOT LOADED — the context keeper did not load, so no freshness state can be reported. " + FOOTER;
+    }
+    return SC.freshness() + "\n" + FOOTER;
+  }
+
+  function dependenciesAnswer() {
+    var SC = global.StarContext;
+    if (!SC || typeof SC.dependencies !== "function") {
+      return "STAR context is NOT LOADED — the context keeper did not load, so no dependency state can be reported. " + FOOTER;
+    }
+    return SC.dependencies() + "\n" + FOOTER;
+  }
+
+  function simulateAnswer() {
+    var SC = global.StarContext;
+    if (!SC || typeof SC.simulationBrief !== "function") {
+      return "SIMULATED / NOT EXECUTED — the context keeper did not load, so no simulation brief can be built. Nothing was run and nothing was changed. " + FOOTER;
+    }
+    return SC.simulationBrief() + "\n" + FOOTER;
+  }
+
+  function sourceAnswer() {
+    var SC = global.StarContext;
+    if (!SC || typeof SC.sourceState !== "function") {
+      return "STAR context is NOT LOADED — the context keeper did not load, so no source state can be reported. " + FOOTER;
+    }
+    return SC.sourceState() + "\n" + FOOTER;
+  }
+
+  // CW-9: STAR summons a Tribe principal into its own separate
+  // movable/resizable participant window. The principal is named by
+  // its canonical identity (JUDAH … BENJAMIN, or tribe-judah …);
+  // role labels are assignments, never names, and STAR is never a
+  // principal. The main session (you + STAR) stays where it is —
+  // STAR remains available while the participant window is open.
+  var PRINCIPAL_NAMES = ["JUDAH", "REUBEN", "GAD", "ASHER", "NAPHTALI", "MANASSEH",
+    "SIMEON", "LEVI", "ISSACHAR", "ZEBULUN", "JOSEPH", "BENJAMIN"];
+  function bringAnswer(text) {
+    var t = " " + String(text || "").toLowerCase() + " ";
+    var foundId = null;
+    PRINCIPAL_NAMES.forEach(function (name) {
+      var id = "tribe-" + name.toLowerCase();
+      if (t.indexOf(" " + name.toLowerCase() + " ") !== -1 || t.indexOf(id) !== -1) foundId = id;
+    });
+    if (!foundId) {
+      return "To summon a Tribe principal, name one of the twelve: JUDAH, REUBEN, GAD, ASHER, NAPHTALI, MANASSEH, SIMEON, LEVI, ISSACHAR, ZEBULUN, JOSEPH, BENJAMIN — for example “bring Judah”. STAR itself is never a principal, and the window opens as a separate movable/resizable window while this chat stays open. " + FOOTER;
+    }
+    var P = global.Participants;
+    if (!P || typeof P.openPrincipal !== "function") {
+      return "Participant windows are NOT_AVAILABLE — the Participants module did not load, so " + foundId + " cannot be summoned. Nothing was opened. " + FOOTER;
+    }
+    var r = null;
+    try { r = P.openPrincipal(foundId); } catch (e) { r = null; }
+    if (!r || !r.opened) {
+      var reason = (r && r.reason) || "UNKNOWN";
+      return "Could not summon " + foundId + " (" + reason + "). No window was opened and nothing was changed. " + FOOTER;
+    }
+    var name = foundId.replace("tribe-", "").toUpperCase();
+    var ctx = "";
+    if (global.StarContext && typeof global.StarContext.describe === "function") {
+      try {
+        var d = global.StarContext.describe();
+        if (d && d.indexOf("No Crypto World context") === -1) ctx = " The window carries STAR's current selected context: " + d.split("\n")[0];
+      } catch (e) {}
+    }
+    return name + " is open in a separate participant window" + (r.alreadyOpen ? " (it was already open, so it was focused instead of duplicated)" : "") +
+      ". The window shows the principal's real assignment, status and history only — no fabricated activity — and says NOT_CONNECTED while no worker runtime exists." + ctx +
+      " This chat stays open: STAR remains available. " + FOOTER;
+  }
+
   function helpAnswer() {
     return "In demo mode I answer from the cockpit's real records — no AI backend is connected. Ask me: " +
       "“cockpit status” (the five Globe layers + World Engine graph), “how many records / majors / strategies” (encyclopedia + entity counts), " +
       "“opportunities” (recorded pipeline), “entity candidates” or “entity pipeline” (candidate stages, owner gate queue, frozen batches), “alerts” or “security status”, “bots / assignments” (workforce records), or “wallets” (connection + execution state). " +
+      "Crypto World context (CW-9): open a Crypto World workspace and ask “current context”, “why is this shown”, “how fresh is this”, “what does this depend on”, “what source failed” or “simulate this” — every answer comes from the selection STAR is keeping, with the WHY chain Canonical Activity → Asset → Network → Protocol → Strategy → Source Observation → Cost → Risk → Freshness → Dependency. " +
+      "“Bring Judah” (or any of the twelve Tribe principals) opens that principal in a separate participant window. " +
       "Prices still go to the Price Scouts and news/GitHub activity to the Knowledge Scouts. Anything that would change something outside this device needs your approval and is not executed here. " + FOOTER;
   }
 
@@ -299,6 +396,20 @@
       if (/\b(bot|bots|principal|principals|assignment|assignments|worker|workers|tribe|workforce)\b/.test(t) &&
           /\b(status|count|how many|assigned|active|list|recorded|operations)\b/.test(t)) return botsAnswer();
       if (/\bwallet/.test(t)) return walletsAnswer();
+      // CW-9: selected-context routes — narrow triggers, before the
+      // generic fallthrough. "bring/summon" sits first among them
+      // so a summon is never answered as a workforce status.
+      if (/\b(bring|summon|open)\b/.test(t) &&
+          (/\b(judah|reuben|gad|asher|naphtali|manasseh|simeon|levi|issachar|zebulun|joseph|benjamin)\b/.test(t) ||
+           /tribe-(judah|reuben|gad|asher|naphtali|manasseh|simeon|levi|issachar|zebulun|joseph|benjamin)/.test(t) ||
+           /\b(tribe|principal)\b/.test(t))) return bringAnswer(text);
+      if (/\b(simulate|simulation)\b/.test(t)) return simulateAnswer();
+      if (/\b(why is this shown|where did this come from|why am i seeing|why this)\b/.test(t)) return whyAnswer();
+      if (/\b(current context|what am i looking at|my context|selected context|what is selected)\b/.test(t)) return contextAnswer();
+      if (/\b(how fresh|freshness|how old is this|when was this (observed|retrieved|updated))\b/.test(t)) return freshnessAnswer();
+      if (/\b(what does (this|it) depend on|dependencies|what depends on)\b/.test(t)) return dependenciesAnswer();
+      if (/\b(what source failed|did a fallback|fallback (provide|provided))\b/.test(t) ||
+          (/\b(source|fallback)\b/.test(t) && /\b(context|selection|workspace|shown|this)\b/.test(t))) return sourceAnswer();
       if (/\b(world engine|graph)\b/.test(t) && /\b(status|count|how many|nodes|edges|hold|holds)\b/.test(t)) return await countsAnswer();
     } catch (e) {
       return "I could not read the cockpit's records to answer that (local demo). Nothing was changed. " + FOOTER;

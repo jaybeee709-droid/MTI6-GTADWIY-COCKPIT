@@ -1671,9 +1671,19 @@
       panels.compare = panel("Compare (§68)", [meta("Compare operates on like-for-like objects over normalized dimensions (cost, risk, liquidity, dependencies, freshness, source coverage). No compare engine is built in this package — the control renders its honest gated state rather than a dead button dressed as live (F-5).")]);
     }
     if (ws.actions.indexOf("simulator") !== -1) {
-      panels.simulator = panel("Simulator (§67)", [meta(ws.simulatorTemplate
-        ? "Template named by the registry for this workspace: " + ws.simulatorTemplate + ". SIMULATOR NOT BUILT — no §106 simulation engine exists in this build, so no inputs are collected and no outcome is modelled. The opportunity pipeline's SIMULATED stage is a record state, not a model. Any future simulation renders SIMULATED · NOT EXECUTED and writes nothing into canonical financial state (F-21)."
-        : "The registry names no simulator template for this workspace.")]);
+      // CW-9: the simulator entry point. No simulation engine
+      // exists, so this panel renders the structured simulation
+      // brief from the STAR context STAR is keeping for this
+      // workspace — context only, labelled SIMULATED / NOT
+      // EXECUTED, no outcome modelled, nothing written anywhere.
+      var simBrief = null;
+      if (global.StarContext && typeof global.StarContext.simulationBrief === "function") {
+        try { simBrief = global.StarContext.simulationBrief(); } catch (e) { simBrief = null; }
+      }
+      panels.simulator = panel("Simulator (§67)", [meta(simBrief ||
+        (ws.simulatorTemplate
+          ? "Template named by the registry for this workspace: " + ws.simulatorTemplate + ". SIMULATOR NOT BUILT — no §106 simulation engine exists in this build, so no inputs are collected and no outcome is modelled. The opportunity pipeline's SIMULATED stage is a record state, not a model. Any future simulation renders SIMULATED · NOT EXECUTED and writes nothing into canonical financial state (F-21)."
+          : "The registry names no simulator template for this workspace."))]);
     }
     // WHY (F-17) rides with the Source contract — structured, never prose.
     var wKids = [];
@@ -1843,6 +1853,15 @@
     var contextRec = contextId ? (inputs.records.filter(function (r) { return r && r.id === contextId; })[0] || null) : null;
     var resolution = contextId ? CW.resolveActivity(contextId, inputs.records) : null;
     var trail = resolution && resolution.found ? resolution.trail : null;
+
+    // CW-9: publish the structured context to STAR. Every Crypto
+    // World workspace STAR keeps is published here — workspace,
+    // majors, scope, costs, risks, sources — so STAR, the Tribes
+    // and the Simulator all answer from the same selection.
+    // Session-only (StarContext is in-memory); a reload clears it.
+    if (global.StarContext && typeof global.StarContext.setFromWorkspace === "function") {
+      try { global.StarContext.setFromWorkspace(ws, data); } catch (e) {}
+    }
 
     // HEADER (F-1)
     var typeTotal = 0, stratTotal = 0;
