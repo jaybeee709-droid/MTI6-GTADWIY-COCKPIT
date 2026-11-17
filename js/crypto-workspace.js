@@ -182,7 +182,13 @@
   // inputs: { records, opportunities, positions, costRecords,
   //   riskProfiles, alerts, assignments, graph,
   //   loaded: { opportunities, positions, costs, risks, alerts,
-  //             assignments, graph } }
+  //             assignments, graph },
+  //   protocolTwins, assetTwins, riskDimensionNames, pipelineStates,
+  //   positionSummary, alertSummary, layerCounts, apiUsage,
+  //   routerHealth }   (the second group is the CW-3 core-depth
+  //   hand-in: the intelligence layers' own derivations over the
+  //   same canonical identities, passed in — never re-derived here
+  //   from a second source.)
   // Every section carries its own loaded flag so the frame can say
   // NOT LOADED where a layer never arrived and NO_DATA where it
   // arrived empty (checklist rule 12).
@@ -300,17 +306,33 @@
       LQ: "Liquidity risk", CP: "Counterparty/custody risk", MK: "Market risk",
       LV: "Liquidation risk", DF: "Data-source risk"
     };
-    var risks = ws.riskDimensions.map(function (code) {
-      var dimName = RISK_DIM_BY_CODE[code] || null;
-      var assessed = 0;
-      if (dimName) {
+    var risks;
+    if (ws.riskDimensions.indexOf("ALL") !== -1) {
+      // Cross-workspace rows (risk, home, opportunities) register
+      // ALL dimensions (§55): expand to the canonical RiskIntelligence
+      // dimension names handed in by the caller — the same names
+      // profiles are assessed against — never a pseudo-dimension.
+      risks = arr(inputs.riskDimensionNames).map(function (name) {
+        var assessed = 0;
         riskProfiles.forEach(function (p) {
-          var e = p && p.dimensions ? p.dimensions[dimName] : null;
+          var e = p && p.dimensions ? p.dimensions[name] : null;
           if (e && e.state && e.state !== "UNKNOWN") assessed++;
         });
-      }
-      return { code: code, dimension: dimName, assessed: assessed };
-    });
+        return { code: name, dimension: null, assessed: assessed, expandedAll: true };
+      });
+    } else {
+      risks = ws.riskDimensions.map(function (code) {
+        var dimName = RISK_DIM_BY_CODE[code] || null;
+        var assessed = 0;
+        if (dimName) {
+          riskProfiles.forEach(function (p) {
+            var e = p && p.dimensions ? p.dimensions[dimName] : null;
+            if (e && e.state && e.state !== "UNKNOWN") assessed++;
+          });
+        }
+        return { code: code, dimension: dimName, assessed: assessed };
+      });
+    }
 
     // -- alerts: AngelSecurity records whose subject is in scope,
     //    plus unscoped alerts on security/risk surfaces.
@@ -352,8 +374,158 @@
       if (r.verificationStatus === "VERIFIED") verified++;
     });
 
+    // -- CW-3 core depth: workspace-specific derivations over the
+    //    same handed-in records and layer state (the CORE workspaces
+    //    of registry §5 / CW-3). Every value is computed from the
+    //    records; a field the records do not carry stays visibly
+    //    unrecorded — never filled by name or ticker matching.
+    var core = {};
+
+    // The real opportunity pipeline, counted by recorded stage
+    // (platform-wide). Terminal stage is PREPARED — never EXECUTED.
+    var pipelineStates = arr(inputs.pipelineStates);
+    var stageCounts = {};
+    pipelineStates.forEach(function (s) { stageCounts[s] = 0; });
+    arr(inputs.opportunities).forEach(function (o) {
+      var st = o ? (str(o.pipelineState) || str(o.stage)) : null;
+      if (st && Object.prototype.hasOwnProperty.call(stageCounts, st)) stageCounts[st]++;
+    });
+    core.pipeline = { loaded: !!loaded.opportunities, states: pipelineStates,
+      byStage: stageCounts, total: arr(inputs.opportunities).length };
+
+    // PositionIntelligence's own summary derivation, handed in:
+    // a null totalValue stays null — UNAVAILABLE, never zero.
+    core.positionsSummary = inputs.positionSummary
+      ? { loaded: true, summary: inputs.positionSummary }
+      : { loaded: false, summary: null };
+
+    if (ws.workspaceId === "networks") {
+      var protocolLinks = 0;
+      core.networks = entityRecords.networks.map(function (n) {
+        var protocolsOn = entityRecords.protocols.filter(function (p) {
+          return arr(p.networkRefs).indexOf(n.id) !== -1;
+        });
+        protocolLinks += protocolsOn.length;
+        return { record: n,
+          chainId: typeof n.chainId === "number" ? n.chainId : null,
+          nativeAsset: str(n.nativeAssetRef) ? (byId[n.nativeAssetRef] || null) : null,
+          nativeAssetRecorded: !!str(n.nativeAssetRef),
+          assets: entityRecords.assets.filter(function (a) { return a.networkRef === n.id; }),
+          protocols: protocolsOn };
+      });
+      core.networkTotals = { networks: core.networks.length,
+        withNativeAsset: core.networks.filter(function (x) { return x.nativeAssetRecorded; }).length,
+        protocolLinks: protocolLinks };
+    }
+
+    if (ws.workspaceId === "protocols") {
+      var pTwins = {};
+      arr(inputs.protocolTwins).forEach(function (t) { if (t && str(t.protocolId)) pTwins[t.protocolId] = t; });
+      var catCounts = {};
+      core.protocols = entityRecords.protocols.map(function (p) {
+        var twin = pTwins[p.id] || null;
+        var cat = twin && str(twin.category) ? twin.category : null;
+        var catKey = cat || "NOT_RECORDED";
+        catCounts[catKey] = (catCounts[catKey] || 0) + 1;
+        return { record: p, twin: twin, category: cat,
+          networks: arr(p.networkRefs).map(function (id) { return byId[id] || null; }).filter(Boolean),
+          activities: arr(p.activityRefs).map(function (id) {
+            var res = REG ? REG.resolveMajor(id) : null;
+            return { record: byId[id] || null, workspaceId: res ? res.primary : null };
+          }) };
+      });
+      core.protocolCategories = catCounts;
+    }
+
+    if (ws.workspaceId === "markets-assets") {
+      var aTwins = {};
+      arr(inputs.assetTwins).forEach(function (t) { if (t && str(t.assetId)) aTwins[t.assetId] = t; });
+      var classCounts = {};
+      core.assets = entityRecords.assets.map(function (a) {
+        var twin = aTwins[a.id] || null;
+        var cls = twin && str(twin.assetClass) ? twin.assetClass : null;
+        var clsKey = cls || "NOT_RECORDED";
+        classCounts[clsKey] = (classCounts[clsKey] || 0) + 1;
+        return { record: a, twin: twin, assetClass: cls,
+          network: str(a.networkRef) ? (byId[a.networkRef] || null) : null,
+          hasContract: !!(twin && str(twin.contractAddress)) };
+      });
+      core.assetClasses = classCounts;
+      core.assetKindCounts = {
+        native: entityRecords.assets.filter(function (a) { return a.nativeOrToken === "native"; }).length,
+        token: entityRecords.assets.filter(function (a) { return a.nativeOrToken === "token"; }).length };
+    }
+
+    if (ws.workspaceId === "risk") {
+      var alertsByState = {};
+      arr(inputs.alerts).forEach(function (a) {
+        var s = a ? (str(a.state) || str(a.status)) : null;
+        if (s) alertsByState[s] = (alertsByState[s] || 0) + 1;
+      });
+      core.risk = {
+        dimensions: arr(inputs.riskDimensionNames).map(function (name) {
+          var assessed = 0;
+          riskProfiles.forEach(function (p) {
+            var e = p && p.dimensions ? p.dimensions[name] : null;
+            if (e && e.state && e.state !== "UNKNOWN") assessed++;
+          });
+          return { name: name, assessed: assessed };
+        }),
+        profiles: riskProfiles.length,
+        alertSummary: inputs.alertSummary || null,
+        alertsByState: alertsByState,
+        // The states that drive the Globe's Alert Mode — measured
+        // from the recorded alerts, never assumed.
+        verifiedActive: arr(inputs.alerts).filter(function (a) {
+          var s = a ? (str(a.state) || str(a.status)) : null;
+          return s === "CONFIRMED" || s === "ACTIVE" || s === "MITIGATING";
+        }).length
+      };
+    }
+
+    if (ws.workspaceId === "intelligence") {
+      var byLevel = {}, verifiedTotal = 0;
+      records.forEach(function (r) {
+        if (!r) return;
+        var k = r.level || (r.registry ? "ENTITY" : "OTHER");
+        byLevel[k] = (byLevel[k] || 0) + 1;
+        if (r.verificationStatus === "VERIFIED") verifiedTotal++;
+      });
+      var graphStats = null;
+      if (inputs.graph && inputs.graph.nodes) {
+        var rel = 0, missingOut = 0;
+        var adj = inputs.graph.adjacency || {};
+        Object.keys(adj).forEach(function (nid) {
+          arr(adj[nid]).forEach(function (e) {
+            if (e && e.direction === "out") {
+              rel++;
+              if (!inputs.graph.nodes[e.nodeId]) missingOut++;
+            }
+          });
+        });
+        graphStats = { nodes: Object.keys(inputs.graph.nodes).length,
+          relationships: rel,
+          unresolved: Array.isArray(inputs.graph.unresolved)
+            ? inputs.graph.unresolved.length : missingOut };
+      }
+      core.health = { recordsTotal: records.length, byLevel: byLevel,
+        entities: { networks: entityRecords.networks.length,
+          assets: entityRecords.assets.length,
+          protocols: entityRecords.protocols.length },
+        verified: verifiedTotal,
+        layers: arr(inputs.layerCounts),
+        graph: graphStats };
+    }
+
+    if (ws.workspaceId === "live-data") {
+      core.liveData = { usageLoaded: Array.isArray(inputs.apiUsage),
+        usage: arr(inputs.apiUsage),
+        routerHealth: inputs.routerHealth || null };
+    }
+
     return {
       found: true, workspace: ws,
+      core: core,
       majors: majors, sharedMajors: sharedMajors, secondaryMajors: secondaryMajors,
       relatedRecords: relatedRecords,
       entities: entities,

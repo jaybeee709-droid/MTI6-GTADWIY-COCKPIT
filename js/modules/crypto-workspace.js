@@ -1,4 +1,4 @@
-/* MTI6-GTADWIY-COCKPIT — Crypto Workspace Frame (CW-2)
+/* MTI6-GTADWIY-COCKPIT — Crypto Workspace Frame (CW-2; CW-3 core depth)
  *
  * ONE route (crypto-ws) renders every Crypto World workspace from
  * the Screen Registry (js/crypto-workspace-registry.js) through the
@@ -31,6 +31,16 @@
  * Expansion-gated seats render the F-6 seat frame: what the
  * workspace will be, the verified related material that feeds it
  * today, and the explicit gap. Nothing is invented to fill a seat.
+ *
+ * CW-3 (registry §5) adds the CORE workspaces' workspace-specific
+ * primary content — the Network / Protocol / Asset universes, the
+ * Positions & Holdings state, the Risk & Security state, the
+ * measured Crypto World health rollup and the Observation
+ * Surfaces — derived by CryptoWorkspace.workspaceData().core from
+ * the same canonical records and handed-in layer state. The other
+ * core surfaces (home, globe, opportunities, positions, security,
+ * encyclopedia, bot-ops) keep their existing dedicated screens;
+ * nothing here forks them.
  *
  * View level is a frame-level preference (F-12): one switch, shared
  * by all workspaces, a pure view over the same records.
@@ -74,6 +84,9 @@
   async function gather() {
     var inputs = { records: [], opportunities: [], positions: [], costRecords: [],
       riskProfiles: [], alerts: [], assignments: [], graph: null,
+      protocolTwins: [], assetTwins: [], riskDimensionNames: [], pipelineStates: [],
+      positionSummary: null, alertSummary: null, layerCounts: [], apiUsage: null,
+      routerHealth: null,
       loaded: { opportunities: false, positions: false, costs: false, risks: false,
         alerts: false, assignments: false, graph: false } };
     var CW = global.CryptoWorld;
@@ -111,6 +124,50 @@
         var g = res && res.graph ? res.graph : (res && res.nodes ? res : null);
         if (g && g.nodes) { inputs.graph = g; inputs.loaded.graph = true; }
       } catch (e) {}
+    }
+    // CW-3 core-depth hand-ins: the intelligence layers' own
+    // derivations over the same canonical identities (twin records,
+    // canonical dimension/stage vocabularies, layer summaries) —
+    // handed to the resolver, never re-derived from a second source.
+    if (global.ProtocolIntelligence) {
+      var pt = safeCall(function () { return global.ProtocolIntelligence.listProtocols(); });
+      if (Array.isArray(pt)) inputs.protocolTwins = pt;
+    }
+    if (global.AssetIntelligence) {
+      var at = safeCall(function () { return global.AssetIntelligence.listAssets(); });
+      if (Array.isArray(at)) inputs.assetTwins = at;
+    }
+    if (global.RiskIntelligence) {
+      var dn = safeCall(function () { return global.RiskIntelligence.canonicalDimensions(); });
+      if (Array.isArray(dn)) inputs.riskDimensionNames = dn;
+    }
+    if (global.OpportunityIntelligence) {
+      var pst = safeCall(function () { return global.OpportunityIntelligence.PIPELINE_STATES; });
+      if (Array.isArray(pst)) inputs.pipelineStates = pst;
+    }
+    if (global.PositionIntelligence) {
+      var psum = safeCall(function () { return global.PositionIntelligence.summary(); });
+      if (psum) inputs.positionSummary = psum;
+    }
+    if (global.AngelSecurity) {
+      var asum = safeCall(function () { return global.AngelSecurity.summary(); });
+      if (asum) inputs.alertSummary = asum;
+    }
+    if (global.GlobeIntelligence) {
+      var lc = safeCall(function () { return global.GlobeIntelligence.listLayers(); });
+      if (Array.isArray(lc)) {
+        inputs.layerCounts = lc.map(function (l) {
+          return { id: l.id, count: l.count, state: l.state };
+        });
+      }
+    }
+    if (global.ApiRegistry) {
+      var au = safeCall(function () { return global.ApiRegistry.getUsage(); });
+      if (Array.isArray(au)) inputs.apiUsage = au;
+    }
+    if (global.ProviderRouter) {
+      var rh = safeCall(function () { return global.ProviderRouter.health(); });
+      if (rh) inputs.routerHealth = rh;
     }
     return inputs;
   }
@@ -236,6 +293,306 @@
     return panel("Primary — Activities", kids);
   }
 
+  // ---- CW-3 core workspace depth -------------------------------------
+  //
+  // Workspace-specific primary content for the CORE workspaces
+  // (registry §5, CW-3), rendered from CryptoWorkspace's core
+  // derivations over the same canonical records — no new data, no
+  // new stores, no per-workspace page forks (§91). View levels
+  // change how much of the SAME records is shown, never which
+  // truth (F-12): entity names render at every level; definitions,
+  // full link lists and provenance detail join at ADVANCED / ALL.
+
+  function corePanel(ws, data, level) {
+    var core = data.core || {};
+    switch (ws.workspaceId) {
+      case "networks": return coreNetworks(core, level);
+      case "protocols": return coreProtocols(core, level);
+      case "markets-assets": return coreMarkets(core, level);
+      case "portfolio": return corePortfolio(core, data);
+      case "risk": return coreRisk(core, data);
+      case "intelligence": return coreIntelligence(core, data);
+      case "live-data": return coreLiveData(core);
+      default: return null;
+    }
+  }
+
+  function coreNetworks(core, level) {
+    if (!core.networks) return null;
+    var t = core.networkTotals || {};
+    var kids = [meta(core.networks.length + " canonical networks · " + t.withNativeAsset +
+      " with a native asset recorded on the record · " + t.protocolLinks +
+      " recorded protocol→network links. Identity records only — no live chain state is attached to an identity (F-8).")];
+    core.networks.forEach(function (n) {
+      var rec = n.record;
+      var box = U.el("div", { class: "cw2-major" }, [
+        U.el("div", { class: "cw2-major-head" }, [
+          U.el("a", { href: "#/encyclopedia/" + encodeURIComponent(rec.id), class: "cw2-rec-link" }, rec.title || rec.id),
+          U.el("span", { class: "cw2-rec-state" }, rec.verificationStatus || "UNKNOWN")
+        ])
+      ]);
+      box.appendChild(row("Chain ID", n.chainId !== null ? String(n.chainId)
+        : "no numeric chain id recorded on this record"));
+      if (n.nativeAsset) {
+        box.appendChild(U.el("div", { class: "status-row" }, [
+          U.el("span", {}, "Native asset (recorded)"),
+          U.el("a", { href: "#/encyclopedia/" + encodeURIComponent(n.nativeAsset.id), class: "cw2-rec-link" },
+            n.nativeAsset.title || n.nativeAsset.id)
+        ]));
+      } else {
+        box.appendChild(row("Native asset",
+          "NOT RECORDED on this record — the deferred Batch 1 native-asset backfill; never filled by name or ticker matching"));
+      }
+      box.appendChild(row("Assets recorded on this network", String(n.assets.length)));
+      box.appendChild(row("Protocols recorded on this network", String(n.protocols.length)));
+      if (level !== "STANDARD") {
+        if (rec.definition) box.appendChild(meta(rec.definition));
+        if (n.assets.length) {
+          box.appendChild(U.el("h4", {}, "Assets"));
+          n.assets.forEach(function (a) { box.appendChild(recordLine(a, 1)); });
+        }
+        if (n.protocols.length) {
+          box.appendChild(U.el("h4", {}, "Protocols"));
+          n.protocols.forEach(function (p) { box.appendChild(recordLine(p, 1)); });
+        }
+        if (level === "ALL") {
+          box.appendChild(meta("Source: " + (rec.source || "not recorded") + " · " +
+            (rec.importBatch || "batch not recorded") +
+            (rec.aliases && rec.aliases.length ? " · aliases: " + rec.aliases.join(", ") : "")));
+        }
+      }
+      kids.push(box);
+    });
+    return panel("Primary — Network Universe (CW-3)", kids);
+  }
+
+  function coreProtocols(core, level) {
+    if (!core.protocols) return null;
+    var kids = [meta(core.protocols.length + " canonical protocols · categories are the ProtocolIntelligence classifications of the same identities · activity links are each protocol's own recorded activityRefs — Chainlink and Pyth record NONE intentionally (registry §1G) and anchor the Oracle workspace through the oracle types instead.")];
+    var byCat = {};
+    core.protocols.forEach(function (p) {
+      var c = p.category || "NOT_RECORDED";
+      (byCat[c] = byCat[c] || []).push(p);
+    });
+    Object.keys(byCat).sort().forEach(function (cat) {
+      kids.push(U.el("h4", {}, "Category: " + (cat === "NOT_RECORDED" ? "not recorded" : cat)));
+      byCat[cat].forEach(function (p) {
+        var rec = p.record;
+        var box = U.el("div", { class: "cw2-major" }, [
+          U.el("div", { class: "cw2-major-head" }, [
+            U.el("a", { href: "#/encyclopedia/" + encodeURIComponent(rec.id), class: "cw2-rec-link" }, rec.title || rec.id),
+            U.el("span", { class: "cw2-rec-state" }, (rec.verificationStatus || "UNKNOWN") + " · " +
+              p.networks.length + " networks · " + p.activities.length + " activities")
+          ])
+        ]);
+        if (rec.formerName) {
+          box.appendChild(meta("Formerly " + rec.formerName + " — one canonical identity across the rebrand; the id never changes."));
+        }
+        if (!p.activities.length) {
+          box.appendChild(meta("No recorded activityRefs — intentional on this record (see its recorded note); no activity relationship is fabricated to fill the field."));
+        } else {
+          box.appendChild(meta("Activities: " + p.activities.map(function (a) {
+            return a.record ? (a.record.title || a.record.id) : "not recorded";
+          }).join(" · ")));
+        }
+        box.appendChild(meta("Networks: " + (p.networks.length
+          ? p.networks.map(function (n) { return n.title || n.id; }).join(" · ")
+          : "none recorded")));
+        if (level !== "STANDARD") {
+          if (rec.definition) box.appendChild(meta(rec.definition));
+          p.activities.forEach(function (a) {
+            if (!a.record) return;
+            var wsObj = a.workspaceId ? global.CryptoWorkspaceRegistry.getWorkspace(a.workspaceId) : null;
+            box.appendChild(U.el("div", { class: "cw2-rec cw2-rec--i1" }, [
+              U.el("a", { href: "#/encyclopedia/" + encodeURIComponent(a.record.id), class: "cw2-rec-link" },
+                a.record.title || a.record.id),
+              wsObj ? U.el("a", { href: global.CryptoWorkspaceRegistry.hrefFor(wsObj, a.record.id), class: "cw2-rec-state" },
+                "open in " + wsObj.title) : U.el("span", { class: "cw2-rec-state" }, "")
+            ]));
+          });
+          if (level === "ALL") {
+            box.appendChild(row("Security state (ProtocolIntelligence twin)",
+              p.twin ? (p.twin.securityState || "UNKNOWN") + " — a recorded state, not an audit result" : "NOT LOADED"));
+            box.appendChild(meta("Source: " + (rec.source || "not recorded") + " · " +
+              (rec.importBatch || "batch not recorded")));
+          }
+        }
+        kids.push(box);
+      });
+    });
+    return panel("Primary — Protocol Universe (CW-3)", kids);
+  }
+
+  function coreMarkets(core, level) {
+    if (!core.assets) return null;
+    var kids = [meta(core.assets.length + " canonical assets · " + core.assetKindCounts.native + " native · " +
+      core.assetKindCounts.token + " tokens · classes are the AssetIntelligence classifications of the same identities. Identity only — a price is an observation with source and time, never part of identity (F-8): prices live on the Crypto Market screen (PriceScout) and router observations in the Live Data panel below."),
+      meta("BTC (the native asset of the Bitcoin network) and WBTC (a wrapped representation recorded on Ethereum) are distinct canonical identities — never collapsed (§40).")];
+    var byClass = {};
+    core.assets.forEach(function (a) {
+      var c = a.assetClass || "NOT_RECORDED";
+      (byClass[c] = byClass[c] || []).push(a);
+    });
+    Object.keys(byClass).sort().forEach(function (cls) {
+      kids.push(U.el("h4", {}, "Class: " + (cls === "NOT_RECORDED" ? "not recorded" : cls)));
+      byClass[cls].forEach(function (a) {
+        var rec = a.record;
+        var box = U.el("div", { class: "cw2-major" }, [
+          U.el("div", { class: "cw2-major-head" }, [
+            U.el("a", { href: "#/encyclopedia/" + encodeURIComponent(rec.id), class: "cw2-rec-link" }, rec.title || rec.id),
+            U.el("span", { class: "cw2-rec-state" }, (rec.symbol || "") + " · " + (rec.verificationStatus || "UNKNOWN"))
+          ])
+        ]);
+        if (rec.formerName) {
+          box.appendChild(meta("Formerly " + rec.formerName + " — recorded on this same record; the predecessor name never becomes a separate asset."));
+        }
+        if (a.network) {
+          box.appendChild(U.el("div", { class: "status-row" }, [
+            U.el("span", {}, "Recorded network"),
+            U.el("a", { href: "#/encyclopedia/" + encodeURIComponent(a.network.id), class: "cw2-rec-link" },
+              a.network.title || a.network.id)
+          ]));
+        } else {
+          box.appendChild(row("Recorded network", "not recorded"));
+        }
+        box.appendChild(row("Kind", rec.nativeOrToken || "not recorded"));
+        if (level !== "STANDARD") {
+          if (rec.definition) box.appendChild(meta(rec.definition));
+          if (a.hasContract) {
+            box.appendChild(row("Contract address (recorded twin anchor)", a.twin.contractAddress));
+          }
+          if (level === "ALL") {
+            box.appendChild(meta("Source: " + (rec.source || "not recorded") + " · " +
+              (rec.importBatch || "batch not recorded")));
+          }
+        }
+        kids.push(box);
+      });
+    });
+    return panel("Primary — Asset Universe (CW-3)", kids);
+  }
+
+  function corePortfolio(core, data) {
+    var kids = [];
+    var ps = core.positionsSummary || { loaded: false, summary: null };
+    if (!ps.loaded) {
+      kids.push(meta("PositionIntelligence did not load — position state is NOT LOADED, not zero."));
+    } else {
+      var s = ps.summary;
+      kids.push(row("Recorded positions", String(s.total)));
+      kids.push(row("Open positions", String(s.open)));
+      kids.push(row("Total value", s.totalValue === null || s.totalValue === undefined
+        ? "UNAVAILABLE — no position source is connected; an unavailable value is never shown as zero"
+        : String(s.totalValue)));
+      kids.push(row("Total PnL", s.totalPnl === null || s.totalPnl === undefined
+        ? "UNAVAILABLE — never derived from an unavailable value" : String(s.totalPnl)));
+      if (s.note) kids.push(meta(s.note));
+    }
+    kids.push(meta("The holdings majors (Hold & Store Assets, Transfer Assets) drill down in Primary above. Transfer Assets carries 6 Types and ZERO recorded Strategies — an honest taxonomy gap (registry R-2); Batch C remains a separate owner freeze and nothing is backfilled here."));
+    kids.push(meta("Balances and wallet accounts live in Wallet Intelligence under the §79 boundary — this workspace reads the same PositionIntelligence records and never duplicates a balance."));
+    kids.push(linkBtn("#/positions", "Open the Positions screen"));
+    kids.push(linkBtn("#/wallets", "Open Wallet Intelligence"));
+    return panel("Primary — Positions & Holdings State (CW-3)", kids);
+  }
+
+  function coreRisk(core, data) {
+    if (!core.risk) return null;
+    var r = core.risk;
+    var kids = [meta(r.dimensions.length + " canonical RiskIntelligence dimensions · " + r.profiles +
+      " recorded risk profile(s). Risk renders as dimensions with evidence — no single score, no unexplained colour (F-14).")];
+    r.dimensions.forEach(function (d) {
+      kids.push(row(d.name, r.profiles ? d.assessed + " profile(s) assess it" : "NO RECORDED PROFILE"));
+    });
+    kids.push(U.el("h4", {}, "AngelSecurity — recorded alert state"));
+    if (r.alertSummary) {
+      var s = r.alertSummary;
+      kids.push(row("Alert state", s.state || "UNKNOWN"));
+      kids.push(row("Recorded alerts", String(s.count)));
+      kids.push(row("Confirmed (recorded)", String(s.confirmedCount || 0)));
+      if (s.byState) {
+        Object.keys(s.byState).forEach(function (st) {
+          kids.push(row("Alerts — " + st, String(s.byState[st])));
+        });
+      }
+      if (s.note) kids.push(meta(s.note));
+    } else if (!data.alerts.loaded) {
+      kids.push(meta("AngelSecurity did not load — alert state is NOT LOADED."));
+    } else {
+      kids.push(row("Recorded alerts in scope", String(data.alerts.records.length)));
+    }
+    kids.push(row("Globe-reddening states (CONFIRMED / ACTIVE / MITIGATING)",
+      r.verifiedActive + " recorded — the Globe's Alert Mode is driven only by these states"));
+    kids.push(meta("Impact tracing (§58: oracle → protocol → strategy → opportunity → position) runs through the Dependencies and Graph panels over World Engine edges only. No live detectors exist — alerts enter only through the owner intake on the Security screen."));
+    kids.push(linkBtn("#/security", "Open the Security screen"));
+    return panel("Primary — Risk & Security State (CW-3)", kids);
+  }
+
+  function coreIntelligence(core, data) {
+    if (!core.health) return null;
+    var h = core.health, bl = h.byLevel || {};
+    var kids = [meta("A measured rollup over the canonical records and the World Engine — the same derivations every surface shares (§103). This panel never prints a HEALTHY verdict: while supporting systems are UNKNOWN or NOT_CONNECTED, their states stay labelled (§104).")];
+    kids.push(row("Canonical records", String(h.recordsTotal)));
+    kids.push(row("Families / Majors / Types / Strategies",
+      (bl.FAMILY || 0) + " / " + (bl.MAJOR_ACTIVITY || 0) + " / " + (bl.TYPE || 0) + " / " + (bl.STRATEGY || 0)));
+    kids.push(row("Action / Sub-action records",
+      String((bl.ACTION || 0) + (bl.SUB_ACTION || 0)) + " — the drill-down honestly ends at Strategy"));
+    kids.push(row("Entities (networks / assets / protocols)",
+      h.entities.networks + " / " + h.entities.assets + " / " + h.entities.protocols));
+    kids.push(row("Verified records", h.verified + " of " + h.recordsTotal + " — import status is not verification"));
+    if (h.graph) {
+      kids.push(row("World Engine graph (measured)",
+        h.graph.nodes + " nodes · " + h.graph.relationships + " relationships · " + h.graph.unresolved + " unresolved"));
+    } else {
+      kids.push(row("World Engine graph", "NOT LOADED"));
+    }
+    if (h.layers && h.layers.length) {
+      kids.push(row("Globe layers (recorded counts)",
+        h.layers.map(function (l) { return l.id + " " + l.count; }).join(" · ")));
+    } else {
+      kids.push(row("Globe layers", "NOT LOADED"));
+    }
+    var pipe = core.pipeline || { loaded: false, total: 0, states: [] };
+    kids.push(row("Opportunity pipeline", pipe.loaded
+      ? pipe.total + " recorded across " + pipe.states.length + " stages — terminal PREPARED, never EXECUTED"
+      : "NOT LOADED"));
+    kids.push(row("Recorded positions", data.positions.loaded ? String(data.positions.records.length) : "NOT LOADED"));
+    kids.push(row("Workers active", "0 — NOT_CONNECTED (record systems only; no worker runtime exists)"));
+    return panel("Primary — Crypto World Health (CW-3)", kids);
+  }
+
+  function coreLiveData(core) {
+    if (!core.liveData) return null;
+    var ld = core.liveData;
+    var kids = [meta("MTI6's genuine in-app observation chains and their MEASURED usage (ApiRegistry, this device). A provider with no recorded calls has UNKNOWN health — no calls is neither failure nor success. Registry status is the declared integration state; the measured calls are the evidence.")];
+    if (!ld.usageLoaded) {
+      kids.push(meta("ApiRegistry did not load — usage state is NOT LOADED."));
+    } else {
+      var crypto = ld.usage.filter(function (u) { return u && u.category === "crypto"; });
+      if (!crypto.length) kids.push(meta("No crypto-category providers are registered."));
+      crypto.forEach(function (u) {
+        kids.push(row(u.name || u.id,
+          "registry: " + (u.status || "UNKNOWN") + " · calls today " + (u.callsToday || 0) +
+          " · success " + (u.success || 0) + " · fail " + (u.fail || 0) +
+          (u.lastStatus ? " · last " + u.lastStatus : " · no call recorded")));
+      });
+    }
+    kids.push(U.el("h4", {}, "Capability Router provider health (measured)"));
+    if (!ld.routerHealth) {
+      kids.push(meta("The Capability Router did not load — router health is NOT LOADED."));
+    } else {
+      Object.keys(ld.routerHealth).forEach(function (id) {
+        var hh = ld.routerHealth[id];
+        kids.push(row(hh.name || id,
+          hh.state + " · calls today " + (hh.callsToday || 0) + " · success " + (hh.successToday || 0) +
+          " · fail " + (hh.failToday || 0) + (hh.breakerOpen ? " · CIRCUIT BREAKER OPEN" : "")));
+      });
+      kids.push(meta("Router chains are policy data — DefiLlama free endpoints for protocol/chain data, DexScreener for DEX pairs — exercised on tap in the Live Data panel below. Yields remain a recorded capability gap (the free endpoints moved to a paid plan on 2026-11-13); nothing is subscribed and no yield figure is faked."));
+    }
+    kids.push(meta("Asset prices are owned by PriceScout (CoinGecko → Coinbase → CoinPaprika fallback chain) on the Crypto Market screen — the Capability Router deliberately does not duplicate the price chain."));
+    kids.push(linkBtn("#/crypto", "Open Crypto Market (PriceScout)"));
+    return panel("Primary — Observation Surfaces (CW-3)", kids);
+  }
+
   // ---- context panels --------------------------------------------------------
 
   function entityPanel(kindLabel, records, totals, ws) {
@@ -269,11 +626,23 @@
     out.push(panel("Strategies", [meta(typeCount + " Types · " + stratCount +
       " Strategies in this workspace's primary scope — drilled down in Primary above, defined in the Encyclopedia (F-19).")]));
     var opp = data.opportunities;
-    out.push(panel("Opportunities", [meta(!opp.loaded
+    var oppKids = [meta(!opp.loaded
       ? "OpportunityIntelligence did not load — opportunity state is NOT LOADED, not zero."
       : opp.records.length
         ? opp.records.length + " recorded opportunit" + (opp.records.length === 1 ? "y" : "ies") + " in scope. The pipeline tops at PREPARED — never EXECUTED."
-        : "0 opportunities recorded in this workspace's scope (" + opp.total + " recorded platform-wide). Zero is a measured empty, not a feed failure.")]));
+        : "0 opportunities recorded in this workspace's scope (" + opp.total + " recorded platform-wide). Zero is a measured empty, not a feed failure.")];
+    // CW-3: when records exist, the panel shows the real pipeline
+    // counted by recorded stage (platform-wide derivation) — stages
+    // and counts only, never an invented record.
+    var pipe = data.core && data.core.pipeline;
+    if (opp.loaded && pipe && pipe.total > 0) {
+      oppKids.push(U.el("h4", {}, "Pipeline by recorded stage (platform-wide)"));
+      pipe.states.forEach(function (s) {
+        if (pipe.byStage[s]) oppKids.push(row(s, String(pipe.byStage[s])));
+      });
+      oppKids.push(meta("Terminal stage PREPARED — the pipeline never reaches EXECUTED."));
+    }
+    out.push(panel("Opportunities", oppKids));
     var pos = data.positions;
     out.push(panel("Positions", [meta(!pos.loaded
       ? "PositionIntelligence did not load — position state is NOT LOADED, not zero."
@@ -305,7 +674,8 @@
     else if (!ws.riskDimensions.length) riskKids.push(meta("No risk dimensions are registered for this workspace."));
     else {
       data.risks.dimensions.forEach(function (d) {
-        riskKids.push(row("Risk " + d.code + (d.dimension ? " (" + d.dimension + ")" : " (no canonical dimension recorded)"),
+        riskKids.push(row("Risk " + (d.expandedAll ? d.code
+          : d.code + (d.dimension ? " (" + d.dimension + ")" : " (no canonical dimension recorded)")),
           data.risks.profiles.length ? d.assessed + " profile(s) assess it" : "NO RECORDED PROFILE"));
       });
       riskKids.push(meta("Risk renders as dimensions with evidence — no single score, no unexplained colour (F-14). " +
@@ -636,6 +1006,11 @@
     // PRIMARY
     var primary = primaryPanel(ws, data, level, contextId, inputs);
     if (primary) root.appendChild(primary);
+
+    // CW-3 core depth: workspace-specific primary content for the
+    // core workspaces (registry §5); null for every other workspace.
+    var core3Panel = corePanel(ws, data, level);
+    if (core3Panel) root.appendChild(core3Panel);
 
     // CONTEXT + INTELLIGENCE — STANDARD shows the F-9 essentials;
     // ADVANCED/ALL show every panel. Same data at every level.
