@@ -32,7 +32,9 @@
  *   public tiers and keyed dashboards are authoritative for their own
  *   limits. Where a provider publishes a limit, it is recorded below
  *   with its window; where it does not, the limit is "unknown" and
- *   the panel says so instead of inventing a number.
+ *   the panel says so instead of inventing a number. Monthly
+ *   windows count this calendar month's calls (monthCalls), so a
+ *   monthly quota survives day rollovers.
  *
  * CORS verification (Oct 31, 2026, via response headers):
  *   CoinGecko, Coinbase, CoinPaprika, Open-Meteo, Frankfurter, and
@@ -75,6 +77,19 @@
     { id: "open-meteo-geocoding", category: "geocoding", name: "Open-Meteo Geocoding", auth: "none", cors: true, browserDirect: true, status: "live", note: "Place-name search for the Globe via the Capability Router (WorldData.geocode). Same operator/terms family as Open-Meteo weather: free tier, non-commercial. Photon is a CANDIDATE secondary — not wired.", limit: { calls: 10000, window: "day", note: "Free-tier guideline ≈10,000 calls/day (provider-level, as catalogued for Open-Meteo)." }, ttlMs: 24 * 60 * 60 * 1000 },
     { id: "usgs-earthquakes", category: "geohazards", name: "USGS Earthquake Catalog", auth: "none", cors: true, browserDirect: true, status: "live", note: "Real-time GeoJSON summary feeds (the surface USGS directs automated display to). WorldData.earthquakes reads the M4.5+ past-day feed; markers are the events' real coordinates. US public domain.", limit: { calls: null, window: null, note: "No rate limit published — recorded UNKNOWN in the source catalog; the router self-imposes 60 calls/min." }, ttlMs: 5 * 60 * 1000 },
     { id: "nasa-eonet", category: "events", name: "NASA EONET", auth: "none", cors: true, browserDirect: true, status: "live", note: "Curated natural events (wildfires, storms, volcanoes…) via WorldData.naturalEvents. Each event keeps the upstream source EONET records for it. Does NOT use the api.nasa.gov key gateway.", limit: { calls: null, window: null, note: "No quota published — recorded UNKNOWN in the source catalog; the router self-imposes 60 calls/min." }, ttlMs: 30 * 60 * 1000 },
+    // Transit — World Data → Transit/Transportation (World Globe branch,
+    // NOT Crypto World). The FIRST proxy-routed provider in the router
+    // (v116, owner rulings D1 + D2 + D3, 2026-11-17): the key lives
+    // ONLY in the Netlify env var TRANSITLAND_API_KEY (Functions
+    // scope) and the browser never sees it. Explorer plan,
+    // non-commercial use; per-agency data governance. Routing
+    // Platform is DISABLED in MTI6 v1 — its separate 1,000/month
+    // quota is untouched. Interline dashboard is authoritative for
+    // remaining quota; this device counts only its own calls.
+    // ttlMs here is the provider default (stops, slow-changing);
+    // departures use their own 3-minute policy in the router
+    // (map D9 proposal — awaiting the owner's ruling).
+    { id: "transitland", category: "transit", name: "Transitland REST API (Interline)", auth: "server_key", cors: false, browserDirect: false, status: "live", note: "World Data → Transit/Transportation (World Globe branch, NOT Crypto World). First proxy-routed provider: the key lives ONLY in the Netlify env var TRANSITLAND_API_KEY (Functions scope); the browser never sees it. Explorer plan, non-commercial use; per-agency data governance. Routing Platform is DISABLED in MTI6 v1 — its separate 1,000/month quota is untouched. Interline dashboard is authoritative for remaining quota; this device counts only its own calls.", limit: { calls: 5000, window: "month", note: "Explorer plan: REST 5,000/month; Routing 1,000/month is a separate quota (Routing disabled in MTI6 v1). MTI6's internal budget is 4,000 REST/month with a 1,000-call reserve — see js/provider-router.js TRANSIT_MONTHLY_BUDGET. Interline dashboard is authoritative." }, ttlMs: 24 * 60 * 60 * 1000 },
     { id: "defillama", category: "crypto", name: "DefiLlama (free API)", auth: "none", cors: true, browserDirect: true, status: "live", note: "Protocol/chain TVL via CryptoData.protocol / CryptoData.chain — FREE endpoints only. The former free yield endpoints moved to the paid plan on 2026-11-13: yields are a capability gap (owner decision), never called. TVL is DefiLlama's aggregate under its own methodology — labelled, never presented as on-chain-verified.", limit: { calls: null, window: null, note: "No figure in the official docs; secondary sources report ≈300 requests / 5 min per IP. The router governor runs at 50/min and caches the /protocols snapshot instead of looping." }, ttlMs: 30 * 60 * 1000 },
     { id: "dexscreener", category: "crypto", name: "DexScreener", auth: "none", cors: true, browserDirect: true, status: "live", note: "DEX pair/token observations via CryptoData.dexPairsForToken — an indexer (current state only, no OHLCV/history), never a canonical identity authority.", limit: { calls: 300, window: "minute", note: "Documented: 300 requests/min for pairs/tokens/search; 60/min for profiles/boosts (not used). The router governor runs just under the documented limit." }, ttlMs: 5 * 60 * 1000 },
     { id: "frankfurter", category: "forex", name: "Frankfurter (ECB rates)", auth: "none", cors: true, browserDirect: true, status: "live", note: "European Central Bank reference rates, no key. Useful for currency conversion alongside prices. Current host is https://api.frankfurter.dev/v1/latest — the old api.frankfurter.app host now redirects there. No cockpit code calls Frankfurter yet; use the new host when a forex feature is built.", limit: { calls: null, window: null, note: "Fair use; no published hard limit in the registry." }, ttlMs: 60 * 60 * 1000 },
@@ -107,6 +122,17 @@
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
   }
 
+  // Calendar-month key for monthly quotas (added for Transitland,
+  // 2026-11-17, package 3). Monthly counters survive day
+  // rollovers — the day counters reset daily, the month counters
+  // only on a new calendar month. Records written before this
+  // field existed carry no month; they start fresh in the current
+  // month rather than inheriting a stale count.
+  function monthKey() {
+    var d = new Date();
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+  }
+
   function loadUsage() {
     try {
       var raw = global.localStorage && global.localStorage.getItem(USAGE_KEY);
@@ -123,12 +149,25 @@
   function record(apiId, ok, status) {
     var usage = loadUsage();
     var day = todayKey();
+    var month = monthKey();
     if (!usage[apiId] || usage[apiId].day !== day) {
-      usage[apiId] = { day: day, calls: 0, success: 0, fail: 0, lastAt: null, lastOk: null, lastStatus: null, recent: [] };
+      // Day rollover resets the daily counters but PRESERVES the
+      // monthly counters when the stored record is from this
+      // calendar month; a new month (or a pre-month-field record)
+      // resets them below.
+      usage[apiId] = { day: day, calls: 0, success: 0, fail: 0, lastAt: null, lastOk: null, lastStatus: null, recent: [],
+        month: (usage[apiId] && usage[apiId].month) || month,
+        monthCalls: (usage[apiId] && usage[apiId].monthCalls) || 0,
+        monthSuccess: (usage[apiId] && usage[apiId].monthSuccess) || 0,
+        monthFail: (usage[apiId] && usage[apiId].monthFail) || 0 };
     }
     var u = usage[apiId];
+    if (!u.month || u.month !== month) {
+      u.month = month; u.monthCalls = 0; u.monthSuccess = 0; u.monthFail = 0;
+    }
     u.calls += 1;
-    if (ok) u.success += 1; else u.fail += 1;
+    u.monthCalls += 1;
+    if (ok) { u.success += 1; u.monthSuccess += 1; } else { u.fail += 1; u.monthFail += 1; }
     u.lastAt = new Date().toISOString();
     if (ok) u.lastOk = u.lastAt;
     if (status !== undefined && status !== null) u.lastStatus = status;
@@ -141,17 +180,32 @@
   function getUsage() {
     var usage = loadUsage();
     var day = todayKey();
+    var month = monthKey();
     return ENTRIES.map(function (e) {
-      var u = usage[e.id] && usage[e.id].day === day ? usage[e.id] : { calls: 0, success: 0, fail: 0, lastAt: null, lastOk: null, lastStatus: null, recent: [] };
+      var stored = usage[e.id] || null;
+      // The daily row resets when the day is stale — but the
+      // MONTHLY count survives day rollovers: it is read from the
+      // stored record whenever that record is from this calendar
+      // month, even if its day is yesterday. A record from a
+      // previous month counts as zero for this month.
+      var sameMonth = stored && stored.month === month;
+      var u = stored && stored.day === day ? stored : { calls: 0, success: 0, fail: 0, lastAt: null, lastOk: null, lastStatus: null, recent: [] };
+      var callsThisMonth = sameMonth ? (stored.monthCalls || 0) : 0;
       var perMinute = (u.recent || []).filter(function (t) { return Date.now() - t < 60 * 1000; }).length;
       var estimatedRemaining = null;
       if (e.limit && e.limit.calls && e.limit.window === "minute") estimatedRemaining = Math.max(0, e.limit.calls - perMinute);
       if (e.limit && e.limit.calls && e.limit.window === "hour") estimatedRemaining = Math.max(0, e.limit.calls - u.calls);
       if (e.limit && e.limit.calls && e.limit.window === "day") estimatedRemaining = Math.max(0, e.limit.calls - u.calls);
+      // Month window (added for Transitland, 2026-11-17, package 3):
+      // remaining is the provider allowance minus this device's
+      // calls this calendar month. The Interline dashboard stays
+      // authoritative — this is this device's count only.
+      if (e.limit && e.limit.calls && e.limit.window === "month") estimatedRemaining = Math.max(0, e.limit.calls - callsThisMonth);
       return {
         id: e.id, category: e.category, name: e.name, status: e.status, auth: e.auth,
         cors: e.cors, browserDirect: e.browserDirect, limit: e.limit, note: e.note || "",
         callsToday: u.calls, success: u.success, fail: u.fail,
+        callsThisMonth: callsThisMonth,
         callsLastMinute: perMinute, lastAt: u.lastAt, lastOk: u.lastOk, lastStatus: u.lastStatus,
         estimatedRemaining: estimatedRemaining
       };

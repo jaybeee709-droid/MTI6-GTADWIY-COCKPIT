@@ -267,9 +267,9 @@ export default async (req) => {
   switch (action) {
     case "gateway.status":
       return envelope(true, "gateway", {
-        providers: [],
-        actions: ["gateway.status", "gateway.ping"],
-        note: "No provider is configured yet. Star remains in demo mode."
+        providers: ["transitland"],
+        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures"],
+        note: "Transitland (World Data → Transit/Transportation) is configured behind the proxy as a Capability Router provider. STAR remains in demo mode — no AI backend is connected."
       }, null, 200);
     case "gateway.ping":
       return envelope(true, "gateway", { pong: true }, null, 200);

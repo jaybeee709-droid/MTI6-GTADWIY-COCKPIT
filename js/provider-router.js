@@ -58,6 +58,20 @@
  *     capability-gap shape and makes ZERO network calls.
  *   - DEX pairs: DexScreener (§8 — an observation source, never a
  *     canonical identity authority), within its documented limits.
+ *   - Transit (World Data → Transit/Transportation, Globe branch):
+ *     Transitland REST API (Interline) via the server-side proxy —
+ *     the FIRST proxy-routed provider in this router (v116, owner
+ *     rulings D1 + D2 + D3, 2026-11-17). The key lives ONLY in the
+ *     Netlify env var TRANSITLAND_API_KEY and never reaches page
+ *     code. v1 scope is STOPS + DEPARTURES only; Routing is
+ *     disabled. Transit is a provider-neutral capability by
+ *     design: Transitland is the PRIMARY provider behind a
+ *     registration interface (ProviderRouter.Transit), so a later
+ *     secondary can be added without rewriting Globe or STAR.
+ *     Monthly quota is governed here (D3): hard MTI6 budget 4,000
+ *     REST calls/month, 1,000-call reserve untouched, warn 75%,
+ *     critical 90%, block nonessential calls at 100%, never
+ *     auto-upgrade. See TRANSIT_* below.
  */
 (function (global) {
   "use strict";
@@ -124,8 +138,45 @@
       budgetNote: "Documented: 300 requests/min for the pairs/tokens/search group (60/min for profiles/boosts, not used here). Governor runs just under the documented limit.",
       timeoutMs: 9000,
       breaker: { threshold: 3, cooldownMs: 5 * 60 * 1000 }
+    },
+    "transitland": {
+      name: "Transitland REST API (Interline)", registryId: "transitland",
+      serviceArea: "Global (2,500+ agency feeds; feed-dependent)",
+      costState: "FREE_KEY_REQUIRED",
+      minIntervalMs: 200, budget: { calls: 30, windowMs: 60 * 1000 },
+      budgetNote: "Transitland publishes no per-minute rate; 30/min is a conservative MTI6 self-imposed cap, not a Transitland figure. The monthly budget is separate — see TRANSIT_MONTHLY_BUDGET.",
+      timeoutMs: 12000,
+      breaker: { threshold: 3, cooldownMs: 5 * 60 * 1000 }
     }
   };
+
+  // ------------------------------------------------------------------
+  // Transit monthly quota + provider state machine (v116, owner
+  // rulings D1 + D2 + D3 + fallback direction, 2026-11-17).
+  // Explorer's PROVIDER allowance is 5,000 REST calls/month;
+  // MTI6's internal budget is 4,000 and the remaining 1,000 is a
+  // reserve the router NEVER spends (testing / recovery / manual
+  // use). Routing is DISABLED in v1, so its separate 1,000/month
+  // quota is untouched. The Interline dashboard is authoritative
+  // for remaining quota — the router counts only this device's
+  // calls (ApiRegistry, localStorage mti6_api_usage_v1).
+  // ------------------------------------------------------------------
+  var TRANSIT_PROVIDER_ALLOWANCE = 5000; // Explorer REST/month (provider)
+  var TRANSIT_MONTHLY_BUDGET = 4000;     // MTI6 hard internal budget
+  var TRANSIT_MONTHLY_RESERVE = 1000;    // untouched by the router
+  var TRANSIT_QUOTA_WARN_AT = 0.75;      // warn
+  var TRANSIT_QUOTA_CRITICAL_AT = 0.90;  // critical warning
+  var TRANSIT_ROUTING_ENABLED = false;   // D2: no journey routing in v1
+  // The eight provider states the owner direction requires. A
+  // transit capability result always carries one of these as
+  // transitState; ProviderRouter.Transit.state() reports the
+  // current one. FALLBACK_ACTIVE cannot occur in v1 — no secondary
+  // provider is registered — and the harness proves it never does.
+  var TRANSIT_STATES = ["PRIMARY_AVAILABLE", "FALLBACK_ACTIVE", "CACHE_ACTIVE",
+    "DEGRADED", "QUOTA_WARNING", "QUOTA_EXHAUSTED", "PROVIDER_ERROR", "NO_DATA"];
+  var transitInFlight = 0;      // transit attempts started, not yet recorded
+  var lastTransitOutcome = null; // { state, at, quota, provider, detail }
+  var TRANSIT_FALLBACKS = [];   // registered secondary providers (none in v1)
 
   var BACKOFF_BASE_MS = 1000;         // exponential backoff: 1s, 2s, 4s… capped
   var BACKOFF_CAP_MS = 30 * 1000;
@@ -178,7 +229,17 @@
     protocol:      { ttlMs: 2 * 60 * 60 * 1000, minFreshMs: 5 * 60 * 1000 },
     chain:         { ttlMs: 2 * 60 * 60 * 1000, minFreshMs: 5 * 60 * 1000 },
     dexPairs:      { ttlMs: 5 * 60 * 1000, minFreshMs: 60 * 1000 },
-    price:         { ttlMs: 60 * 1000, minFreshMs: 30 * 1000 }
+    price:         { ttlMs: 60 * 1000, minFreshMs: 30 * 1000 },
+    // Transit (v116, D3 + D9 proposal — the TTLs are the map's
+    // conservative proposal; D9 itself is NOT ruled, so they are
+    // flagged as awaiting the owner's ruling): stops are
+    // slow-changing reference data and cache aggressively (24 h
+    // TTL, 1 h minimum useful refresh). Departures age in minutes
+    // and are NEVER served as CURRENT from cache — minFreshMs 0
+    // means the chain always re-asks the provider; a failed chain
+    // falls back to LAST_KNOWN with its time, never CURRENT.
+    transitStops:      { ttlMs: 24 * 60 * 60 * 1000, minFreshMs: 60 * 60 * 1000 },
+    transitDepartures: { ttlMs: 3 * 60 * 1000, minFreshMs: 0 }
   };
 
   // ------------------------------------------------------------------
@@ -199,7 +260,15 @@
     naturalEvents: ["nasa-eonet"],
     protocol: ["defillama"],
     chain: ["defillama"],
-    dexPairs: ["dexscreener"]
+    dexPairs: ["dexscreener"],
+    // Transit base policy (v116): Transitland is the ONLY transit
+    // provider wired. The EFFECTIVE chain is CHAINS.transit* plus
+    // any provider registered through ProviderRouter.Transit
+    // (transitChainIds) — none is registered in v1, so the chain
+    // is exactly ["transitland"] and the fallback is the cache /
+    // LAST_KNOWN path, never a second provider.
+    transitStops: ["transitland"],
+    transitDepartures: ["transitland"]
   };
 
   // ------------------------------------------------------------------
@@ -587,8 +656,12 @@
       // §13 minimum useful refresh: a very recent success is served
       // from cache instead of re-asking the providers — unless the
       // caller explicitly asked for a fresh attempt (forceFresh,
-      // the Search This Area pattern).
-      if (cached && !opts.forceFresh && (nowMs() - cached.storedAt) <= policy.minFreshMs) {
+      // the Search This Area pattern). A minFreshMs of 0 means the
+      // capability ALWAYS re-asks (transitDepartures, v116): without
+      // the > 0 guard, a second call in the same millisecond as the
+      // cache write (age 0 <= 0) would be served from cache as
+      // CURRENT — exactly what departures must never do.
+      if (cached && !opts.forceFresh && policy.minFreshMs > 0 && (nowMs() - cached.storedAt) <= policy.minFreshMs) {
         var fresh = cachedResult(cached, policy.ttlMs, "CACHE");
         fresh.note = (fresh.note ? fresh.note + " " : "") +
           "Served from cache — within this capability's minimum useful refresh interval, so no provider was re-asked.";
@@ -1167,6 +1240,534 @@
   }
 
   // ------------------------------------------------------------------
+  // Transit (v116) — World Data → Transit/Transportation.
+  //
+  // Transitland is the PRIMARY transit provider, reached ONLY
+  // through the server-side proxy (MTI6API.request to
+  // transit.stopsNear / transit.departures — the key never leaves
+  // the server). Globe and STAR consume the WorldData.transit*
+  // capabilities below, never Transitland directly. The fallback
+  // interface (registerTransitProvider) lets a later package add
+  // a secondary provider without rewriting Globe or STAR; no
+  // secondary is registered or selected in v1.
+  //
+  // Normalized records carry provenance (provider, originalSource,
+  // observedAt, retrievedAt), freshness, and — for departures —
+  // REALTIME vs SCHEDULED. A scheduled time is never presented
+  // as a live prediction, and cached data is never presented as
+  // LIVE. Transit observations are NOT canonical records: nothing
+  // here touches WorldEngine, CockpitDB, or IndexedDB.
+  // ------------------------------------------------------------------
+
+  // Monthly quota snapshot (D3). `used` is this device's calls
+  // this calendar month (ApiRegistry, persisted) plus transit
+  // attempts started but not yet recorded. The Interline
+  // dashboard is authoritative — this is this device's count
+  // only. level "warning" at 75%, "critical" at 90%,
+  // "exhausted" at 100% of the 4,000-call MTI6 budget.
+  function transitQuota() {
+    var used = 0;
+    try {
+      if (global.ApiRegistry && typeof global.ApiRegistry.getUsage === "function") {
+        var all = global.ApiRegistry.getUsage();
+        for (var i = 0; i < all.length; i++) {
+          if (all[i].id === "transitland") { used = all[i].callsThisMonth || 0; break; }
+        }
+      }
+    } catch (e) { used = 0; }
+    used += transitInFlight;
+    var fraction = TRANSIT_MONTHLY_BUDGET > 0 ? used / TRANSIT_MONTHLY_BUDGET : 0;
+    var level = used >= TRANSIT_MONTHLY_BUDGET ? "exhausted"
+      : fraction >= TRANSIT_QUOTA_CRITICAL_AT ? "critical"
+      : fraction >= TRANSIT_QUOTA_WARN_AT ? "warning" : "ok";
+    var quotaState = used >= TRANSIT_MONTHLY_BUDGET ? "QUOTA_EXHAUSTED"
+      : level !== "ok" ? "QUOTA_WARNING" : "OK";
+    return {
+      used: used, budget: TRANSIT_MONTHLY_BUDGET,
+      reserve: TRANSIT_MONTHLY_RESERVE,
+      providerAllowance: TRANSIT_PROVIDER_ALLOWANCE,
+      fraction: fraction, level: level, quotaState: quotaState,
+      note: "MTI6 internal budget: " + TRANSIT_MONTHLY_BUDGET + " REST calls/month; " +
+        TRANSIT_MONTHLY_RESERVE + "-call reserve untouched. This device's count only — the Interline dashboard is authoritative."
+    };
+  }
+
+  // Gateway error codes (api-client.js attaches .code + .status
+  // to the thrown error) mapped onto the router's failure
+  // vocabulary. The mapping is what lets the chain tell a missing
+  // key, a provider quota refusal, and an unallowlisted action
+  // apart instead of treating every gateway failure as OFFLINE.
+  function mapGatewayTransitError(err) {
+    var code = err && err.code;
+    var status = (err && err.status !== undefined && err.status !== null) ? err.status : null;
+    var detail = (err && (err.detail || err.message)) || "";
+    if (code === "AUTH_REQUIRED") {
+      return failObj("AUTH_REQUIRED", 401,
+        "Transitland rejected the request: no key is configured server-side or the key was rejected. " +
+        "Check the TRANSITLAND_API_KEY Netlify variable — the key itself is never shown here.");
+    }
+    if (code === "RATE_LIMITED") {
+      return failObj("RATE_LIMITED", 429,
+        "Transitland refused the request: the provider's monthly quota is reached — requests are refused " +
+        "until the next-month reset. See the Interline dashboard. (MTI6's own 4,000-call budget is separate.)");
+    }
+    if (code === "NOT_FOUND") {
+      return failObj("NO_DATA", 404,
+        "Transitland found nothing for that stop or point — the provider's answer, not a claim no transit exists there.");
+    }
+    if (code === "INVALID_REQUEST") {
+      return failObj("INVALID_RESPONSE", 400,
+        "MTI6 sent an invalid transit request and the gateway rejected it before calling Transitland — our bug, not the provider's.");
+    }
+    if (code === "UNSUPPORTED_ACTION") {
+      return failObj("UNSUPPORTED", 400,
+        "Transitland is not enabled in the gateway yet (owner decision D1) — the proxy allowlist does not " +
+        "include this action, so no provider was called.");
+    }
+    if (code === "UPSTREAM_ERROR") {
+      return failObj("OFFLINE", 502, "Transitland could not be reached or returned an unexpected error.");
+    }
+    return failObj("OFFLINE", status, detail || "the gateway request failed without a gateway error code");
+  }
+
+  // One governed transit call (v116). Mirrors callProvider's §13
+  // governor shape — breaker/backoff skip, per-minute budget,
+  // serial queue with minimum interval — plus the D3 monthly
+  // quota, decided INSIDE the queued run (after the interval
+  // wait) so the count it reads is current and two queued calls
+  // cannot both slip past 4,000. A quota-blocked call spends
+  // nothing: no network attempt, no usage record. Genuine
+  // failures feed noteFailure (breaker); UNSUPPORTED and NO_DATA
+  // outcomes do not — they are chain advances, not provider
+  // damage, exactly as the router treats them elsewhere.
+  function callTransitland(action, payload) {
+    var cfg = PROVIDERS["transitland"];
+    var prev = providerQueue["transitland"] || Promise.resolve();
+    var run = prev.then(function () {
+      var skip = skipFailure("transitland");
+      if (skip) throw failObj(skip.failureState, null, skip.detail);
+      if (budgetExceeded("transitland")) {
+        throw failObj("RATE_LIMITED", null,
+          "governor: MTI6's per-minute call budget for Transitland (" + cfg.budget.calls + " calls / " +
+          Math.round(cfg.budget.windowMs / 1000) + "s) is exhausted — the provider was not called");
+      }
+      var q = transitQuota();
+      if (q.quotaState === "QUOTA_EXHAUSTED") {
+        throw failObj("RATE_LIMITED", null,
+          "MTI6 monthly transit budget (" + TRANSIT_MONTHLY_BUDGET + " REST calls) is reached — nonessential " +
+          "Transitland calls are blocked; the " + TRANSIT_MONTHLY_RESERVE + "-call reserve is untouched. " +
+          "No paid upgrade is ever made automatically.");
+      }
+      var wait = Math.max(0, (lastNetworkAt["transitland"] || 0) + cfg.minIntervalMs - nowMs());
+      return new Promise(function (res) { setTimeout(res, wait); }).then(function () {
+        lastNetworkAt["transitland"] = nowMs();
+        (windowCalls["transitland"] = windowCalls["transitland"] || []).push(nowMs());
+        transitInFlight += 1;
+        if (!global.MTI6API || typeof global.MTI6API.request !== "function") {
+          transitInFlight -= 1;
+          throw failObj("OFFLINE", null, "gateway client (MTI6API) did not load — no transit call was made");
+        }
+        return global.MTI6API.request(action, payload).then(function (envelope) {
+          transitInFlight -= 1;
+          noteSuccess("transitland");
+          try { if (global.ApiRegistry) global.ApiRegistry.record(cfg.registryId, true, 200); } catch (e) {}
+          return envelope && envelope.data !== undefined ? envelope.data : envelope;
+        }, function (err) {
+          transitInFlight -= 1;
+          var mapped = mapGatewayTransitError(err);
+          var genuine = ["RATE_LIMITED", "TIMEOUT", "AUTH_REQUIRED", "OFFLINE", "INVALID_RESPONSE"]
+            .indexOf(mapped.failureState) !== -1;
+          if (genuine) noteFailure("transitland", mapped.failureState, mapped.status);
+          try { if (global.ApiRegistry) global.ApiRegistry.record(cfg.registryId, false, mapped.status); } catch (e) {}
+          throw mapped;
+        });
+      });
+    });
+    providerQueue["transitland"] = run.then(function () {}, function () {});
+    return run;
+  }
+
+  // Normalized MTI6 transit records. Field names are the
+  // Transitland REST OpenAPI schema's (verified 2026-11-17 —
+  // https://transit.land/api/v2/rest/openapi.json), not guesses:
+  // stops carry onestop_id / stop_name / geometry.coordinates
+  // [lon, lat] / routes[]; a departure carries departure.
+  // {scheduled, scheduled_local, estimated, estimated_local} /
+  // departure_time / date / service_date / stop_headsign /
+  // schedule_relationship / trip.{route.{onestop_id,
+  // route_short_name, route_long_name, agency.{agency_name}}}.
+  // Every read is defensive — a missing field is null, never
+  // invented. Link by Onestop ID only; internal integer IDs are
+  // ephemeral and are never stored.
+  function normalizeTransitStop(raw, retrievedAtMs) {
+    if (!raw || typeof raw !== "object") return null;
+    var onestopId = typeof raw.onestop_id === "string" ? raw.onestop_id : null;
+    var name = typeof raw.stop_name === "string" ? raw.stop_name : null;
+    var coords = raw.geometry && Array.isArray(raw.geometry.coordinates) ? raw.geometry.coordinates : null;
+    var lat = coords && isNum(coords[1]) ? coords[1] : (isNum(raw.stop_lat) ? raw.stop_lat : null);
+    var lon = coords && isNum(coords[0]) ? coords[0] : (isNum(raw.stop_lon) ? raw.stop_lon : null);
+    if (!onestopId && !name) return null;
+    var routes = [];
+    if (Array.isArray(raw.routes)) {
+      raw.routes.forEach(function (r) {
+        if (!r || typeof r !== "object") return;
+        routes.push({
+          onestopId: typeof r.onestop_id === "string" ? r.onestop_id : null,
+          shortName: typeof r.route_short_name === "string" ? r.route_short_name : null,
+          longName: typeof r.route_long_name === "string" ? r.route_long_name : null,
+          agencyName: r.agency && typeof r.agency.agency_name === "string" ? r.agency.agency_name : null
+        });
+      });
+    }
+    return {
+      kind: "TRANSIT_STOP",
+      onestopId: onestopId, name: name, lat: lat, lon: lon,
+      distanceM: isNum(raw.distance) ? raw.distance : null,
+      feedOnestopId: typeof raw.feed_onestop_id === "string" ? raw.feed_onestop_id : null,
+      routesServing: routes,
+      provider: "Transitland", originalSource: "Transitland REST API",
+      observedAt: iso(retrievedAtMs), retrievedAt: iso(retrievedAtMs),
+      freshness: "CURRENT",
+      attribution: "Transitland + per-agency data (see the stop's feed)"
+    };
+  }
+
+  function normalizeTransitDeparture(raw, stopKey, stopName, retrievedAtMs) {
+    if (!raw || typeof raw !== "object") return null;
+    // schedule_relationship STATIC means no GTFS-RT data was
+    // matched (schema). CANCELED / SKIPPED / NO_DATA / DELETED
+    // are not departures — they are dropped, never shown as
+    // leaving.
+    var rel = typeof raw.schedule_relationship === "string" ? raw.schedule_relationship : null;
+    if (rel === "CANCELED" || rel === "SKIPPED" || rel === "NO_DATA" || rel === "DELETED") return null;
+    var dep = raw.departure && typeof raw.departure === "object" ? raw.departure : null;
+    var scheduled = dep && typeof dep.scheduled_local === "string" ? dep.scheduled_local
+      : dep && typeof dep.scheduled === "string" ? dep.scheduled
+      : typeof raw.departure_time === "string" ? raw.departure_time : null;
+    var estimated = dep && typeof dep.estimated_local === "string" ? dep.estimated_local
+      : dep && typeof dep.estimated === "string" ? dep.estimated : null;
+    // REALTIME only when the response carries an estimated time.
+    // A scheduled time without an estimate is SCHEDULED — never
+    // presented as a live prediction. If realtime disappears, the
+    // schedule survives labelled SCHEDULED.
+    var timeKind = estimated ? "REALTIME" : "SCHEDULED";
+    var displayTime = estimated || scheduled;
+    if (!displayTime) return null; // no usable time — never invented
+    var trip = raw.trip && typeof raw.trip === "object" ? raw.trip : null;
+    var route = trip && trip.route && typeof trip.route === "object" ? trip.route : null;
+    return {
+      kind: "TRANSIT_DEPARTURE",
+      stopKey: stopKey, stopName: stopName || null,
+      routeOnestopId: route && typeof route.onestop_id === "string" ? route.onestop_id : null,
+      routeShortName: route && typeof route.route_short_name === "string" ? route.route_short_name : null,
+      routeLongName: route && typeof route.route_long_name === "string" ? route.route_long_name : null,
+      agencyName: route && route.agency && typeof route.agency.agency_name === "string" ? route.agency.agency_name : null,
+      headsign: typeof raw.stop_headsign === "string" ? raw.stop_headsign
+        : trip && typeof trip.trip_headsign === "string" ? trip.trip_headsign : null,
+      directionId: trip && typeof trip.direction_id === "number" ? trip.direction_id : null,
+      scheduledTime: scheduled, realtimeTime: estimated, displayTime: displayTime,
+      timeKind: timeKind,
+      serviceDate: typeof raw.service_date === "string" ? raw.service_date
+        : typeof raw.date === "string" ? raw.date : null,
+      scheduleRelationship: rel,
+      estimatedDelaySecs: dep && typeof dep.estimated_delay === "number" ? dep.estimated_delay : null,
+      provider: "Transitland", originalSource: "Transitland REST API",
+      observedAt: iso(retrievedAtMs), retrievedAt: iso(retrievedAtMs),
+      freshness: "CURRENT",
+      attribution: "Transitland + per-agency data (see the trip's feed)"
+    };
+  }
+
+  // Transit adapters — chain steps in the same shape as every
+  // other adapter: run(retrievedAtMs) -> {observations,
+  // observedAt, originalSource, note, emptyIsFailure}. An empty
+  // stop/departure list is emptyIsFailure: the provider answered
+  // with nothing usable for the query, so the chain records
+  // NO_DATA with the query named (subjectId) rather than a
+  // CURRENT result with zero observations.
+  function transitlandStops(lat, lon, args) {
+    return function (retrievedAtMs) {
+      var payload = { lat: lat, lon: lon };
+      if (args.radius !== undefined) payload.radius = args.radius;
+      if (args.limit !== undefined) payload.limit = args.limit;
+      payload.include_routes = true;
+      return callTransitland("transit.stopsNear", payload).then(function (data) {
+        if (!data || !Array.isArray(data.stops)) {
+          throw failObj("INVALID_RESPONSE", 200, "Transitland returned no stop list");
+        }
+        var observations = [];
+        data.stops.forEach(function (s) {
+          var rec = normalizeTransitStop(s, retrievedAtMs);
+          if (!rec) return;
+          observations.push(observation("transitStops", rec.onestopId || rec.name || (lat.toFixed(2) + "," + lon.toFixed(2)), {
+            value: rec.name, unit: null,
+            providerName: "Transitland", originalSource: "Transitland REST API",
+            observedAt: rec.observedAt, retrievedAtMs: retrievedAtMs,
+            location: (rec.lat !== null && rec.lon !== null) ? { lat: rec.lat, lon: rec.lon } : null,
+            rawReference: rec.onestopId,
+            details: { transitRecord: rec }
+          }));
+        });
+        return {
+          observations: observations,
+          observedAt: iso(retrievedAtMs),
+          originalSource: "Transitland REST API",
+          emptyIsFailure: true,
+          note: observations.length
+            ? "Stops near this point from Transitland (Onestop IDs; routes serving each stop where the response names them)."
+            : "Transitland answered: no stops in this radius — the provider's answer, not a claim no transit exists here."
+        };
+      });
+    };
+  }
+
+  function transitlandDepartures(stopKey, args) {
+    return function (retrievedAtMs) {
+      var payload = { stop_key: stopKey };
+      if (args.relativeDate) payload.relative_date = args.relativeDate;
+      if (args.limit !== undefined) payload.limit = args.limit;
+      return callTransitland("transit.departures", payload).then(function (data) {
+        if (!data || !Array.isArray(data.stops)) {
+          throw failObj("INVALID_RESPONSE", 200, "Transitland returned no stop list");
+        }
+        var stop = data.stops[0] || null;
+        var stopName = stop && typeof stop.stop_name === "string" ? stop.stop_name : null;
+        var rawDeps = stop && Array.isArray(stop.departures) ? stop.departures : [];
+        var realtime = 0, scheduled = 0;
+        var observations = [];
+        rawDeps.forEach(function (d) {
+          var rec = normalizeTransitDeparture(d, stopKey, stopName, retrievedAtMs);
+          if (!rec) return;
+          if (rec.timeKind === "REALTIME") realtime += 1; else scheduled += 1;
+          observations.push(observation("transitDepartures", stopKey + ":" + (rec.displayTime || ""), {
+            value: rec.displayTime, unit: null,
+            providerName: "Transitland", originalSource: "Transitland REST API",
+            observedAt: rec.observedAt, retrievedAtMs: retrievedAtMs,
+            location: null,
+            rawReference: stopKey,
+            details: { transitRecord: rec }
+          }));
+        });
+        return {
+          observations: observations,
+          observedAt: iso(retrievedAtMs),
+          originalSource: "Transitland REST API",
+          emptyIsFailure: true,
+          note: observations.length
+            ? observations.length + " departure" + (observations.length === 1 ? "" : "s") + " from " + (stopName || stopKey) +
+              ": " + realtime + " realtime, " + scheduled + " scheduled. Scheduled times are the published timetable, not live predictions" +
+              (scheduled > 0 && realtime === 0 ? " — schedule only, no live data for this feed." : ".")
+            : "Transitland answered: no departures for this stop in the requested window — the provider's answer, not a claim no service exists."
+        };
+      });
+    };
+  }
+
+  // Effective transit chain: CHAINS base policy plus any
+  // registered secondary, in registration order. v1: exactly
+  // ["transitland"].
+  function transitChainIds(capability) {
+    var ids = (CHAINS[capability] || []).slice();
+    for (var i = 0; i < TRANSIT_FALLBACKS.length; i++) ids.push(TRANSIT_FALLBACKS[i].id);
+    return ids;
+  }
+  function transitFallbackIds() {
+    return TRANSIT_FALLBACKS.map(function (d) { return d.id; });
+  }
+  function transitChainSteps(capability, args) {
+    return transitChainIds(capability).map(function (id) {
+      var runner = RUNNERS[capability] && RUNNERS[capability][id];
+      if (runner) return { providerId: id, run: runner(args) };
+      var def = null;
+      for (var i = 0; i < TRANSIT_FALLBACKS.length; i++) {
+        if (TRANSIT_FALLBACKS[i].id === id) def = TRANSIT_FALLBACKS[i];
+      }
+      if (!def) {
+        return { providerId: id, run: function () { throw failObj("UNSUPPORTED", null, "no adapter is registered for transit provider \"" + id + "\""); } };
+      }
+      var run = null;
+      try { run = def.adapter(capability, args); } catch (e) { run = null; }
+      if (typeof run !== "function") {
+        return { providerId: id, run: function () { throw failObj("UNSUPPORTED", null, def.name + " does not serve the " + capability + " capability"); } };
+      }
+      return { providerId: id, run: run };
+    });
+  }
+
+  // Provider / fallback registration interface (owner fallback
+  // direction, 2026-11-17). A later package registers a secondary
+  // transit provider here; the v1 chain then asks it when the
+  // primary fails, without rewriting Globe or STAR. NO secondary
+  // is registered in v1. The def's adapter receives (capability,
+  // args) and returns a run factory in the same shape as every
+  // other chain step, or null when the provider does not serve
+  // that capability (recorded UNSUPPORTED). Registration creates
+  // the PROVIDERS entry the chain, breaker, and health() need;
+  // unregistering removes it. The adapter author owns the
+  // secondary's own network governance: the chain's breaker /
+  // backoff skip applies to the provider id, but only calls made
+  // through callProvider / callTransitland feed noteFailure and
+  // the per-minute budget — a later package wiring a real
+  // secondary must route its network calls through those governed
+  // primitives or document its own equivalent.
+  function registerTransitProvider(def) {
+    if (!def || typeof def !== "object") return false;
+    if (typeof def.id !== "string" || !def.id || def.id === "transitland") return false;
+    if (typeof def.name !== "string" || !def.name) return false;
+    if (typeof def.adapter !== "function") return false;
+    for (var i = 0; i < TRANSIT_FALLBACKS.length; i++) {
+      if (TRANSIT_FALLBACKS[i].id === def.id) return false;
+    }
+    if (PROVIDERS[def.id]) return false;
+    TRANSIT_FALLBACKS.push({ id: def.id, name: def.name, costState: def.costState || "UNKNOWN", adapter: def.adapter });
+    PROVIDERS[def.id] = {
+      name: def.name, registryId: def.registryId || def.id,
+      costState: def.costState || "UNKNOWN",
+      minIntervalMs: isNum(def.minIntervalMs) ? def.minIntervalMs : 500,
+      budget: def.budget || { calls: 60, windowMs: 60 * 1000 },
+      budgetNote: "Registered transit fallback — budget is MTI6's, not the provider's figure.",
+      timeoutMs: isNum(def.timeoutMs) ? def.timeoutMs : 10000,
+      breaker: def.breaker || { threshold: 3, cooldownMs: 5 * 60 * 1000 }
+    };
+    return true;
+  }
+  function unregisterTransitProvider(id) {
+    for (var i = 0; i < TRANSIT_FALLBACKS.length; i++) {
+      if (TRANSIT_FALLBACKS[i].id === id) {
+        TRANSIT_FALLBACKS.splice(i, 1);
+        delete PROVIDERS[id];
+        return true;
+      }
+    }
+    return false;
+  }
+  function transitProviders() {
+    var list = [{ id: "transitland", name: PROVIDERS["transitland"].name, role: "PRIMARY",
+      costState: PROVIDERS["transitland"].costState, status: transitProviderState().state }];
+    TRANSIT_FALLBACKS.forEach(function (d) {
+      list.push({ id: d.id, name: d.name, role: "SECONDARY", costState: d.costState || "UNKNOWN", status: "REGISTERED" });
+    });
+    return list;
+  }
+
+  // Provider state derivation (owner direction: the eight states,
+  // exactly). Precedence is operative severity, not recency: a
+  // quota block outranks everything; a served LAST_KNOWN result
+  // outranks the breaker that caused it (what you are seeing is
+  // cached — the failures list names the breaker); a secondary
+  // answer outranks a primary failure; a provider 429 is quota
+  // exhaustion, not a generic error; a quota warning rides along
+  // on a live success rather than hiding it.
+  function deriveTransitState(result, q) {
+    if (result.transitState === "QUOTA_EXHAUSTED") return "QUOTA_EXHAUSTED";
+    if (result.fromCache === true && result.freshnessState === "LAST_KNOWN") return "CACHE_ACTIVE";
+    if (result.fallbackPosition !== null && result.fallbackPosition !== undefined && result.fallbackPosition > 0 &&
+        result.providerId && result.providerId !== "transitland") return "FALLBACK_ACTIVE";
+    if (breakerUntil["transitland"] && nowMs() < breakerUntil["transitland"]) return "DEGRADED";
+    var failures = result.failures || [];
+    var hasRateLimited429 = failures.some(function (f) { return f.failureState === "RATE_LIMITED" && f.status === 429; });
+    if (hasRateLimited429) return "QUOTA_EXHAUSTED";
+    var hasProviderError = failures.some(function (f) {
+      return ["AUTH_REQUIRED", "OFFLINE", "TIMEOUT", "INVALID_RESPONSE"].indexOf(f.failureState) !== -1;
+    });
+    if (hasProviderError) return "PROVIDER_ERROR";
+    if (!(result.observations && result.observations.length)) {
+      var hasNoData = failures.some(function (f) {
+        return f.failureState === "NO_DATA" || f.failureState === "UNSUPPORTED";
+      });
+      if (hasNoData || failures.length === 0) return "NO_DATA";
+    }
+    if (q && q.quotaState === "QUOTA_WARNING") return "QUOTA_WARNING";
+    if (result.observations && result.observations.length) return "PRIMARY_AVAILABLE";
+    return "NO_DATA";
+  }
+  function transitStateDetail(result) {
+    switch (result.transitState) {
+      case "QUOTA_EXHAUSTED": return "Monthly transit budget reached — nonessential Transitland calls are blocked; the reserve is untouched.";
+      case "CACHE_ACTIVE": return "Transitland failed just now; showing the last known result, labelled as such — never as live.";
+      case "FALLBACK_ACTIVE": return "The primary provider failed; a registered secondary answered instead. Provenance names the secondary.";
+      case "DEGRADED": return "Transitland's circuit breaker is open after consecutive failures — skipped until a controlled recheck.";
+      case "QUOTA_WARNING": return "Monthly transit budget is past its warning threshold — calls continue, with the warning shown.";
+      case "PROVIDER_ERROR": return "Transitland errored on the last attempt — see the failures list for the cause.";
+      case "NO_DATA": return "Transitland answered with no usable data for this query, and no cached result exists.";
+      default: return "Transitland answered live.";
+    }
+  }
+  // Every transit capability result carries its provider state,
+  // its quota snapshot, and its fallback shape — panels never
+  // have to infer them.
+  function attachTransitState(result, capability) {
+    var q = transitQuota();
+    result.quota = q;
+    result.fallback = {
+      primary: "transitland",
+      secondary: transitFallbackIds(),
+      cacheServed: result.fromCache === true
+    };
+    result.transitState = deriveTransitState(result, q);
+    lastTransitOutcome = {
+      state: result.transitState, at: iso(nowMs()), quota: q,
+      provider: result.provider || "Transitland",
+      detail: transitStateDetail(result)
+    };
+    return result;
+  }
+  // Monthly-budget block (D3): zero network calls, zero usage
+  // recorded. The result is honest NO_DATA with the block named.
+  function quotaBlockedResult(capability, subjectId, q) {
+    var r = baseResult(capability, subjectId);
+    r.failures = [failure("transitland", "RATE_LIMITED",
+      "MTI6's monthly transit budget (" + TRANSIT_MONTHLY_BUDGET + " REST calls) is reached — nonessential Transitland calls are blocked. The " +
+      TRANSIT_MONTHLY_RESERVE + "-call reserve is untouched. No paid upgrade is ever made automatically; the Interline dashboard is authoritative for remaining quota.")];
+    r.note = "Monthly transit budget reached — no Transitland call was made. Cached results (where fresh) are still served; anything else is NO DATA until the next-month reset.";
+    r.quota = q;
+    r.fallback = { primary: "transitland", secondary: transitFallbackIds(), cacheServed: false };
+    r.transitState = "QUOTA_EXHAUSTED";
+    lastTransitOutcome = { state: "QUOTA_EXHAUSTED", at: iso(nowMs()), quota: q,
+      provider: "Transitland",
+      detail: "MTI6 monthly transit budget reached (" + q.used + " / " + TRANSIT_MONTHLY_BUDGET + " calls this device this month)." };
+    return r;
+  }
+  // Current provider state for panels / health: the most recent
+  // transit outcome, or PRIMARY_AVAILABLE before any call (the
+  // provider is configured behind the proxy; no failure recorded).
+  function transitProviderState() {
+    var q = transitQuota();
+    if (lastTransitOutcome) {
+      return { state: lastTransitOutcome.state, at: lastTransitOutcome.at, quota: q,
+        provider: lastTransitOutcome.provider || "Transitland",
+        detail: lastTransitOutcome.detail || "" };
+    }
+    var state = q.quotaState === "QUOTA_EXHAUSTED" ? "QUOTA_EXHAUSTED"
+      : q.quotaState === "QUOTA_WARNING" ? "QUOTA_WARNING" : "PRIMARY_AVAILABLE";
+    return { state: state, at: null, quota: q, provider: "Transitland",
+      detail: state === "PRIMARY_AVAILABLE"
+        ? "Transitland is configured behind the proxy; no transit call made yet this session."
+        : "Monthly transit budget is " + (state === "QUOTA_EXHAUSTED" ? "reached" : "past its warning threshold") +
+          " (" + q.used + " / " + TRANSIT_MONTHLY_BUDGET + " calls this device this month)." };
+  }
+
+  // Client-side input validation for transitStops — mirrors the
+  // proxy's server-side bounds so bad input spends no call.
+  function transitStopsArgs(lat, lon, opts) {
+    if (!validLatLon(lat, lon)) return { error: "Invalid coordinates — no provider was called." };
+    var args = { lat: lat, lon: lon };
+    if (opts && opts.radius !== undefined) {
+      if (!isNum(opts.radius) || opts.radius <= 0 || opts.radius > 10000) {
+        return { error: "radius must be a number greater than 0 and at most 10000 (meters) — no provider was called." };
+      }
+      args.radius = opts.radius;
+    }
+    if (opts && opts.limit !== undefined) {
+      if (!isNum(opts.limit) || Math.floor(opts.limit) !== opts.limit || opts.limit < 1 || opts.limit > 50) {
+        return { error: "limit must be an integer between 1 and 50 — no provider was called." };
+      }
+      args.limit = opts.limit;
+    }
+    return args;
+  }
+
+  // ------------------------------------------------------------------
   // Public capability surface (§19). Capabilities, never providers.
   // ------------------------------------------------------------------
   function validLatLon(lat, lon) { return isNum(lat) && isNum(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180; }
@@ -1205,6 +1806,16 @@
     },
     dexPairs: {
       "dexscreener": function (a) { return dexPairs(a.query, a.networkId); }
+    },
+    // Transit (v116): the RUNNERS shape is kept for parity with
+    // every other capability — runChain for transit is driven
+    // from transitChainSteps (which adds registered secondaries),
+    // so the WorldData methods below do not call these directly.
+    transitStops: {
+      "transitland": function (a) { return transitlandStops(a.lat, a.lon, a); }
+    },
+    transitDepartures: {
+      "transitland": function (a) { return transitlandDepartures(a.stopKey, a); }
     }
   };
   function chainSteps(capability, providerIds, args) {
@@ -1283,7 +1894,102 @@
         "naturalEvents:open-30d",
         chainSteps("naturalEvents", CHAINS.naturalEvents, {}),
         CAPABILITY_POLICIES.naturalEvents, opts);
-    }
+    },
+    // Transit (v116, owner rulings D1 + D2 + D3 + fallback
+    // direction, 2026-11-17). World Data → Transit/Transportation.
+    // The D3 monthly quota is governed before the chain runs and
+    // checked again inside each queued call — a quota-blocked
+    // call spends nothing and falls through to the cache path
+    // instead: stops may still be served from cache (nothing is
+    // spent), anything else is NO_DATA with QUOTA_EXHAUSTED.
+    // min-fresh for stops: a stop result fresh enough is served
+    // from cache WITHOUT touching the provider, and still carries
+    // the state machine (attachTransitState, quota snapshot).
+    // Departures have minFreshMs 0 — they always re-ask the
+    // provider; a failed chain falls back to LAST_KNOWN, never
+    // CURRENT. No routing / journey planning in v1
+    // (TRANSIT_ROUTING_ENABLED is false) — any such request
+    // returns an explicit unsupported result, not a chain call.
+    transitStops: function (lat, lon, opts) {
+      var args = transitStopsArgs(lat, lon, opts || {});
+      if (args.error) return Promise.resolve(invalidResult("transitStops", lat + "," + lon, args.error));
+      var subjectId = lat.toFixed(4) + "," + lon.toFixed(4);
+      var q = transitQuota();
+      if (q.quotaState === "QUOTA_EXHAUSTED") {
+        // Cache may still be served while quota-exhausted —
+        // serving cache spends nothing. It is served as
+        // LAST_KNOWN (cachedResult with servedAs "LAST_KNOWN"),
+        // never as CURRENT, so the state machine reads CACHE_ACTIVE.
+        var entry = cacheGet("transitStops:" + subjectId);
+        if (entry && entry.result) {
+          return Promise.resolve(attachTransitState(
+            cachedResult(entry, CAPABILITY_POLICIES.transitStops.ttlMs, "LAST_KNOWN"), "transitStops"));
+        }
+        return Promise.resolve(quotaBlockedResult("transitStops", subjectId, q));
+      }
+      var steps = transitChainSteps("transitStops", args);
+      return runChain("transitStops", subjectId, "transitStops:" + subjectId, steps,
+        CAPABILITY_POLICIES.transitStops, opts).then(function (r) {
+          return attachTransitState(r, "transitStops");
+        });
+    },
+
+    transitDepartures: function (stopKey, opts) {
+      var key = String(stopKey || "").trim();
+      if (!key) return Promise.resolve(invalidResult("transitDepartures", "", "No stop given — no provider was called."));
+      var args = { stopKey: key };
+      if (opts && opts.relativeDate) args.relativeDate = opts.relativeDate;
+      if (opts && opts.limit !== undefined) {
+        if (!isNum(opts.limit) || Math.floor(opts.limit) !== opts.limit || opts.limit < 1 || opts.limit > 50) {
+          return Promise.resolve(invalidResult("transitDepartures", key, "limit must be an integer between 1 and 50 — no provider was called."));
+        }
+        args.limit = opts.limit;
+      }
+      var q = transitQuota();
+      if (q.quotaState === "QUOTA_EXHAUSTED") {
+        var entry = cacheGet("transitDepartures:" + key);
+        if (entry && entry.result) {
+          return Promise.resolve(attachTransitState(
+            cachedResult(entry, CAPABILITY_POLICIES.transitDepartures.ttlMs, "LAST_KNOWN"), "transitDepartures"));
+        }
+        return Promise.resolve(quotaBlockedResult("transitDepartures", key, q));
+      }
+      var steps = transitChainSteps("transitDepartures", args);
+      return runChain("transitDepartures", key, "transitDepartures:" + key, steps,
+        CAPABILITY_POLICIES.transitDepartures, opts).then(function (r) {
+          return attachTransitState(r, "transitDepartures");
+        });
+    },
+
+    transitRoute: function (from, to, opts) {
+      return Promise.resolve({
+        capability: "transitRoute",
+        subjectId: (from || "") + "→" + (to || ""),
+        capabilityGap: true,
+        gap: "CAPABILITY GAP — journey routing is disabled in Transitland v1 (owner ruling D2, 2026-11-17). Transitland's Routing Platform is a separate 1,000-calls/month quota, untouched by this build, and the router's transit budget covers stops + departures only.",
+        currentFreeOptions: [
+          "Transitland REST stops + departures via WorldData.transitStops / WorldData.transitDepartures (wired, labelled Transitland)."
+        ],
+        limitation: "No journey / trip-planning / routing result can be produced — any route shown would be invented.",
+        paidOption: null,
+        expectedBenefit: "Door-to-door transit directions with live departure times, for the Globe TRANSIT layer and STAR.",
+        ownerDecisionRequired: true,
+        observations: [],
+        provider: null,
+        providerId: null,
+        originalSource: null,
+        observedAt: null,
+        retrievedAt: iso(nowMs()),
+        freshnessState: "NO_DATA",
+        sourceState: "NO_DATA",
+        fallbackPosition: null,
+        healthState: "UNKNOWN",
+        failures: [],
+        fromCache: false,
+        note: "OWNER DECISION REQUIRED (D6, not ruled): approve a routing scope and quota, or leave routing as an honest gap."
+      });
+    },
+
   };
 
   var CryptoData = {
@@ -1386,6 +2092,9 @@
       inFlight = {}; providerQueue = {}; lastNetworkAt = {};
       windowCalls = {}; consecFails = {}; breakerUntil = {};
       backoffUntil = {}; lastFailureInfo = {}; lastSuccessAt = {};
+      transitInFlight = 0;
+      lastTransitOutcome = null;
+      for (var i = TRANSIT_FALLBACKS.length - 1; i >= 0; i--) unregisterTransitProvider(TRANSIT_FALLBACKS[i].id);
       try { if (global.localStorage) global.localStorage.removeItem(CACHE_KEY); } catch (e) {}
       try { if (global.ApiRegistry && global.ApiRegistry.resetUsageForTest) global.ApiRegistry.resetUsageForTest(); } catch (e) {}
     }
@@ -1394,6 +2103,27 @@
   global.ProviderRouter = {
     WorldData: WorldData,
     CryptoData: CryptoData,
+    // Transit (v116): provider state machine, quota governor,
+    // fallback registry and normalizers for the World Data →
+    // Transit/Transportation capability. Globe and STAR read
+    // through these; they never touch Transitland directly.
+    Transit: {
+      STATES: TRANSIT_STATES,
+      PROVIDER_ALLOWANCE: TRANSIT_PROVIDER_ALLOWANCE,
+      MONTHLY_BUDGET: TRANSIT_MONTHLY_BUDGET,
+      MONTHLY_RESERVE: TRANSIT_MONTHLY_RESERVE,
+      QUOTA_WARN_AT: TRANSIT_QUOTA_WARN_AT,
+      QUOTA_CRITICAL_AT: TRANSIT_QUOTA_CRITICAL_AT,
+      ROUTING_ENABLED: TRANSIT_ROUTING_ENABLED,
+      quota: transitQuota,
+      state: transitProviderState,
+      providers: transitProviders,
+      registerProvider: registerTransitProvider,
+      unregisterProvider: unregisterTransitProvider,
+      normalizeStop: normalizeTransitStop,
+      normalizeDeparture: normalizeTransitDeparture,
+      capabilities: { transitStops: "transitStops", transitDepartures: "transitDepartures", transitRoute: "transitRoute" }
+    },
     health: health,
     healthOf: healthOf,
     PROVIDERS: PROVIDERS,

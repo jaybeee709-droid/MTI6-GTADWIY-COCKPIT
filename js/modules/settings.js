@@ -84,7 +84,8 @@
   // gateway at /api/mti6. Saving an endpoint does NOT connect STAR
   // and never claims to: the status below comes verbatim from
   // StarBackend, and the only check offered is the Phase 1 gateway's
-  // own gateway.status — which today reports no provider configured.
+  // own gateway.status — which since v116 reports Transitland as a
+  // configured provider behind the proxy (STAR itself stays demo).
   function starBackendSection() {
     const B = global.StarBackend;
     const children = [];
