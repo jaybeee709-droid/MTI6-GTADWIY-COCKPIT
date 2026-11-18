@@ -3788,8 +3788,8 @@
    "authenticationType": "API_KEY",
    "apiKeyRequired": true,
    "oauthRequired": false,
-   "credentialState": "NOT_PROVISIONED",
-   "credentialCustody": null,
+   "credentialState": "KEY_IN_PROXY_ENV",
+   "credentialCustody": "Netlify environment variable TRANSITLAND_API_KEY (Functions scope, secret-flagged) — the key value was never copied into any MTI6 record. Key confirmed on the Interline Portal Subscriptions & API Keys tab 2026-11-17.",
    "freeState": "FREE_KEY_REQUIRED",
    "catalogCostState": "FREE_KEYED",
    "commercialUseState": "Transitland platform terms; underlying feed data per-agency (the per-agency governance of §12.1/§12.2 still applies to the data itself).",
@@ -3858,6 +3858,12 @@
      "ref": "TRANSITLAND-INTEGRATION-MAP.md D7 (owner ruling 2026-11-17)",
      "note": "Quota corrected 2026-11-17: was 'Free tier 10,000 queries/month' (stale, as read from Interline plan documentation 2026-11-16); now Explorer REST 5,000/month + Routing 1,000/month (separate quotas), verified on transit.land/plans-pricing by Daniel 2026-11-17. Pay As You Go figures (10,000 + 10,000) are a different plan and were not substituted.",
      "at": "2026-11-17T23:10:00.000Z"
+    },
+    {
+     "kind": "CORRECTION",
+     "ref": "TRANSITLAND-INTEGRATION-MAP.md §9 (owner rulings D1–D3, 2026-11-17) + v117 credential-state correction",
+     "note": "Credential state corrected 2026-11-17: was credentialState NOT_PROVISIONED with stageNote 'no account exists yet at catalog import' (stale since the D7 quota-only package v114, which deliberately left credential facts alone); now the Interline account exists (signed in 2026-11-17 as jaybeee709@gmail.com), free Explorer plan ordered (REST 5,000/month + Routing 1,000/month, no payment), API key confirmed on the Interline Portal Subscriptions & API Keys tab, and the key is held in Netlify env var TRANSITLAND_API_KEY (Functions scope, secret-flagged) since 2026-11-17. Key value never copied anywhere. Proxy (v115) + router/registry (v116) wired with Transitland as PRIMARY; Globe layer pending owner D4 ruling.",
+     "at": "2026-11-17"
     }
    ],
    "discoveredThrough": "FREE-RESOURCE-CATALOG (LIVE-WORLD-SOURCE-CATALOG + API-DISCOVERY-SWEEP-2026-11-16)",
@@ -3878,7 +3884,7 @@
      "note": "Seeded from FREE-RESOURCE-CATALOG §12.3 at the stage its recorded evidence supports. Catalog MTI6 STATE: OWNER-CREDENTIAL-DECISION (Sweep D1) — free key; decision + signup are the owner's."
     }
    ],
-   "stageNote": "Account acquisition authorized by the owner on 2026-11-16 and queued in the acquisition program; no account exists yet at catalog import, so the candidate waits at RESEARCHING."
+   "stageNote": "Account signed in 2026-11-17 (Interline, jaybeee709@gmail.com); free Explorer plan ordered (REST 5,000/month + Routing 1,000/month, no payment); API key confirmed on the Interline Portal Subscriptions & API Keys tab and held in Netlify env var TRANSITLAND_API_KEY (Functions scope, secret-flagged) since 2026-11-17. Proxy allowlist (v115) and router/registry (v116) are wired with Transitland as PRIMARY; the Globe layer is pending the owner's D4 presentation ruling, so the candidate waits at RESEARCHING."
   },
   {
    "id": "resource-mobility-database-transit",
