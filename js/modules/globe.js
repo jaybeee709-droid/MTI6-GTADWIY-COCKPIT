@@ -203,7 +203,18 @@
     // taps "Load earthquakes" in the Live World panel. Markers are
     // DOM markers at the events' real projected coordinates, never
     // the layout positions the record layers use.
-    { id: "EARTHQUAKES", label: "Earthquakes" }
+    { id: "EARTHQUAKES", label: "Earthquakes" },
+    // Transitland v1 (v118, owner ruling D4): transit stops are
+    // genuine geographic observations with real coordinates, so
+    // they get their own layer — the same module-local pattern as
+    // EARTHQUAKES (NOT part of GlobeIntelligence, whose five
+    // layers stay canonical), starting honestly NO_DATA: stops
+    // exist only after the owner taps "Load transit near here"
+    // in the Live World panel. Markers are DOM markers at the
+    // stops' real projected coordinates, never the layout
+    // positions the record layers use. Tap-to-load only; no
+    // background polling, no SEARCH THIS AREA card, no fares.
+    { id: "TRANSIT", label: "Transit" }
   ];
 
   // Media Selector categories (Live World directive §9). Every
@@ -447,9 +458,17 @@
     var quakeLayer = { id: "EARTHQUAKES", label: "Earthquakes", state: "NO_DATA", items: [], count: 0, enabled: true,
       note: "No earthquakes loaded yet — tap “Load earthquakes” in the Live World panel. Positions will be the events' real coordinates." };
     var quakePoints = []; // [{lat, lon, label}] real coordinates for the DOM markers
+    // Module-local TRANSIT layer (v118, owner ruling D4 — same
+    // pattern as EARTHQUAKES above): stops from
+    // WorldData.transitStops, kept apart from
+    // GlobeIntelligence's canonical five layers.
+    var transitLayer = { id: "TRANSIT", label: "Transit", state: "NO_DATA", items: [], count: 0, enabled: true,
+      note: "No transit stops loaded yet — tap “Load transit near here” in the Live World panel. Markers sit at the stops' real coordinates." };
+    var transitPoints = []; // [{lat, lon, label, onestopId, name}] real coordinates for the DOM markers
 
     function getLayerSafe(id) {
       if (id === "EARTHQUAKES") return quakeLayer;
+      if (id === "TRANSIT") return transitLayer;
       if (liveLayers) {
         for (var i = 0; i < liveLayers.length; i++) {
           if (liveLayers[i] && liveLayers[i].id === id) return liveLayers[i];
@@ -569,6 +588,49 @@
       });
     }
 
+    // Transit stop markers (v118, D4): DOM markers at the stops'
+    // REAL coordinates, projected exactly like the earthquake
+    // markers and the alert glows. Visible only while the TRANSIT
+    // layer is selected and stops were actually loaded through
+    // the router. Each marker is a button: tapping it loads that
+    // stop's departures (TODAY + TOMORROW) in the panel below.
+    // The stop list in the Live World panel offers the same
+    // action without a map tap.
+    var transitLayerEl = U.el("div", { class: "globe-transit-layer", "aria-hidden": "true" }, []);
+    visual.appendChild(transitLayerEl);
+
+    function refreshTransitMarkers() {
+      transitLayerEl.innerHTML = "";
+      if (selectedLayer !== "TRANSIT") return;
+      transitPoints.forEach(function (p) {
+        var m = U.el("button", { class: "globe-transit-marker", type: "button", title: p.label }, "");
+        m.addEventListener("click", function (e) {
+          try { if (e && typeof e.stopPropagation === "function") e.stopPropagation(); } catch (err) {}
+          loadDeparturesForStop(p.onestopId, p.name);
+        });
+        transitLayerEl.appendChild(m);
+      });
+      positionTransitMarkers();
+    }
+
+    function positionTransitMarkers() {
+      if (!globeEngine || typeof globeEngine.project !== "function") return;
+      var wpx = 0, hpx = 0;
+      try {
+        if (globeCanvas) { wpx = globeCanvas.clientWidth || 0; hpx = globeCanvas.clientHeight || 0; }
+      } catch (e) {}
+      transitLayerEl.querySelectorAll(".globe-transit-marker").forEach(function (m, i) {
+        var p = transitPoints[i];
+        if (!p || selectedLayer !== "TRANSIT") { m.style.display = "none"; return; }
+        var px = null;
+        try { px = globeEngine.project(p.lon, p.lat); } catch (e) {}
+        if (!px || px.x < 0 || px.y < 0 || px.x > wpx || px.y > hpx) { m.style.display = "none"; return; }
+        m.style.display = "";
+        m.style.left = px.x + "px";
+        m.style.top = px.y + "px";
+      });
+    }
+
     function alertAreaPoints() {
       var AS = global.AngelSecurity, GI = global.GlobeIntelligence;
       if (!AS || !GI || typeof AS.listAlerts !== "function" ||
@@ -627,10 +689,11 @@
     // so the plotted markers always match the badges and the panel.
     function plotGlobe() {
       if (!globeEngine) return;
-      // EARTHQUAKES never goes to the canvas engine: its items are
-      // real-coordinate observations drawn as DOM markers, and the
-      // engine would plot them at layout positions — wrong geography.
-      try { globeEngine.setData(selectedLayer === "EARTHQUAKES" ? null : getLayerSafe(selectedLayer), mode); } catch (e) {}
+      // EARTHQUAKES and TRANSIT never go to the canvas engine:
+      // their items are real-coordinate observations drawn as DOM
+      // markers, and the engine would plot them at layout
+      // positions — wrong geography.
+      try { globeEngine.setData((selectedLayer === "EARTHQUAKES" || selectedLayer === "TRANSIT") ? null : getLayerSafe(selectedLayer), mode); } catch (e) {}
     }
 
     // The alarm condition, read ONLY from GlobeIntelligence's own
@@ -771,6 +834,7 @@
       liveContextBody.innerHTML = "";
       var c = liveState.context;
       if (exploreAreaBtn) exploreAreaBtn.disabled = !c;
+      if (transitBtn) transitBtn.disabled = !c; // transit loads need a location context too (v118, D4)
       if (!c) {
         liveContextBody.textContent = "No area selected yet — tap or click the map to set a location context.";
         updateSelectorVisibility();
@@ -1971,6 +2035,262 @@
       eventsList
     ]);
 
+    // Transit (v118, owner ruling D4): stops + departures from
+    // Transitland through the Capability Router — the Globe's
+    // first proxy-routed provider. Tap-to-load only: nothing is
+    // asked until "Load transit near here" is tapped, and no
+    // background polling or retry loop ever asks again. The load
+    // uses the current location context (the owner's own tap on
+    // the map). Stops render as DOM markers at their real
+    // coordinates on the TRANSIT layer; tapping a stop (marker
+    // or list row) loads its departures for TODAY + TOMORROW
+    // (D4(d)). Every departure is labelled REALTIME or SCHEDULED
+    // from the router's normalized records — a scheduled time is
+    // never presented as a live prediction. Cached data is
+    // labelled LAST_KNOWN with its retrieval time, never
+    // CURRENT. No fares, no agency_fare_url, no journey
+    // planning, no SEARCH THIS AREA card — all out of v1 scope
+    // (D2/D4/D6). The Globe consumes ONLY the
+    // WorldData.transit* capability — never Transitland, the
+    // proxy, or MTI6API directly.
+    var transitBtn = U.el("button", { class: "btn", type: "button" }, "Load transit near here");
+    var transitStatus = U.el("div", { class: "api-meta" },
+      "Transit: stops + departures from Transitland through the Capability Router. Loads only on tap — no background polling. Tap the map first to set a location context.");
+    var transitStopsList = U.el("div", { class: "globe-geo-events" }, []);
+    var transitDeps = U.el("div", { class: "globe-geo-events" }, []);
+    var transitSelection = { stopKey: null, stopName: null }; // the stop whose departures are shown
+
+    function transitDistance(m) {
+      if (m === null || m === undefined || !isFinite(m)) return null;
+      if (m < 1000) return Math.round(m) + " m";
+      return (m / 1000).toFixed(1) + " km";
+    }
+    function transitDayStr(isoStr, offsetDays) {
+      try {
+        var d = new Date(isoStr);
+        d.setDate(d.getDate() + offsetDays);
+        return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+      } catch (e) { return null; }
+    }
+    // Map §12 quota line (the wording the map proposes): this
+    // device's count only — the Interline dashboard is
+    // authoritative for remaining quota.
+    function transitQuotaLine(q) {
+      if (!q) return "";
+      return "Transitland Explorer — " + q.used + " calls this device this month · Interline dashboard is authoritative.";
+    }
+    function transitStateLine(res) {
+      var parts = [];
+      if (res && res.transitState) parts.push("Provider state: " + res.transitState);
+      if (res && res.quota) parts.push(transitQuotaLine(res.quota));
+      return parts.join(" · ");
+    }
+
+    function renderTransitStops(res) {
+      transitStopsList.innerHTML = "";
+      transitDeps.innerHTML = "";
+      transitSelection.stopKey = null; transitSelection.stopName = null;
+      var obs = (res && res.observations) || [];
+      transitPoints = obs.map(function (o) {
+        var rec = (o.details || {}).transitRecord || {};
+        var loc = o.location || {};
+        return { lat: loc.lat, lon: loc.lon, onestopId: rec.onestopId, name: rec.name,
+          label: (rec.name || "Stop") + (rec.onestopId ? " (" + rec.onestopId + ")" : "") };
+      }).filter(function (p) { return isFinite(p.lat) && isFinite(p.lon); });
+      transitLayer.items = obs.map(function (o) {
+        var rec = (o.details || {}).transitRecord || {};
+        var dist = transitDistance(rec.distanceM);
+        return { id: rec.onestopId || o.observationId, label: (rec.name || "Stop") + (dist ? " — " + dist : ""),
+          state: "OBSERVED", source: "Transitland REST API" };
+      });
+      transitLayer.count = transitLayer.items.length;
+      if (obs.length) {
+        transitLayer.state = res.freshnessState === "LAST_KNOWN" ? "LAST_KNOWN" : "CURRENT";
+        transitLayer.note = obs.length + " transit stops near this point · SOURCE: Transitland REST API · " +
+          "retrieved " + fmtTime(res.observedAt || res.retrievedAt) + " · freshness " + res.freshnessState +
+          (res.fromCache ? " (router cache — original provider and times preserved)" : "") +
+          ". Markers sit at the stops' real coordinates.";
+        transitStatus.textContent = obs.length + " transit stops loaded · SOURCE: Transitland REST API · " +
+          "retrieved " + fmtTime(res.observedAt || res.retrievedAt) + " · " + res.freshnessState +
+          (res.fromCache ? " (LAST_KNOWN — the last known reading, not current)" : "") +
+          ". " + transitStateLine(res) + " Tap a stop for its departures.";
+        obs.forEach(function (o) {
+          var rec = (o.details || {}).transitRecord || {};
+          var dist = transitDistance(rec.distanceM);
+          var routes = (rec.routesServing || []).map(function (r) { return r.shortName || r.longName || r.onestopId; })
+            .filter(function (x) { return !!x; });
+          var row = U.el("button", { class: "globe-place-result", type: "button" }, [
+            U.el("span", {}, rec.name || "Stop"),
+            U.el("span", { class: "api-meta" }, " " + (rec.onestopId || "") + (dist ? " · " + dist : "") +
+              (routes.length ? " · routes: " + routes.join(", ") : ""))
+          ]);
+          row.addEventListener("click", function () { loadDeparturesForStop(rec.onestopId, rec.name); });
+          transitStopsList.appendChild(row);
+        });
+        selectLayer("TRANSIT");
+      } else {
+        transitLayer.state = "NO_DATA";
+        transitLayer.note = "Transitland answered with no stops for this point (" + chainSummary(res) + "). No markers are shown rather than invented.";
+        transitStatus.textContent = "No transit stops: " + (res.note || chainSummary(res) ||
+          "the provider answered with no stops in this radius — the provider's answer, not a claim no transit exists here.") +
+          " " + transitStateLine(res) + " Nothing was plotted.";
+        refreshLayerUI();
+      }
+    }
+
+    transitBtn.addEventListener("click", function () {
+      var PR = global.ProviderRouter;
+      var c = liveState.context;
+      if (!c || !isFinite(c.lat) || !isFinite(c.lon)) {
+        transitStatus.textContent = "No area selected yet — tap the map to set a location context before loading transit.";
+        return;
+      }
+      if (!PR || !PR.WorldData || typeof PR.WorldData.transitStops !== "function") {
+        transitStatus.textContent = "Transit is NOT_CONNECTED — the Capability Router did not load (NOT_LOADED), so no provider was asked.";
+        return;
+      }
+      transitStatus.textContent = "Asking Transitland for stops near this point…";
+      // v1 default radius/limit: a walkable 1 km, at most 20 stops
+      // — explicit bounds so one tap cannot spend the budget on an
+      // unbounded response. The router re-checks both server-side.
+      PR.WorldData.transitStops(c.lat, c.lon, { radius: 1000, limit: 20 }).then(function (res) {
+        renderTransitStops(res);
+      }).catch(function () {
+        transitStatus.textContent = "The transit capability failed unexpectedly — nothing was plotted.";
+      });
+    });
+
+    function loadDeparturesForStop(onestopId, stopName) {
+      var PR = global.ProviderRouter;
+      transitDeps.innerHTML = "";
+      if (!onestopId) {
+        transitStatus.textContent = "That stop has no Onestop ID, so its departures cannot be asked for — nothing was invented.";
+        return;
+      }
+      if (!PR || !PR.WorldData || typeof PR.WorldData.transitDepartures !== "function") {
+        transitStatus.textContent = "Transit is NOT_CONNECTED — the Capability Router did not load (NOT_LOADED), so no provider was asked.";
+        return;
+      }
+      transitSelection.stopKey = onestopId; transitSelection.stopName = stopName || null;
+      transitStatus.textContent = "Asking Transitland for departures from " + (stopName || onestopId) + " (today + tomorrow)…";
+      // SEQUENTIAL, not parallel: the two calls share the
+      // router's departures cache key (stopKey only — relative
+      // date is not part of it), and the router dedupes concurrent
+      // calls on that key, so a parallel TOMORROW call would
+      // silently return TODAY's result. Awaiting TODAY first lets
+      // the in-flight entry clear before TOMORROW is asked. The
+      // router's cache key is a known follow-up (a later router
+      // package can key it by stopKey + relativeDate); the
+      // render below already groups by each record's own service
+      // date and dedupes, so the display stays honest either way.
+      PR.WorldData.transitDepartures(onestopId, { relativeDate: "TODAY", limit: 20 }).then(function (todayRes) {
+        return PR.WorldData.transitDepartures(onestopId, { relativeDate: "TOMORROW", limit: 20 }).then(function (tomorrowRes) {
+          return [{ day: "TODAY", res: todayRes }, { day: "TOMORROW", res: tomorrowRes }];
+        }, function () { return [{ day: "TODAY", res: todayRes }, { day: "TOMORROW", res: null }]; });
+      }, function () {
+        return PR.WorldData.transitDepartures(onestopId, { relativeDate: "TOMORROW", limit: 20 }).then(function (tomorrowRes) {
+          return [{ day: "TODAY", res: null }, { day: "TOMORROW", res: tomorrowRes }];
+        }, function () { return [{ day: "TODAY", res: null }, { day: "TOMORROW", res: null }]; });
+      }).then(function (days) {
+        renderTransitDepartures(onestopId, stopName, days);
+      });
+    }
+
+    function renderTransitDepartures(stopKey, stopName, days) {
+      transitDeps.innerHTML = "";
+      // Group by the record's OWN service date, never by which
+      // call returned it: the two relative-date calls share one
+      // router cache entry, so a LAST_KNOWN fallback can return
+      // one day's departures for the other day's call. A cached
+      // tomorrow must never be shown under "Today". A record
+      // whose service date is neither day is left out and counted
+      // — never relabelled.
+      var todayStr = null, tomorrowStr = null;
+      days.forEach(function (d) {
+        if (d.res && d.res.retrievedAt) {
+          if (d.day === "TODAY" && !todayStr) todayStr = transitDayStr(d.res.retrievedAt, 0);
+          if (d.day === "TOMORROW" && !tomorrowStr) tomorrowStr = transitDayStr(d.res.retrievedAt, 1);
+        }
+      });
+      var groups = { TODAY: [], TOMORROW: [] };
+      var freshByDay = { TODAY: null, TOMORROW: null };
+      var stateByDay = { TODAY: null, TOMORROW: null };
+      var unmatched = 0;
+      var seen = {}; // dedupe: the two calls share one router cache
+      // entry, so a LAST_KNOWN fallback can return the same
+      // departures twice — one record, one row, never a duplicate.
+      days.forEach(function (d) {
+        var res = d.res;
+        if (!res) { stateByDay[d.day] = "PROVIDER_ERROR"; return; }
+        freshByDay[d.day] = { state: res.freshnessState, at: res.observedAt || res.retrievedAt, fromCache: !!res.fromCache };
+        stateByDay[d.day] = res.transitState || ((res.observations && res.observations.length) ? "PRIMARY_AVAILABLE" : "NO_DATA");
+        (res.observations || []).forEach(function (o) {
+          var rec = (o.details || {}).transitRecord || null;
+          if (!rec) return;
+          var key = (rec.routeOnestopId || "") + "|" + (rec.displayTime || "") + "|" + (rec.headsign || "") + "|" + (rec.serviceDate || "");
+          if (seen[key]) return;
+          seen[key] = true;
+          if (rec.serviceDate && todayStr && rec.serviceDate === todayStr) { groups.TODAY.push(rec); return; }
+          if (rec.serviceDate && tomorrowStr && rec.serviceDate === tomorrowStr) { groups.TOMORROW.push(rec); return; }
+          if (rec.serviceDate) { unmatched++; return; }
+          groups[d.day].push(rec); // no service date recorded — the call it came from is the only signal
+        });
+      });
+      transitDeps.appendChild(U.el("div", { class: "api-meta" },
+        "Departures from " + (stopName || stopKey) + " (" + stopKey + ") — today + tomorrow · SOURCE: Transitland REST API"));
+      ["TODAY", "TOMORROW"].forEach(function (day) {
+        var label = day === "TODAY" ? "Today" : "Tomorrow";
+        var dateStr = day === "TODAY" ? todayStr : tomorrowStr;
+        var recs = groups[day];
+        var fresh = freshByDay[day];
+        transitDeps.appendChild(U.el("div", { class: "globe-live-context__title" }, label + (dateStr ? " — " + dateStr : "")));
+        var meta = [];
+        if (fresh) {
+          meta.push(fresh.state === "LAST_KNOWN"
+            ? "LAST_KNOWN — retrieved " + fmtTime(fresh.at) + " (the last known reading, not current)"
+            : "CURRENT — retrieved " + fmtTime(fresh.at));
+        }
+        if (stateByDay[day]) meta.push("Provider state: " + stateByDay[day]);
+        if (meta.length) transitDeps.appendChild(U.el("div", { class: "api-meta" }, meta.join(" · ")));
+        if (!recs.length) {
+          transitDeps.appendChild(U.el("div", { class: "api-meta" },
+            stateByDay[day] === "PROVIDER_ERROR"
+              ? "Departures for " + label.toLowerCase() + " could not be loaded — the provider did not answer. Nothing was listed rather than invented."
+              : "No departures for " + label.toLowerCase() + " in the returned data — the provider's answer, not a claim no service exists."));
+          return;
+        }
+        var realtime = recs.filter(function (r) { return r.timeKind === "REALTIME"; }).length;
+        if (realtime === 0) {
+          transitDeps.appendChild(U.el("div", { class: "api-meta" }, "Schedule only — no live data for this feed."));
+        }
+        recs.forEach(function (rec) {
+          var routeLabel = rec.routeShortName || rec.routeLongName || rec.routeOnestopId || "Route";
+          transitDeps.appendChild(U.el("div", { class: "globe-geo-event" }, [
+            U.el("span", {}, routeLabel + " → " + (rec.headsign || "—")),
+            U.el("span", { class: badgeClassForState(rec.timeKind === "REALTIME" ? "CURRENT" : "SCHEDULED") }, rec.timeKind),
+            U.el("span", { class: "api-meta" }, " " + (rec.displayTime || "") +
+              (rec.agencyName ? " · " + rec.agencyName : ""))
+          ]));
+        });
+      });
+      if (unmatched > 0) {
+        transitDeps.appendChild(U.el("div", { class: "api-meta" },
+          unmatched + " departure(s) from an earlier cached day were not shown — their service date is neither today nor tomorrow."));
+      }
+      transitDeps.appendChild(U.el("div", { class: "globe-live-source" },
+        "SOURCE: Transitland REST API · Transitland + per-agency data (see the trip's feed)"));
+      transitStatus.textContent = "Departures from " + (stopName || stopKey) + " loaded (today + tomorrow) · SOURCE: Transitland REST API. " +
+        transitStateLine(days[0].res || days[1].res);
+    }
+
+    var transitSection = U.el("div", { class: "globe-geo-section globe-transit-section" }, [
+      U.el("h4", { class: "globe-live-media-title" }, "Transit"),
+      U.el("div", { class: "globe-route-row" }, [transitBtn]),
+      transitStatus,
+      transitStopsList,
+      transitDeps
+    ]);
+
     var livePanel = U.el("section", { class: "api-panel globe-live-panel", "aria-label": "Live World" }, [
       U.el("h3", {}, "Live World"),
       placeSection,
@@ -1989,6 +2309,7 @@
       mediaList,
       routesSection,
       geoSection,
+      transitSection,
       U.el("div", { class: "globe-controls globe-live-actions" }, [findMoreBtn]),
       liveNote
     ]);
@@ -2161,6 +2482,7 @@
       var byId = {};
       if (layers) layers.forEach(function (l) { if (l) byId[l.id] = l; });
       byId.EARTHQUAKES = quakeLayer; // module-local layer, merged for the chips
+      byId.TRANSIT = transitLayer; // module-local layer, merged for the chips
       LAYER_BUTTONS.forEach(function (l) {
         var layer = byId[l.id] || null;
         var state = layer ? layer.state : "NOT_LOADED";
@@ -2186,6 +2508,7 @@
       plotGlobe();
       refreshAlertMode();
       refreshQuakeMarkers();
+      refreshTransitMarkers();
       // Lens badges and the coverage GLOBAL row read the same
       // layer states — they refresh with the layers, including
       // the async graph swap, so they can never drift apart.

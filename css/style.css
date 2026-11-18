@@ -3564,6 +3564,12 @@ body.route-globe .globe-visual { border: none; border-radius: 0; }
    place-search results, geographic-events list, workspace live data. */
 .globe-quake-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 1; }
 .globe-quake-marker { position: absolute; width: 10px; height: 10px; border-radius: 50%; transform: translate(-50%, -50%); background: rgb(255, 176, 46); border: 1px solid rgba(0, 0, 0, 0.55); box-shadow: 0 0 8px 2px rgba(255, 176, 46, 0.55); }
+/* Transitland v1 (v118, owner ruling D4): transit stop markers at
+   real coordinates. Same layer pattern as earthquakes; markers are
+   buttons (pointer-events re-enabled on the marker itself), so a
+   tap loads that stop's departures. Electric blue = command. */
+.globe-transit-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 1; }
+.globe-transit-marker { position: absolute; width: 12px; height: 12px; border-radius: 50%; transform: translate(-50%, -50%); background: rgb(0, 191, 255); border: 1px solid rgba(0, 0, 0, 0.55); box-shadow: 0 0 8px 2px rgba(0, 191, 255, 0.55); pointer-events: auto; cursor: pointer; padding: 0; }
 .globe-place-results { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .globe-place-result { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; text-align: left; }
 .globe-geo-events { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
