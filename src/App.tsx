@@ -45,6 +45,7 @@ import { DISPLAY_CURRENCIES, currencyOf } from './currencies';
 import { fetchStarStatus, starChat, StarError } from './star-client';
 import { buildStarSystemPrompt } from './star-context';
 import { STAR_EXPRESSIONS, STAR_PORTRAIT } from './star-avatar-data';
+import { SPACE_BG } from './worlds/CryptoWorld';
 import { WorldGlobe } from './worlds/WorldGlobe';
 import { CryptoWorld } from './worlds/CryptoWorld';
 import { EarningsWorld } from './worlds/EarningsWorld';
@@ -641,7 +642,7 @@ export function App() {
   return (
     <div
       className="min-h-screen text-white flex flex-col"
-      style={{ backgroundColor: MTI6_COLORS.bgVoid }}
+      style={{ backgroundColor: MTI6_COLORS.bgVoid, ...SPACE_BG }}
     >
       {/* Phase 2 Top Bar — REPLACES the Phase 1 dock (owner directive
           2026-11-23). One row, left to right: ☰ (the logo AND the menu
