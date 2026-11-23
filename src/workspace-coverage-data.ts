@@ -12,6 +12,16 @@ export interface WorkspaceCoverage {
   families: string[];
   entityKinds: string[];
   botRoles: string[];
+  status: string;
+  worldLayer: string;
+  defaultView: string;
+  frame: string;
+  ladderTop: string;
+  gated: boolean;
+  costClasses: string[];
+  riskDimensions: string[];
+  actions: string[];
+  panelsNote: string;
 }
 
 export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
@@ -30,7 +40,28 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   ],
   "botRoles": [
    "ALL"
-  ]
+  ],
+  "status": "PARTIAL",
+  "worldLayer": "CRYPTO layer rollup",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "MONITOR",
+  "gated": false,
+  "costClasses": [
+   "ALL"
+  ],
+  "riskDimensions": [
+   "ALL"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source"
+  ],
+  "panelsNote": "FULL − Simulator action (health/entry surface, §5/§104)"
  },
  "globe": {
   "majors": [],
@@ -48,7 +79,25 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "AST",
    "PRO",
    "SRD"
-  ]
+  ],
+  "status": "PARTIAL",
+  "worldLayer": "CRYPTO",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "MONITOR",
+  "gated": false,
+  "costClasses": [],
+  "riskDimensions": [],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL − Costs/Risks panels render as layer state only"
  },
  "markets-assets": {
   "majors": [
@@ -76,7 +125,34 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "MKT",
    "VAL",
    "SRD"
-  ]
+  ],
+  "status": "PARTIAL",
+  "worldLayer": "MARKET",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "ANALYZE",
+  "gated": false,
+  "costClasses": [
+   "TF",
+   "SP",
+   "NF"
+  ],
+  "riskDimensions": [
+   "AS",
+   "MK",
+   "DF",
+   "DP"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "networks": {
   "majors": [],
@@ -97,7 +173,33 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "INF",
    "VAL",
    "SRD"
-  ]
+  ],
+  "status": "PARTIAL",
+  "worldLayer": "NETWORK",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "ANALYZE",
+  "gated": false,
+  "costClasses": [
+   "NF",
+   "IN"
+  ],
+  "riskDimensions": [
+   "NW",
+   "DP",
+   "DF",
+   "OR"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "protocols": {
   "majors": [],
@@ -117,7 +219,34 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "VAL",
    "SRD",
    "SEC"
-  ]
+  ],
+  "status": "PARTIAL",
+  "worldLayer": "MARKET/YIELD/NETWORK",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "ANALYZE",
+  "gated": false,
+  "costClasses": [
+   "PF",
+   "NF"
+  ],
+  "riskDimensions": [
+   "PR",
+   "SC",
+   "DP",
+   "OR",
+   "DF"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "opportunities": {
   "majors": [],
@@ -136,7 +265,29 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "ARB",
    "RSK",
    "VAL"
-  ]
+  ],
+  "status": "PARTIAL",
+  "worldLayer": "OPPORTUNITIES",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "PREPARE",
+  "gated": false,
+  "costClasses": [
+   "ALL"
+  ],
+  "riskDimensions": [
+   "ALL"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "positions": {
   "majors": [],
@@ -151,7 +302,31 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   ],
   "botRoles": [
    "VAL"
-  ]
+  ],
+  "status": "PARTIAL",
+  "worldLayer": "NONE",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "MONITOR",
+  "gated": false,
+  "costClasses": [
+   "ALL"
+  ],
+  "riskDimensions": [
+   "LV",
+   "LQ",
+   "MK",
+   "DP"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source"
+  ],
+  "panelsNote": "FULL − Simulator action"
  },
  "portfolio": {
   "majors": [
@@ -171,7 +346,31 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   "botRoles": [
    "AST",
    "VAL"
-  ]
+  ],
+  "status": "PARTIAL",
+  "worldLayer": "MY_COCKPIT",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "MONITOR",
+  "gated": false,
+  "costClasses": [
+   "WD",
+   "NF"
+  ],
+  "riskDimensions": [
+   "AS",
+   "CP",
+   "DF"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source"
+  ],
+  "panelsNote": "FULL − Simulator action"
  },
  "intelligence": {
   "majors": [],
@@ -188,7 +387,26 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   ],
   "botRoles": [
    "ALL"
-  ]
+  ],
+  "status": "PARTIAL",
+  "worldLayer": "NONE",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "ANALYZE",
+  "gated": false,
+  "costClasses": [],
+  "riskDimensions": [
+   "DF",
+   "DP"
+  ],
+  "actions": [
+   "star",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source"
+  ],
+  "panelsNote": "FULL − Simulator, Compare actions"
  },
  "risk": {
   "majors": [],
@@ -208,7 +426,26 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "RSK",
    "SEC",
    "VAL"
-  ]
+  ],
+  "status": "PARTIAL",
+  "worldLayer": "SECURITY_ALERTS",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "ANALYZE",
+  "gated": false,
+  "costClasses": [],
+  "riskDimensions": [
+   "ALL"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source"
+  ],
+  "panelsNote": "FULL − Simulator action"
  },
  "security": {
   "majors": [
@@ -227,7 +464,30 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "SEC",
    "RSK",
    "VAL"
-  ]
+  ],
+  "status": "PARTIAL",
+  "worldLayer": "SECURITY_ALERTS",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "ANALYZE",
+  "gated": false,
+  "costClasses": [],
+  "riskDimensions": [
+   "SC",
+   "PR",
+   "OP",
+   "DP",
+   "DF"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source"
+  ],
+  "panelsNote": "FULL − Simulator action"
  },
  "encyclopedia": {
   "majors": [],
@@ -243,7 +503,23 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   "botRoles": [
    "VAL",
    "SRD"
-  ]
+  ],
+  "status": "EXISTS",
+  "worldLayer": "PER_RECORD",
+  "defaultView": "STANDARD",
+  "frame": "lite",
+  "ladderTop": "MONITOR",
+  "gated": false,
+  "costClasses": [],
+  "riskDimensions": [
+   "DF"
+  ],
+  "actions": [
+   "world",
+   "graph",
+   "source"
+  ],
+  "panelsNote": "Frame-lite: Header + Primary + Context + Intelligence[Sources, Freshness] + Actions[World, Graph, Source] (catalog surface, §72)"
  },
  "live-data": {
   "majors": [],
@@ -260,7 +536,25 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "MKT",
    "VAL",
    "SRD"
-  ]
+  ],
+  "status": "PARTIAL",
+  "worldLayer": "NONE",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "MONITOR",
+  "gated": false,
+  "costClasses": [],
+  "riskDimensions": [
+   "DF"
+  ],
+  "actions": [
+   "star",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source"
+  ],
+  "panelsNote": "FULL − Simulator, Compare actions"
  },
  "bot-ops": {
   "majors": [],
@@ -271,7 +565,25 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   "entityKinds": [],
   "botRoles": [
    "ALL"
-  ]
+  ],
+  "status": "PARTIAL",
+  "worldLayer": "BOT_ACTIVITY",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "MONITOR",
+  "gated": false,
+  "costClasses": [],
+  "riskDimensions": [
+   "OP"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "encyclopedia",
+   "graph",
+   "source"
+  ],
+  "panelsNote": "FULL − Simulator, World actions"
  },
  "trading": {
   "majors": [
@@ -294,7 +606,35 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "MKT",
    "AST",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "MARKET",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "SIMULATE",
+  "gated": false,
+  "costClasses": [
+   "TF",
+   "SP",
+   "SL",
+   "NF"
+  ],
+  "riskDimensions": [
+   "MK",
+   "LQ",
+   "LV",
+   "DF"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "swap": {
   "majors": [
@@ -318,7 +658,36 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "MKT",
    "RTE",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "MARKET",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "SIMULATE",
+  "gated": false,
+  "costClasses": [
+   "TF",
+   "PF",
+   "SL",
+   "SP",
+   "NF"
+  ],
+  "riskDimensions": [
+   "LQ",
+   "MK",
+   "DF",
+   "DP"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "dex-aggregation": {
   "majors": [
@@ -343,7 +712,35 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "RTE",
    "SRD",
    "COD"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "MARKET",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "SIMULATE",
+  "gated": false,
+  "costClasses": [
+   "TF",
+   "PF",
+   "SL",
+   "SP",
+   "NF"
+  ],
+  "riskDimensions": [
+   "LQ",
+   "DP",
+   "DF"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "cex-intelligence": {
   "majors": [],
@@ -354,7 +751,26 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "MKT",
    "SRD",
    "COD"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED · NO CANONICAL FEED",
+  "worldLayer": "NONE",
+  "defaultView": "STANDARD",
+  "frame": "lite",
+  "ladderTop": "MONITOR",
+  "gated": false,
+  "costClasses": [
+   "TF",
+   "WD"
+  ],
+  "riskDimensions": [
+   "CP",
+   "MK",
+   "DF"
+  ],
+  "actions": [
+   "source"
+  ],
+  "panelsNote": "Frame-lite: Header + Primary + Intelligence[Sources, Freshness, Alerts] + Actions[Source]"
  },
  "arbitrage": {
   "majors": [
@@ -380,7 +796,39 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "MKT",
    "RTE",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "MARKET",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "SIMULATE",
+  "gated": false,
+  "costClasses": [
+   "TF",
+   "PF",
+   "SL",
+   "SP",
+   "NF",
+   "BF",
+   "BC"
+  ],
+  "riskDimensions": [
+   "MK",
+   "LQ",
+   "DF",
+   "DP",
+   "LV"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "cross-chain-routing": {
   "majors": [
@@ -404,7 +852,34 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "RTE",
    "NET",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "NETWORK",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "SIMULATE",
+  "gated": false,
+  "costClasses": [
+   "BF",
+   "NF",
+   "SL"
+  ],
+  "riskDimensions": [
+   "BR",
+   "DP",
+   "LQ",
+   "DF"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "bridge": {
   "majors": [
@@ -426,7 +901,33 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "RTE",
    "SEC",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "NETWORK",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "SIMULATE",
+  "gated": false,
+  "costClasses": [
+   "BF",
+   "NF"
+  ],
+  "riskDimensions": [
+   "BR",
+   "SC",
+   "DP",
+   "DF"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "liquidity": {
   "majors": [
@@ -454,7 +955,35 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "YLD",
    "MKT",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "MARKET",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "SIMULATE",
+  "gated": false,
+  "costClasses": [
+   "PF",
+   "TF",
+   "SL",
+   "SS"
+  ],
+  "riskDimensions": [
+   "LQ",
+   "PR",
+   "MK",
+   "DP"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "yield-farming": {
   "majors": [
@@ -476,7 +1005,34 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   "botRoles": [
    "YLD",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "YIELD",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "RECOMMEND",
+  "gated": false,
+  "costClasses": [
+   "PF",
+   "NF",
+   "SS"
+  ],
+  "riskDimensions": [
+   "PR",
+   "LQ",
+   "MK",
+   "DF"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "staking": {
   "majors": [
@@ -501,7 +1057,34 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "YLD",
    "NET",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "YIELD",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "RECOMMEND",
+  "gated": false,
+  "costClasses": [
+   "NF",
+   "PF",
+   "SS"
+  ],
+  "riskDimensions": [
+   "NW",
+   "PR",
+   "LV",
+   "DP"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "liquid-staking": {
   "majors": [
@@ -521,7 +1104,33 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   "botRoles": [
    "YLD",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "YIELD",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "RECOMMEND",
+  "gated": false,
+  "costClasses": [
+   "PF",
+   "SS"
+  ],
+  "riskDimensions": [
+   "PR",
+   "LQ",
+   "AS",
+   "DP"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "restaking": {
   "majors": [
@@ -541,7 +1150,33 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "YLD",
    "RSK",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "YIELD",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "RECOMMEND",
+  "gated": false,
+  "costClasses": [
+   "PF",
+   "SS"
+  ],
+  "riskDimensions": [
+   "PR",
+   "LV",
+   "DP",
+   "SC"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "lending": {
   "majors": [
@@ -571,7 +1206,35 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "YLD",
    "RSK",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "YIELD",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "RECOMMEND",
+  "gated": false,
+  "costClasses": [
+   "PF",
+   "BC",
+   "NF"
+  ],
+  "riskDimensions": [
+   "PR",
+   "LQ",
+   "LV",
+   "CP",
+   "DP"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "borrowing": {
   "majors": [
@@ -594,7 +1257,34 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "YLD",
    "RSK",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "YIELD",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "SIMULATE",
+  "gated": false,
+  "costClasses": [
+   "BC",
+   "PF",
+   "NF"
+  ],
+  "riskDimensions": [
+   "LV",
+   "LQ",
+   "PR",
+   "DF"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "vaults": {
   "majors": [
@@ -618,7 +1308,34 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   "botRoles": [
    "YLD",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "YIELD",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "RECOMMEND",
+  "gated": false,
+  "costClasses": [
+   "PF",
+   "SS",
+   "SUB"
+  ],
+  "riskDimensions": [
+   "PR",
+   "DP",
+   "MK",
+   "LQ"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "yield-aggregation": {
   "majors": [
@@ -641,7 +1358,34 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   "botRoles": [
    "YLD",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "YIELD",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "RECOMMEND",
+  "gated": false,
+  "costClasses": [
+   "PF",
+   "NF",
+   "SS"
+  ],
+  "riskDimensions": [
+   "PR",
+   "DP",
+   "DF",
+   "§25)"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "yield-trading": {
   "majors": [
@@ -663,7 +1407,34 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "YLD",
    "MKT",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "YIELD",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "SIMULATE",
+  "gated": false,
+  "costClasses": [
+   "PF",
+   "TF",
+   "SS"
+  ],
+  "riskDimensions": [
+   "MK",
+   "LQ",
+   "DF",
+   "DP"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "structured-credit": {
   "majors": [
@@ -687,7 +1458,34 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "YLD",
    "RSK",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "ECONOMY",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "RECOMMEND",
+  "gated": false,
+  "costClasses": [
+   "PF",
+   "BC",
+   "SS"
+  ],
+  "riskDimensions": [
+   "CP",
+   "LQ",
+   "PR",
+   "DP"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "perpetuals": {
   "majors": [
@@ -706,7 +1504,34 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "MKT",
    "RSK",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "MARKET",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "SIMULATE",
+  "gated": false,
+  "costClasses": [
+   "TF",
+   "FC",
+   "SL"
+  ],
+  "riskDimensions": [
+   "LV",
+   "LQ",
+   "MK",
+   "DF"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "futures": {
   "majors": [
@@ -724,7 +1549,34 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   "botRoles": [
    "MKT",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "MARKET",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "SIMULATE",
+  "gated": false,
+  "costClasses": [
+   "TF",
+   "FC",
+   "SL"
+  ],
+  "riskDimensions": [
+   "LV",
+   "MK",
+   "LQ",
+   "DF"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "options": {
   "majors": [
@@ -742,7 +1594,33 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   "botRoles": [
    "MKT",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "MARKET",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "SIMULATE",
+  "gated": false,
+  "costClasses": [
+   "TF",
+   "PF",
+   "SP"
+  ],
+  "riskDimensions": [
+   "LV",
+   "MK",
+   "LQ"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "synthetics-cdp": {
   "majors": [
@@ -761,7 +1639,35 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "PRO",
    "RSK",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "MARKET",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "SIMULATE",
+  "gated": false,
+  "costClasses": [
+   "PF",
+   "BC",
+   "NF"
+  ],
+  "riskDimensions": [
+   "OR",
+   "LV",
+   "PR",
+   "DP",
+   "LQ"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "margin-leverage": {
   "majors": [],
@@ -785,7 +1691,34 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   "botRoles": [
    "RSK",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "NONE",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "ANALYZE",
+  "gated": false,
+  "costClasses": [
+   "BC",
+   "FC",
+   "TF"
+  ],
+  "riskDimensions": [
+   "LV",
+   "LQ",
+   "DP",
+   "MK"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL − own Primary is an aggregation view"
  },
  "mining": {
   "majors": [
@@ -803,7 +1736,35 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "INF",
    "NET",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "NETWORK",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "RECOMMEND",
+  "gated": false,
+  "costClasses": [
+   "HW",
+   "EN",
+   "IN",
+   "NF"
+  ],
+  "riskDimensions": [
+   "NW",
+   "OP",
+   "MK",
+   "DP"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "validators": {
   "majors": [
@@ -824,7 +1785,35 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "INF",
    "NET",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "NETWORK",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "RECOMMEND",
+  "gated": false,
+  "costClasses": [
+   "HW",
+   "IN",
+   "NF",
+   "SUB"
+  ],
+  "riskDimensions": [
+   "NW",
+   "LV",
+   "OP",
+   "DP"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "nodes": {
   "majors": [
@@ -844,7 +1833,35 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "INF",
    "NET",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "NETWORK",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "MONITOR",
+  "gated": false,
+  "costClasses": [
+   "HW",
+   "IN",
+   "SUB",
+   "EN"
+  ],
+  "riskDimensions": [
+   "NW",
+   "OP",
+   "DP",
+   "DF"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "rpc-infrastructure": {
   "majors": [],
@@ -862,7 +1879,32 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "SRD",
    "COD",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "NETWORK",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "MONITOR",
+  "gated": false,
+  "costClasses": [
+   "IN",
+   "SUB"
+  ],
+  "riskDimensions": [
+   "NW",
+   "OP",
+   "DF",
+   "DP"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source"
+  ],
+  "panelsNote": "FULL − Simulator action"
  },
  "depin": {
   "majors": [
@@ -881,7 +1923,34 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "INF",
    "NET",
    "SRD"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "ECONOMY",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "RECOMMEND",
+  "gated": false,
+  "costClasses": [
+   "HW",
+   "IN",
+   "EN"
+  ],
+  "riskDimensions": [
+   "OP",
+   "NW",
+   "DP",
+   "MK"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "ai-compute": {
   "majors": [],
@@ -899,7 +1968,28 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "INF",
    "SRD",
    "VAL"
-  ]
+  ],
+  "status": "OWNER-GATED SEAT",
+  "worldLayer": "ECONOMY",
+  "defaultView": "STANDARD",
+  "frame": "seat",
+  "ladderTop": "MONITOR",
+  "gated": true,
+  "costClasses": [
+   "HW",
+   "IN",
+   "EN",
+   "SUB"
+  ],
+  "riskDimensions": [
+   "OP",
+   "DP",
+   "DF"
+  ],
+  "actions": [
+   "encyclopedia"
+  ],
+  "panelsNote": "SEAT frame (§3)"
  },
  "modular": {
   "majors": [],
@@ -914,7 +2004,24 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "INF",
    "NET",
    "SRD"
-  ]
+  ],
+  "status": "OWNER-GATED SEAT",
+  "worldLayer": "NETWORK",
+  "defaultView": "STANDARD",
+  "frame": "seat",
+  "ladderTop": "MONITOR",
+  "gated": true,
+  "costClasses": [
+   "IN"
+  ],
+  "riskDimensions": [
+   "DP",
+   "NW"
+  ],
+  "actions": [
+   "encyclopedia"
+  ],
+  "panelsNote": "SEAT frame (§3)"
  },
  "identity": {
   "majors": [],
@@ -927,7 +2034,25 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "INF",
    "SRD",
    "VAL"
-  ]
+  ],
+  "status": "OWNER-GATED SEAT",
+  "worldLayer": "NETWORK",
+  "defaultView": "STANDARD",
+  "frame": "seat",
+  "ladderTop": "MONITOR",
+  "gated": true,
+  "costClasses": [
+   "IN",
+   "SUB"
+  ],
+  "riskDimensions": [
+   "OP",
+   "DP"
+  ],
+  "actions": [
+   "encyclopedia"
+  ],
+  "panelsNote": "SEAT frame (§3)"
  },
  "btcfi": {
   "majors": [
@@ -949,7 +2074,34 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "YLD",
    "PRO",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "NETWORK",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "RECOMMEND",
+  "gated": false,
+  "costClasses": [
+   "NF",
+   "PF",
+   "BF"
+  ],
+  "riskDimensions": [
+   "AS",
+   "BR",
+   "PR",
+   "DP"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "rwa": {
   "majors": [
@@ -971,7 +2123,34 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "AST",
    "VAL",
    "SRD"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "ECONOMY",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "RECOMMEND",
+  "gated": false,
+  "costClasses": [
+   "PF",
+   "SS",
+   "SUB"
+  ],
+  "riskDimensions": [
+   "CP",
+   "LQ",
+   "PR",
+   "DF"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "nftfi": {
   "majors": [
@@ -990,7 +2169,34 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "AST",
    "MKT",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "ECONOMY",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "RECOMMEND",
+  "gated": false,
+  "costClasses": [
+   "PF",
+   "TF",
+   "NF"
+  ],
+  "riskDimensions": [
+   "LQ",
+   "AS",
+   "PR",
+   "MK"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "gamefi": {
   "majors": [],
@@ -1003,7 +2209,22 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "AST",
    "SRD",
    "VAL"
-  ]
+  ],
+  "status": "OWNER-GATED SEAT",
+  "worldLayer": "ECONOMY",
+  "defaultView": "STANDARD",
+  "frame": "seat",
+  "ladderTop": "MONITOR",
+  "gated": true,
+  "costClasses": [],
+  "riskDimensions": [
+   "AS",
+   "MK"
+  ],
+  "actions": [
+   "encyclopedia"
+  ],
+  "panelsNote": "SEAT frame (§3)"
  },
  "socialfi": {
   "majors": [],
@@ -1016,7 +2237,22 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "AST",
    "SRD",
    "VAL"
-  ]
+  ],
+  "status": "OWNER-GATED SEAT",
+  "worldLayer": "ECONOMY",
+  "defaultView": "STANDARD",
+  "frame": "seat",
+  "ladderTop": "MONITOR",
+  "gated": true,
+  "costClasses": [],
+  "riskDimensions": [
+   "AS",
+   "MK"
+  ],
+  "actions": [
+   "encyclopedia"
+  ],
+  "panelsNote": "SEAT frame (§3)"
  },
  "prediction": {
   "majors": [
@@ -1034,7 +2270,33 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   "botRoles": [
    "MKT",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "NETWORK",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "ANALYZE",
+  "gated": false,
+  "costClasses": [
+   "PF",
+   "TF"
+  ],
+  "riskDimensions": [
+   "OR",
+   "LQ",
+   "MK",
+   "DF"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "oracle": {
   "majors": [],
@@ -1055,7 +2317,32 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "NET",
    "VAL",
    "RSK"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "NETWORK",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "ANALYZE",
+  "gated": false,
+  "costClasses": [
+   "PF",
+   "IN"
+  ],
+  "riskDimensions": [
+   "OR",
+   "DP",
+   "DF"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL (Dependency panel is the centerpiece: \"WHAT DEPENDS ON THIS ORACLE?\", §46)"
  },
  "insurance": {
   "majors": [
@@ -1074,7 +2361,33 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "RSK",
    "PRO",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "MARKET",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "RECOMMEND",
+  "gated": false,
+  "costClasses": [
+   "PF",
+   "SS"
+  ],
+  "riskDimensions": [
+   "CP",
+   "PR",
+   "SC",
+   "DP"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "governance": {
   "majors": [
@@ -1094,7 +2407,32 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   "botRoles": [
    "GOV",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "ECONOMY",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "ANALYZE",
+  "gated": false,
+  "costClasses": [
+   "NF",
+   "PF"
+  ],
+  "riskDimensions": [
+   "PR",
+   "DP",
+   "OP"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "gauges": {
   "majors": [
@@ -1115,7 +2453,32 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "GOV",
    "YLD",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "ECONOMY",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "ANALYZE",
+  "gated": false,
+  "costClasses": [
+   "PF",
+   "NF"
+  ],
+  "riskDimensions": [
+   "PR",
+   "DP",
+   "MK"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  },
  "payments": {
   "majors": [
@@ -1135,6 +2498,32 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "AST",
    "NET",
    "VAL"
-  ]
+  ],
+  "status": "NOT IMPLEMENTED",
+  "worldLayer": "ECONOMY",
+  "defaultView": "STANDARD",
+  "frame": "full",
+  "ladderTop": "ANALYZE",
+  "gated": false,
+  "costClasses": [
+   "NF",
+   "TF",
+   "SS"
+  ],
+  "riskDimensions": [
+   "CP",
+   "DF",
+   "LQ"
+  ],
+  "actions": [
+   "star",
+   "compare",
+   "world",
+   "encyclopedia",
+   "graph",
+   "source",
+   "simulator"
+  ],
+  "panelsNote": "FULL"
  }
 };

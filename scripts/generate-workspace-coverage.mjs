@@ -53,6 +53,16 @@ for (const w of registry.WORKSPACES) {
     families,
     entityKinds: w.entityKinds ?? [],
     botRoles: w.botRoles ?? [],
+    status: w.status111 ?? 'UNKNOWN',
+    worldLayer: w.worldLayer ?? '',
+    defaultView: w.defaultView ?? 'STANDARD',
+    frame: w.frame ?? '',
+    ladderTop: w.ladderTop ?? '',
+    gated: w.gated === true,
+    costClasses: w.costClasses ?? [],
+    riskDimensions: w.riskDimensions ?? [],
+    actions: w.actions ?? [],
+    panelsNote: w.panelsNote ?? '',
   };
 }
 console.log(
@@ -73,6 +83,16 @@ export interface WorkspaceCoverage {
   families: string[];
   entityKinds: string[];
   botRoles: string[];
+  status: string;
+  worldLayer: string;
+  defaultView: string;
+  frame: string;
+  ladderTop: string;
+  gated: boolean;
+  costClasses: string[];
+  riskDimensions: string[];
+  actions: string[];
+  panelsNote: string;
 }
 
 export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = ${JSON.stringify(coverage, null, 1)};
