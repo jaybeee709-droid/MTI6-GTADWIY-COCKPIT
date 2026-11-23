@@ -19,8 +19,27 @@
 // Edge Functions (Deno) env-get API does not apply here. Dashboard
 // variables apply at deploy time, so the key takes effect on the next
 // deploy after it is saved.
+//
+// STAR (added 2026-11-23, owner's "Give STAR a real brain" package):
+// one more narrowly scoped action, star.chat, behind the same
+// discipline. The AI provider key is read ONLY from the Netlify
+// dashboard environment variable MTI6_STAR_API_KEY; the provider base
+// URL and model come from MTI6_STAR_BASE_URL / MTI6_STAR_MODEL with
+// OpenRouter defaults (an OpenAI-compatible chat-completions API).
+// The key travels only in the server-to-server Authorization header;
+// it is never logged, never echoed, and no upstream body is ever
+// returned to the client — responses are normalized to { reply,
+// model } and errors to static messages. With no key configured,
+// star.chat answers NOT_CONFIGURED and the app keeps STAR in its
+// honest demo mode.
 
 const MAX_BODY_BYTES = 65536;
+const STAR_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
+const STAR_DEFAULT_MODEL = "meta-llama/llama-3.3-70b-instruct:free";
+const STAR_TIMEOUT_MS = 30000;
+const STAR_MAX_MESSAGES = 12;
+const STAR_MAX_CONTENT_CHARS = 2000;
+const STAR_ROLES = new Set(["system", "user", "assistant"]);
 const TRANSITLAND_REST_BASE = "https://transit.land/api/v2/rest";
 const UPSTREAM_TIMEOUT_MS = 10000;
 const MAX_RADIUS_M = 10000;
@@ -231,6 +250,130 @@ async function handleTransit(action, payload) {
   return envelope(true, "transitland", result.data, null, 200);
 }
 
+// ------------------------------------------------------------------
+// STAR chat (star.chat) — same discipline as the transit actions:
+// validate first (no upstream call for bad input), require the
+// server-side key, normalize everything that comes back.
+// ------------------------------------------------------------------
+
+function starFail(code, message, status, extra) {
+  const error = { code, message };
+  if (extra) {
+    for (const k of Object.keys(extra)) error[k] = extra[k];
+  }
+  return envelope(false, "star", null, error, status);
+}
+
+function readStarConfig() {
+  const env = typeof process !== "undefined" && process.env ? process.env : {};
+  const apiKey = typeof env.MTI6_STAR_API_KEY === "string" && env.MTI6_STAR_API_KEY.length > 0
+    ? env.MTI6_STAR_API_KEY
+    : null;
+  const baseUrl = typeof env.MTI6_STAR_BASE_URL === "string" && env.MTI6_STAR_BASE_URL.length > 0
+    ? env.MTI6_STAR_BASE_URL.replace(/\/+$/, "")
+    : STAR_DEFAULT_BASE_URL;
+  const model = typeof env.MTI6_STAR_MODEL === "string" && env.MTI6_STAR_MODEL.length > 0
+    ? env.MTI6_STAR_MODEL
+    : STAR_DEFAULT_MODEL;
+  return { apiKey, baseUrl, model, configured: apiKey !== null };
+}
+
+// Server-side validation for star.chat. Returns { messages } on
+// success or { error } (a Response) on failure.
+function validateStarChat(payload) {
+  if (!isPlainObject(payload)) {
+    return { error: starFail("INVALID_REQUEST", "star.chat payload must be an object.", 400) };
+  }
+  const bad = unknownKey(payload, new Set(["messages"]));
+  if (bad) {
+    return { error: starFail("INVALID_REQUEST", "Unknown parameter \"" + bad + "\" for star.chat.", 400) };
+  }
+  const messages = payload.messages;
+  if (!Array.isArray(messages) || messages.length < 1 || messages.length > STAR_MAX_MESSAGES) {
+    return { error: starFail("INVALID_REQUEST", "messages must be an array of 1 to " + STAR_MAX_MESSAGES + " entries.", 400) };
+  }
+  for (const m of messages) {
+    if (!isPlainObject(m)) {
+      return { error: starFail("INVALID_REQUEST", "Each message must be an object.", 400) };
+    }
+    const badKey = unknownKey(m, new Set(["role", "content"]));
+    if (badKey) {
+      return { error: starFail("INVALID_REQUEST", "Unknown message field \"" + badKey + "\".", 400) };
+    }
+    if (typeof m.role !== "string" || !STAR_ROLES.has(m.role)) {
+      return { error: starFail("INVALID_REQUEST", "Message role must be system, user, or assistant.", 400) };
+    }
+    if (typeof m.content !== "string" || m.content.length < 1 || m.content.length > STAR_MAX_CONTENT_CHARS) {
+      return { error: starFail("INVALID_REQUEST", "Message content must be a string of 1 to " + STAR_MAX_CONTENT_CHARS + " characters.", 400) };
+    }
+  }
+  return { messages: messages.map((m) => ({ role: m.role, content: m.content })) };
+}
+
+// One provider chat-completions call. Returns { reply, model } on
+// success or { error } (a Response) on failure. The upstream body is
+// read only to extract the reply text; it is never echoed onward, and
+// error messages are static strings.
+async function callStar(config, messages) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), STAR_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(config.baseUrl + "/chat/completions", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: "Bearer " + config.apiKey,
+        "X-Title": "MTI6 STAR"
+      },
+      body: JSON.stringify({ model: config.model, messages })
+    });
+  } catch {
+    return { error: starFail("UPSTREAM_ERROR", "The STAR AI provider could not be reached.", 502) };
+  } finally {
+    clearTimeout(timer);
+  }
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  if (res.status === 401) {
+    return { error: starFail("AUTH_REQUIRED", "The STAR AI provider rejected the API key. Check the MTI6_STAR_API_KEY Netlify variable.", 401) };
+  }
+  if (res.status === 429) {
+    const retryAfter = res.headers ? res.headers.get("retry-after") : null;
+    const extra = retryAfter ? { retryAfter } : undefined;
+    return { error: starFail("RATE_LIMITED", "The STAR AI provider rate limit was reached. Wait and try again.", 429, extra) };
+  }
+  if (!res.ok) {
+    return { error: starFail("UPSTREAM_ERROR", "The STAR AI provider returned an unexpected error.", 502) };
+  }
+  const reply = data && Array.isArray(data.choices) && data.choices[0] && data.choices[0].message
+    ? data.choices[0].message.content
+    : null;
+  if (typeof reply !== "string" || reply.length === 0) {
+    return { error: starFail("UPSTREAM_ERROR", "The STAR AI provider returned an invalid response.", 502) };
+  }
+  const model = data && typeof data.model === "string" && data.model.length > 0 ? data.model : config.model;
+  return { reply, model };
+}
+
+async function handleStarChat(payload) {
+  const validated = validateStarChat(payload);
+  if (validated.error) return validated.error;
+  const config = readStarConfig();
+  if (!config.configured) {
+    return starFail("NOT_CONFIGURED", "No STAR AI key is configured on the server (Netlify MTI6_STAR_API_KEY). STAR stays in demo mode.", 503);
+  }
+  const result = await callStar(config, validated.messages);
+  if (result.error) return result.error;
+  return envelope(true, "star", { reply: result.reply, model: result.model }, null, 200);
+}
+
 export default async (req) => {
   if (req.method !== "POST") {
     return fail("METHOD_NOT_ALLOWED", "POST required.", 405);
@@ -265,18 +408,25 @@ export default async (req) => {
   // transit.operators and any Routing Platform action are NOT
   // allowlisted in v1.
   switch (action) {
-    case "gateway.status":
+    case "gateway.status": {
+      const star = readStarConfig();
       return envelope(true, "gateway", {
-        providers: ["transitland"],
-        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures"],
-        note: "Transitland (World Data → Transit/Transportation) is configured behind the proxy as a Capability Router provider. STAR remains in demo mode — no AI backend is connected."
+        providers: ["transitland", "star"],
+        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures", "star.chat"],
+        star: { configured: star.configured, model: star.configured ? star.model : null },
+        note: "Transitland (World Data → Transit/Transportation) is configured behind the proxy as a Capability Router provider. STAR chat is available when star.configured is true; otherwise STAR remains in demo mode."
       }, null, 200);
+    }
     case "gateway.ping":
       return envelope(true, "gateway", { pong: true }, null, 200);
     case "transit.stopsNear":
     case "transit.departures": {
       const payload = body.payload === undefined ? {} : body.payload;
       return handleTransit(action, payload);
+    }
+    case "star.chat": {
+      const payload = body.payload === undefined ? {} : body.payload;
+      return handleStarChat(payload);
     }
     default:
       return fail("UNSUPPORTED_ACTION", "That MTI6 action is not enabled.", 400);

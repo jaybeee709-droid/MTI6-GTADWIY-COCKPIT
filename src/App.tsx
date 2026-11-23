@@ -24,6 +24,7 @@ import {
   PieChart,
   Pin,
   Search,
+  Send,
   Settings,
   Shield,
   Sparkles,
@@ -41,6 +42,8 @@ import {
   MTI6_WORLD_OS,
 } from './tokens';
 import { DISPLAY_CURRENCIES, currencyOf } from './currencies';
+import { fetchStarStatus, starChat, StarError } from './star-client';
+import { buildStarSystemPrompt } from './star-context';
 import { WorldGlobe } from './worlds/WorldGlobe';
 import { CryptoWorld } from './worlds/CryptoWorld';
 import { EarningsWorld } from './worlds/EarningsWorld';
@@ -236,8 +239,79 @@ export function App() {
   const [webTabs, setWebTabs] = useState<WebTab[]>(loadWebTabs);
   const [pinnedCurrency, setPinnedCurrency] = useState<string>(loadDisplayCurrency);
   const [amountPanel, setAmountPanel] = useState<AmountPanel>(null);
-  const [starHeard, setStarHeard] = useState<string>('');
   const [voiceState, setVoiceState] = useState<'idle' | 'listening' | 'unavailable'>('idle');
+  // STAR brain (2026-11-23): the panel is a real chat when the
+  // gateway reports a configured provider key; until then every
+  // answer is a labelled demo reply. starConfigured starts null
+  // (checking) and resolves from gateway.status on mount.
+  const [starConfigured, setStarConfigured] = useState<boolean | null>(null);
+  const [starModel, setStarModel] = useState<string | null>(null);
+  const [starThread, setStarThread] = useState<
+    { role: 'user' | 'assistant'; content: string; kind: 'chat' | 'demo' | 'error' }[]
+  >([]);
+  const [starInput, setStarInput] = useState<string>('');
+  const [starBusy, setStarBusy] = useState<boolean>(false);
+
+  useEffect(() => {
+    let live = true;
+    fetchStarStatus()
+      .then((s) => {
+        if (live) {
+          setStarConfigured(s.configured);
+          setStarModel(s.model);
+        }
+      })
+      .catch(() => {
+        if (live) setStarConfigured(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const sendStar = (raw: string) => {
+    const text = raw.trim();
+    if (!text || starBusy) return;
+    const userMsg = { role: 'user' as const, content: text, kind: 'chat' as const };
+    const threadWithUser = [...starThread, userMsg];
+    setStarThread(threadWithUser);
+    setStarInput('');
+    if (starConfigured !== true) {
+      setStarThread([
+        ...threadWithUser,
+        {
+          role: 'assistant',
+          content:
+            'Demo reply — no AI backend is configured on the server yet, so I cannot actually answer. Once the provider key is added in Netlify (MTI6_STAR_API_KEY), I come online. Nothing was acted on; execution is disabled by design.',
+          kind: 'demo',
+        },
+      ]);
+      return;
+    }
+    setStarBusy(true);
+    const history = threadWithUser
+      .filter((m) => m.kind === 'chat')
+      .slice(-10)
+      .map((m) => ({ role: m.role, content: m.content }));
+    starChat([{ role: 'system', content: buildStarSystemPrompt() }, ...history])
+      .then(({ reply, model }) => {
+        setStarModel(model);
+        setStarThread((prev) => [...prev, { role: 'assistant', content: reply, kind: 'chat' }]);
+      })
+      .catch((err) => {
+        const code = err instanceof StarError ? err.code : 'UPSTREAM_ERROR';
+        if (code === 'NOT_CONFIGURED') setStarConfigured(false);
+        setStarThread((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: `I could not answer (${code}). Nothing was acted on.`,
+            kind: 'error',
+          },
+        ]);
+      })
+      .finally(() => setStarBusy(false));
+  };
 
   useEffect(() => {
     try {
@@ -319,7 +393,8 @@ export function App() {
   /** Mic: tap and talk to STAR. Uses the browser's speech recognition
    *  where it exists; where it does not, the bar says so honestly
    *  instead of pretending to listen. The transcript opens the STAR
-   *  panel — STAR itself is demo / NOT_CONNECTED, and says so there. */
+   *  panel and is sent as a chat message — answered live when a
+   *  provider is configured, or with a labelled demo reply when not. */
   const startVoice = () => {
     const w = window as unknown as {
       SpeechRecognition?: new () => {
@@ -350,8 +425,8 @@ export function App() {
         const text = e.results?.[0]?.[0]?.transcript ?? '';
         setVoiceState('idle');
         if (text) {
-          setStarHeard(text);
           setStarOrbOpen(true);
+          sendStar(text);
         }
       };
       rec.onerror = () => setVoiceState('idle');
@@ -801,7 +876,8 @@ export function App() {
                 </div>
               </div>
               <div className="font-mono text-[10px] text-[#B8B8B8]">
-                WORLD ENGINE 957 NODES · ENCYCLOPEDIA 826 · ENTITIES 48 · STAR DEMO / NOT_CONNECTED
+                WORLD ENGINE 957 NODES · ENCYCLOPEDIA 826 · ENTITIES 48 · STAR{' '}
+                  {starConfigured ? 'CONNECTED' : 'DEMO / NOT_CONNECTED'}
               </div>
             </div>
 
@@ -1124,7 +1200,7 @@ export function App() {
       {/* Persistent Lower-Right STAR Orb */}
       <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-2">
         {starOrbOpen && (
-          <div className="w-80 rounded-2xl border border-[#00B7FF]/40 bg-[#101010] p-4 shadow-2xl text-xs">
+          <div className="w-80 max-w-[calc(100vw-2.5rem)] rounded-2xl border border-[#00B7FF]/40 bg-[#101010] p-4 shadow-2xl text-xs">
             <div className="flex items-center justify-between border-b border-white/10 pb-2 mb-2">
               <span className="font-semibold text-[#00B7FF] flex items-center gap-1.5">
                 <Sparkles className="h-3.5 w-3.5" /> STAR Core Assistant
@@ -1135,15 +1211,64 @@ export function App() {
             </div>
             <p className="text-[#B8B8B8]">
               Active World: <strong className="text-white">{activeWorld}</strong> · Mode:{' '}
-              <strong className="text-[#8B5CFF]">{executionMode}</strong>. STAR demo / NOT_CONNECTED — no live tribal status. Execution disabled by design.
+              <strong className="text-[#8B5CFF]">{executionMode}</strong>.{' '}
+              {starConfigured === null
+                ? 'STAR — checking the gateway… Execution disabled by design.'
+                : starConfigured
+                  ? `STAR — CONNECTED · ${starModel ?? 'model unknown'} · via the MTI6 gateway. Execution disabled by design.`
+                  : 'STAR demo / NOT_CONNECTED — no provider key is configured on the server. Execution disabled by design.'}
             </p>
-            {starHeard && (
-              <p className="mt-2 border-t border-white/10 pt-2 text-[#B8B8B8]">
-                You said: <strong className="text-white">&ldquo;{starHeard}&rdquo;</strong>
-                <br />
-                Your words were heard — STAR is in demo mode, so nothing was acted on.
-              </p>
+            {starThread.length > 0 && (
+              <div className="mt-2 max-h-64 space-y-2 overflow-y-auto border-t border-white/10 pt-2 pr-1">
+                {starThread.map((m, i) => (
+                  <div
+                    key={i}
+                    className={`rounded-lg px-2.5 py-2 leading-relaxed ${
+                      m.role === 'user'
+                        ? 'ml-5 border border-[#00B7FF]/40 bg-[#00B7FF]/10'
+                        : m.kind === 'error'
+                          ? 'mr-5 border border-[#FFB020]/50 bg-[#FFB020]/10'
+                          : m.kind === 'demo'
+                            ? 'mr-5 border border-white/15 bg-[#151515] text-[#B8B8B8]'
+                            : 'mr-5 border border-[#8B5CFF]/40 bg-[#8B5CFF]/10'
+                    }`}
+                  >
+                    <div className="mb-0.5 font-mono text-[9px] text-[#B8B8B8]">
+                      {m.role === 'user' ? 'YOU' : 'STAR'}
+                      {m.kind === 'demo' ? ' · DEMO' : ''}
+                      {m.kind === 'error' ? ' · ERROR' : ''}
+                    </div>
+                    <div className="whitespace-pre-wrap text-white">{m.content}</div>
+                  </div>
+                ))}
+                {starBusy && (
+                  <p className="font-mono text-[10px] text-[#B8B8B8]">STAR IS THINKING…</p>
+                )}
+              </div>
             )}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                sendStar(starInput);
+              }}
+              className="mt-2 flex items-center gap-2 border-t border-white/10 pt-2"
+            >
+              <input
+                value={starInput}
+                onChange={(e) => setStarInput(e.target.value)}
+                placeholder="Ask STAR…"
+                aria-label="Message STAR"
+                className="h-9 min-w-0 flex-1 rounded-lg border border-[#8B5CFF]/40 bg-[#050505] px-2.5 text-xs text-white outline-none placeholder:text-[#B8B8B8]/70 focus:border-[#8B5CFF]"
+              />
+              <button
+                type="submit"
+                disabled={starBusy || starInput.trim().length === 0}
+                aria-label="Send to STAR"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#8B5CFF] text-white transition hover:opacity-90 disabled:opacity-40"
+              >
+                <Send className="h-4 w-4" />
+              </button>
+            </form>
           </div>
         )}
         <button
