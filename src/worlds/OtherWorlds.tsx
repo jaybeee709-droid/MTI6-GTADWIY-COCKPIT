@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   Accessibility,
   AlertOctagon,
+  AlertTriangle,
   Bell,
   BookOpen,
   Bot,
@@ -482,6 +483,59 @@ export const EncyclopediaWorld: React.FC = () => {
             <p className="font-mono text-[9px] text-[#B8B8B8]">SHOWING UP TO 50 MATCHES.</p>
           </div>
         )}
+      </div>
+
+      {/* KNOWLEDGE GAPS (v144) — the gap surface the Copilot CW-0
+          audit called for (§63): computed live from the canonical
+          data in this app, never hand-listed. A gap is shown as a
+          gap — nothing here fills, invents or authorizes anything;
+          closing a data gap is a separate owner freeze decision. */}
+      <div className="space-y-3 rounded-2xl border border-[#FFB020]/30 bg-[#101010] p-5">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-[#FFB020]" />
+          <h3 className="text-sm font-semibold">KNOWLEDGE GAPS — COMPUTED FROM THE CANONICAL DATA</h3>
+        </div>
+        {(() => {
+          const zeroStrategyMajors = CANONICAL_60.filter(
+            (m) => (majorChildren.get(m.id)?.strategyTotal ?? 0) === 0,
+          );
+          const familiesWithoutMajors = ENCYCLOPEDIA_FAMILIES.filter(
+            (f) => !CANONICAL_60.some((m) => m.family === f.id),
+          );
+          const protocolsNoActivities = ENTITY_UNIVERSE.filter(
+            (e) => e.registry === 'protocols' && (e.activityRefs?.length ?? 0) === 0,
+          );
+          return (
+            <div className="space-y-2 font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+              <p>
+                MAJORS WITH ZERO STRATEGIES RECORDED: {zeroStrategyMajors.length}
+                {zeroStrategyMajors.length > 0 &&
+                  ` — ${zeroStrategyMajors
+                    .map((m) => `${m.title} (${majorChildren.get(m.id)?.types.length ?? 0} TYPES, 0 STRATEGIES)`)
+                    .join(' · ')}`}
+              </p>
+              <p>
+                FAMILIES WITH NO CANONICAL-60 MAJOR: {familiesWithoutMajors.length}
+                {familiesWithoutMajors.length > 0 &&
+                  ` — ${familiesWithoutMajors.map((f) => f.title).join(' · ')}`}
+              </p>
+              <p>
+                PROTOCOLS WITH NO RECORDED BACKBONE ACTIVITIES: {protocolsNoActivities.length}
+                {protocolsNoActivities.length > 0 &&
+                  ` — ${protocolsNoActivities.map((e) => e.title).join(' · ')} (RECORDED AS EMPTY IN THE
+                FROZEN BATCHES — INTENTIONAL IN THE SOURCE DATA)`}
+              </p>
+              <p>
+                ACTION LEVEL: {ENCYCLOPEDIA_COUNTS.actions} RECORDS · SUB-ACTION LEVEL:{' '}
+                {ENCYCLOPEDIA_COUNTS.subActions} RECORDS — THE HIERARCHY STOPS AT STRATEGY; BATCH C IS
+                A SEPARATE OWNER FREEZE DECISION, NOT TAKEN.
+              </p>
+              <p className="text-white/60">
+                GAPS ARE SURFACED, NEVER FILLED. NOTHING IN THIS PANEL AUTHORIZES NEW RECORDS.
+              </p>
+            </div>
+          );
+        })()}
       </div>
 
       {/* ENTITY UNIVERSE — the 48 canonical entities (owner-frozen
