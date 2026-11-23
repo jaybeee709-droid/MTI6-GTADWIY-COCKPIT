@@ -8,8 +8,12 @@ import {
   Train,
 } from 'lucide-react';
 
+import type { ViewMode, WorldId } from '../App';
+import { useCockpitDb } from '../hooks/useCockpitDb';
+
 export interface WorldGlobeProps {
-  onSelectWorld?: (world: string) => void;
+  onSelectWorld?: (world: WorldId) => void;
+  viewMode?: ViewMode;
 }
 
 type GlobeViewId =
@@ -56,11 +60,11 @@ const LAYER_STATUS: Record<GlobeViewId, { label: string; statusText: string }> =
   intelligence: { label: 'Intelligence', statusText: 'UNMEASURED — Intelligence layer awaiting STAR backend connection.' },
 };
 
-const DOMAIN_RADARS: { id: string; label: string; world: string; status: string }[] = [
+const DOMAIN_RADARS: { id: string; label: string; world: WorldId; status: string }[] = [
   { id: 'opportunity-radar', label: 'Opportunity Radar', world: 'opportunities', status: 'STANDBY · NO DATA' },
   { id: 'earnings-radar', label: 'Earnings Radar', world: 'earnings', status: 'STANDBY · NO DATA' },
   { id: 'crypto-radar', label: 'Crypto Radar', world: 'crypto', status: 'RPC NOT CONNECTED' },
-  { id: 'asset-radar', label: 'Asset Radar', world: 'asset', status: 'STANDBY · NO DATA' },
+  { id: 'asset-radar', label: 'Asset Radar', world: 'positions', status: 'STANDBY · NO DATA' },
   { id: 'security-radar', label: 'Security Radar', world: 'security', status: 'UNMEASURED · 2 ALERTS' },
 ];
 
@@ -132,6 +136,7 @@ const COUNTRY_BORDERS = [
 ];
 
 export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
+  const cockpitDb = useCockpitDb();
   const [activeView, setActiveView] = useState<GlobeViewId>('command');
   const [activeLayers, setActiveLayers] = useState<GlobeViewId[]>(['command']);
   const toggleLayer = (id: GlobeViewId) => {
@@ -248,6 +253,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
             <span className="px-2 py-0.5 rounded border border-rose-500/40 bg-rose-500/10 text-rose-300">
               Crypto RPC: NOT CONNECTED
             </span>
+            <span className="px-2 py-0.5 rounded border border-[#00B7FF]/40 bg-[#00B7FF]/10 text-[#00B7FF]">CockpitDB: {cockpitDb.status} ({cockpitDb.storeCount} stores)</span>
           </div>
 
           <div className="relative w-full aspect-[2/1] bg-[#050505]">
@@ -377,7 +383,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               <div>System Health: PARTIAL</div>
               <div>STAR Status: DISCONNECTED</div>
               <div>Bot Status: PROPOSE-ONLY</div>
-              <div>Data Status: NO DATA</div>
+              <div>Data Status: {cockpitDb.status} ({cockpitDb.storeCount} stores)</div>
               <div>Security Status: UNMEASURED</div>
               <div className="text-amber-300">Alerts: 2 Active</div>
             </div>
