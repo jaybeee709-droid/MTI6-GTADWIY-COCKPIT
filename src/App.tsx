@@ -58,10 +58,10 @@ import {
   CryptoWorkspacesScreen,
 } from './screens';
 
-type ViewMode = 'Standard' | 'Advanced' | 'All';
-type ExecutionMode = 'Read-Only' | 'Paper / Sim' | 'Guarded Auto';
+export type ViewMode = 'Standard' | 'Advanced' | 'All';
+export type ExecutionMode = 'Read-Only' | 'Paper / Sim' | 'Guarded Auto';
 
-type WorldId =
+export type WorldId =
   | 'globe'
   | 'crypto'
   | 'earnings'
@@ -155,7 +155,7 @@ export function App() {
   const renderWorldContent = (id: WorldId) => {
     switch (id) {
       case 'globe':
-        return <WorldGlobe onSelectWorld={handleSelectWorld} />;
+        return <WorldGlobe onSelectWorld={handleSelectWorld} viewMode={viewMode} />;
       case 'crypto':
         return <CryptoWorld onOpenWorkspaces={() => setActiveWorld('crypto-workspaces')} />;
       case 'earnings':
