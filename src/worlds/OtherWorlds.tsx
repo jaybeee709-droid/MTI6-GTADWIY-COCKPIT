@@ -47,8 +47,140 @@ const OPP_TABS = [
 
 type OppTab = (typeof OPP_TABS)[number];
 
+/* Owner opportunity intake (v145) — the React surface of the SAME
+ * record system the Copilot-era shell built (js/opportunity-
+ * intelligence.js + js/modules/opportunities.js): same localStorage
+ * key (mti6_opportunities_v1), same record shape, same 10-stage
+ * pipeline ending at PREPARED, same rules — numeric return fields
+ * and risk scores are FORBIDDEN in opportunity records; a return
+ * story is descriptive words plus its source, or nothing. Records
+ * are owner-entered and UNVERIFIED; there is no feed and nothing
+ * here executes. */
+const OPP_STORE_KEY = 'mti6_opportunities_v1';
+const OPP_STAGES = [
+  'DISCOVERED',
+  'IDENTIFIED',
+  'DATA_VERIFIED',
+  'RISK_ANALYZED',
+  'DEPENDENCIES_CHECKED',
+  'FRESHNESS_CHECKED',
+  'SIMULATED',
+  'RANKED',
+  'RECOMMENDED',
+  'PREPARED',
+] as const;
+
+interface OppRecord {
+  id: string;
+  title: string;
+  assetRef: { assetClassId: string; chain: string };
+  networkRef: { networkId: string };
+  majorActivityId: string;
+  typeId: string;
+  strategyId: string;
+  source: string;
+  verificationStatus: string;
+  pipelineState: string;
+  protocolRef?: { name: string; source: string };
+  returnSource?: { description: string; source: string };
+}
+
+function loadOppRecords(): OppRecord[] {
+  try {
+    const raw = localStorage.getItem(OPP_STORE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as OppRecord[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveOppRecords(records: OppRecord[]): void {
+  try {
+    localStorage.setItem(OPP_STORE_KEY, JSON.stringify(records));
+  } catch {
+    /* storage unavailable — records stay in memory for this session */
+  }
+}
+
+const oppSlug = (s: string): string =>
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48) || 'untitled';
+
+const oppInputCls =
+  'h-9 w-full rounded-lg border border-white/15 bg-[#050505] px-2.5 text-xs text-white outline-none placeholder:text-[#B8B8B8]/60 focus:border-[#00B7FF]';
+
 export const OpportunitiesWorld: React.FC = () => {
   const [tab, setTab] = useState<OppTab>('Feed');
+  const [records, setRecords] = useState<OppRecord[]>(() => loadOppRecords());
+  const [fTitle, setFTitle] = useState('');
+  const [fMajor, setFMajor] = useState('');
+  const [fAssetClass, setFAssetClass] = useState('');
+  const [fChain, setFChain] = useState('');
+  const [fNetwork, setFNetwork] = useState('');
+  const [fProtocol, setFProtocol] = useState('');
+  const [fProtocolSource, setFProtocolSource] = useState('');
+  const [fReturnDesc, setFReturnDesc] = useState('');
+  const [fReturnSource, setFReturnSource] = useState('');
+  const [formMsg, setFormMsg] = useState('');
+
+  const persist = (next: OppRecord[]) => {
+    setRecords(next);
+    saveOppRecords(next);
+  };
+
+  const submitOpp = () => {
+    const title = fTitle.trim();
+    if (!title) return setFormMsg('Not recorded: a title is required.');
+    if (fProtocol.trim() && !fProtocolSource.trim())
+      return setFormMsg('Not recorded: a protocol source is required when a protocol is named.');
+    if (fReturnDesc.trim() && !fReturnSource.trim())
+      return setFormMsg('Not recorded: the return description needs its source.');
+    const base = `opp-${oppSlug(title)}`;
+    let id = base;
+    let n = 2;
+    while (records.some((r) => r.id === id)) id = `${base}-${n++}`;
+    const rec: OppRecord = {
+      id,
+      title,
+      assetRef: { assetClassId: fAssetClass.trim(), chain: fChain.trim() },
+      networkRef: { networkId: fNetwork.trim() },
+      majorActivityId: fMajor,
+      typeId: '',
+      strategyId: '',
+      source: 'owner-entered',
+      verificationStatus: 'UNVERIFIED',
+      pipelineState: 'DISCOVERED',
+    };
+    if (fProtocol.trim())
+      rec.protocolRef = { name: fProtocol.trim(), source: fProtocolSource.trim() };
+    if (fReturnDesc.trim())
+      rec.returnSource = { description: fReturnDesc.trim(), source: fReturnSource.trim() };
+    persist([rec, ...records]);
+    setFormMsg(`Recorded at DISCOVERED (UNVERIFIED) — id ${id}.`);
+    setFTitle('');
+    setFProtocol('');
+    setFProtocolSource('');
+    setFReturnDesc('');
+    setFReturnSource('');
+  };
+
+  const advanceOpp = (id: string) => {
+    persist(
+      records.map((r) => {
+        if (r.id !== id) return r;
+        const i = OPP_STAGES.indexOf(r.pipelineState as (typeof OPP_STAGES)[number]);
+        if (i < 0 || i >= OPP_STAGES.length - 1) return r;
+        return { ...r, pipelineState: OPP_STAGES[i + 1] };
+      }),
+    );
+  };
+
+  const removeOpp = (id: string) => persist(records.filter((r) => r.id !== id));
 
   return (
     <div className="space-y-5 text-white">
@@ -89,14 +221,110 @@ export const OpportunitiesWorld: React.FC = () => {
           <Globe className="h-4 w-4 text-[#00B7FF]" /> View: {tab}
         </div>
         <p className="text-xs text-[#B8B8B8]">
-          0 records. No opportunity title, score, APY, region, or STAR verification is claimed in this
-          build — the feed is NOT_CONNECTED and the data is NO_DATA.
+          {records.length} owner-entered record{records.length === 1 ? '' : 's'}. No score, APY, or
+          STAR verification is claimed for any of them — the discovery feed is NOT_CONNECTED; records
+          below exist only because the owner entered them.
         </p>
-        <p className="text-xs font-mono text-[#B8B8B8]">OPPORTUNITIES: 0 RECORDS · STATUS: NOT_CONNECTED · NO_DATA</p>
+        <p className="text-xs font-mono text-[#B8B8B8]">
+          OPPORTUNITIES: {records.length} RECORDS · FEED: NOT_CONNECTED · PIPELINE TERMINAL: PREPARED
+          · EXECUTION: DISABLED
+        </p>
         <div className="flex items-center gap-2 text-xs text-[#B8B8B8]">
-          <MapPin className="h-3.5 w-3.5" /> Local and global views both report 0 records.
+          <MapPin className="h-3.5 w-3.5" /> A record carries a location only when the owner entered
+          one — none is inferred.
         </div>
       </div>
+
+      {/* OWNER INTAKE — record at DISCOVERED */}
+      <div className="rounded-2xl border border-white/10 bg-[#101010] p-5 space-y-3">
+        <h3 className="text-sm font-semibold">OWNER INTAKE — RECORD AN OPPORTUNITY</h3>
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+          <input value={fTitle} onChange={(e) => setFTitle(e.target.value)} placeholder="Title — e.g. USDC lending on Aave (Ethereum)" aria-label="Opportunity title" className={oppInputCls} />
+          <select value={fMajor} onChange={(e) => setFMajor(e.target.value)} aria-label="Major activity" className={oppInputCls}>
+            <option value="">Major activity (optional) — pick from the 60 backbone</option>
+            {CANONICAL_60.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.title}
+              </option>
+            ))}
+          </select>
+          <input value={fAssetClass} onChange={(e) => setFAssetClass(e.target.value)} placeholder="Asset class id — e.g. stablecoin (optional)" aria-label="Asset class" className={oppInputCls} />
+          <input value={fChain} onChange={(e) => setFChain(e.target.value)} placeholder="Chain / network name — e.g. Ethereum (optional)" aria-label="Chain name" className={oppInputCls} />
+          <input value={fNetwork} onChange={(e) => setFNetwork(e.target.value)} placeholder="Network id — e.g. ethereum-mainnet (optional)" aria-label="Network id" className={oppInputCls} />
+          <input value={fProtocol} onChange={(e) => setFProtocol(e.target.value)} placeholder="Protocol name (optional)" aria-label="Protocol name" className={oppInputCls} />
+          <input value={fProtocolSource} onChange={(e) => setFProtocolSource(e.target.value)} placeholder="Protocol source (required if a protocol is named)" aria-label="Protocol source" className={oppInputCls} />
+          <input value={fReturnDesc} onChange={(e) => setFReturnDesc(e.target.value)} placeholder="Why it pays, in words (optional) — numbers are not allowed in records" aria-label="Return description" className={oppInputCls} />
+          <input value={fReturnSource} onChange={(e) => setFReturnSource(e.target.value)} placeholder="Where that description comes from (required with a description)" aria-label="Return source" className={oppInputCls} />
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={submitOpp}
+            className="flex min-h-[44px] items-center rounded-lg bg-[#00B7FF] px-4 text-xs font-semibold text-black"
+          >
+            RECORD AT DISCOVERED
+          </button>
+          {formMsg && <span className="font-mono text-[10px] text-[#B8B8B8]">{formMsg}</span>}
+        </div>
+        <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+          RECORD RULES (FROM THE CANONICAL SYSTEM): NUMERIC RETURN FIELDS AND RISK SCORES ARE
+          FORBIDDEN IN OPPORTUNITY RECORDS — A RETURN STORY IS WORDS PLUS ITS SOURCE. EVERY RECORD
+          STARTS UNVERIFIED AT DISCOVERED AND CAN ADVANCE ONLY TO PREPARED. NOTHING EXECUTES.
+        </p>
+      </div>
+
+      {/* RECORDED OPPORTUNITIES */}
+      {records.length > 0 && (
+        <div className="space-y-2">
+          {records.map((r) => {
+            const stageIdx = OPP_STAGES.indexOf(r.pipelineState as (typeof OPP_STAGES)[number]);
+            const major = CANONICAL_60.find((m) => m.id === r.majorActivityId);
+            return (
+              <div key={r.id} className="rounded-2xl border border-white/10 bg-[#101010] p-4 space-y-1.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-semibold">{r.title}</span>
+                  <span className="rounded border border-[#FFB020]/50 px-2 py-0.5 font-mono text-[9px] text-white">
+                    {r.pipelineState} · UNVERIFIED
+                  </span>
+                </div>
+                <p className="font-mono text-[10px] text-[#B8B8B8]">
+                  {r.id}
+                  {major ? ` · MAJOR: ${major.title}` : ''}
+                  {r.assetRef.chain ? ` · CHAIN: ${r.assetRef.chain}` : ''}
+                  {r.protocolRef ? ` · PROTOCOL: ${r.protocolRef.name}` : ''}
+                </p>
+                {r.returnSource && (
+                  <p className="text-xs text-[#B8B8B8]">
+                    Why it pays (recorded): {r.returnSource.description} — source: {r.returnSource.source}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {stageIdx >= 0 && stageIdx < OPP_STAGES.length - 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => advanceOpp(r.id)}
+                      className="flex min-h-[44px] items-center rounded-lg border border-[#00B7FF]/50 px-3 font-mono text-[10px] text-white"
+                    >
+                      ADVANCE → {OPP_STAGES[stageIdx + 1]}
+                    </button>
+                  ) : (
+                    <span className="flex min-h-[44px] items-center font-mono text-[10px] text-[#32D74B]">
+                      PREPARED — TERMINAL. EXECUTION IS DISABLED BY DESIGN.
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeOpp(r.id)}
+                    className="flex min-h-[44px] items-center rounded-lg border border-white/15 px-3 font-mono text-[10px] text-[#B8B8B8]"
+                  >
+                    REMOVE RECORD
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };
