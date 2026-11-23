@@ -1,752 +1,350 @@
 import React, { useMemo, useState } from 'react';
 import {
   Activity,
-  Briefcase,
+  BookOpen,
+  Bot,
   Coins,
   Compass,
-  Cpu,
   DollarSign,
   Globe,
   Layers,
   Maximize2,
   Minimize2,
-  Search,
+  PieChart,
   Settings,
   Shield,
   Sparkles,
   UserCheck,
+  Wallet,
   X,
 } from 'lucide-react';
 import { MTI6_COLORS, MTI6_WORLD_OS } from './tokens';
+import { WorldGlobe } from './worlds/WorldGlobe';
+import { CryptoWorld } from './worlds/CryptoWorld';
+import { EarningsWorld } from './worlds/EarningsWorld';
+import { BotOperations } from './worlds/BotOperations';
+import { UrbanWallet } from './worlds/UrbanWallet';
+import {
+  OpportunitiesWorld,
+  PositionsAssetsWorld,
+  EncyclopediaWorld,
+  SecurityWorld,
+  SettingsWorld,
+} from './worlds/OtherWorlds';
 
 type ViewMode = 'Standard' | 'Advanced' | 'All';
-type ExecutionMode = 'MANUAL' | 'MANUAL+AI' | 'AUTO';
+type ExecutionMode = 'Read-Only' | 'Paper / Sim' | 'Guarded Auto' | 'Live';
 
-interface WorldDefinition {
-  id: string;
-  name: string;
-  tagline: string;
-  domainRule: string;
+type WorldId =
+  | 'globe'
+  | 'crypto'
+  | 'earnings'
+  | 'bots'
+  | 'wallet'
+  | 'opportunities'
+  | 'positions'
+  | 'encyclopedia'
+  | 'security'
+  | 'settings';
+
+interface WorldDef {
+  id: WorldId;
+  label: string;
+  tier: 'Standard' | 'Advanced';
   accent: string;
-  icon: React.ComponentType<{ size?: number; color?: string }>;
+  icon: React.ReactNode;
 }
 
-interface FloatingWindow {
-  id: string;
+interface FloatingWin {
+  id: WorldId;
   title: string;
-  subtitle: string;
   minimized: boolean;
 }
 
-const WORLDS: WorldDefinition[] = [
-  {
-    id: 'crypto',
-    name: 'Crypto World',
-    tagline: 'On-chain assets, wallets & digital telemetry',
-    domainRule: 'Strictly Crypto',
-    accent: MTI6_COLORS.accentCyan,
-    icon: Coins,
-  },
-  {
-    id: 'earnings',
-    name: 'Earnings',
-    tagline: 'Fiat income, dividends & revenue streams',
-    domainRule: 'Strictly Non-Crypto',
-    accent: MTI6_COLORS.statusSuccess,
-    icon: DollarSign,
-  },
-  {
-    id: 'markets',
-    name: 'Markets',
-    tagline: 'Equities, macro indices & liquidity feeds',
-    domainRule: 'Global Markets',
-    accent: MTI6_COLORS.accentBlue,
-    icon: Activity,
-  },
-  {
-    id: 'portfolio',
-    name: 'Portfolio',
-    tagline: 'Cross-world allocation & risk balance',
-    domainRule: 'Net Exposure',
-    accent: MTI6_COLORS.accentCyan,
-    icon: Briefcase,
-  },
-  {
-    id: 'intelligence',
-    name: 'Intelligence',
-    tagline: 'Research briefs, signals & synthesis',
-    domainRule: 'AI Analysis',
-    accent: MTI6_COLORS.accentViolet,
-    icon: Cpu,
-  },
-  {
-    id: 'operations',
-    name: 'Operations',
-    tagline: 'Daily workflows & mission execution',
-    domainRule: 'Ops Control',
-    accent: MTI6_COLORS.accentBlue,
-    icon: Layers,
-  },
-  {
-    id: 'automation',
-    name: 'Automation',
-    tagline: 'Rules, triggers & scheduled pipelines',
-    domainRule: 'Agentic Flows',
-    accent: MTI6_COLORS.accentViolet,
-    icon: Compass,
-  },
-  {
-    id: 'security',
-    name: 'Security',
-    tagline: 'Zero-secret posture & read-only audits',
-    domainRule: 'Zero-Secrets Enforced',
-    accent: MTI6_COLORS.statusDanger,
-    icon: Shield,
-  },
-  {
-    id: 'governance',
-    name: 'Governance',
-    tagline: 'Policies, guardrails & branch rules',
-    domainRule: 'Compliance',
-    accent: MTI6_COLORS.textSecondary,
-    icon: UserCheck,
-  },
-  {
-    id: 'system',
-    name: 'System',
-    tagline: 'IndexedDB, PWA sync & shell preferences',
-    domainRule: 'OS Kernel',
-    accent: MTI6_COLORS.accentCyan,
-    icon: Settings,
-  },
+const WORLDS: WorldDef[] = [
+  { id: 'globe', label: 'World Globe', tier: 'Standard', accent: '#00B7FF', icon: <Globe className="h-4 w-4" /> },
+  { id: 'crypto', label: 'Crypto World', tier: 'Standard', accent: '#8B5CFF', icon: <Coins className="h-4 w-4" /> },
+  { id: 'earnings', label: 'Earnings World', tier: 'Standard', accent: '#32D74B', icon: <DollarSign className="h-4 w-4" /> },
+  { id: 'bots', label: 'Bot Operations', tier: 'Advanced', accent: '#00B7FF', icon: <Bot className="h-4 w-4" /> },
+  { id: 'wallet', label: 'Urban Wallet', tier: 'Standard', accent: '#00B7FF', icon: <Wallet className="h-4 w-4" /> },
+  { id: 'opportunities', label: 'Opportunities', tier: 'Standard', accent: '#8B5CFF', icon: <Compass className="h-4 w-4" /> },
+  { id: 'positions', label: 'Positions & Assets', tier: 'Standard', accent: '#32D74B', icon: <PieChart className="h-4 w-4" /> },
+  { id: 'encyclopedia', label: 'Encyclopedia', tier: 'Advanced', accent: '#8B5CFF', icon: <BookOpen className="h-4 w-4" /> },
+  { id: 'security', label: 'Security World', tier: 'Advanced', accent: '#FF3B30', icon: <Shield className="h-4 w-4" /> },
+  { id: 'settings', label: 'Settings World', tier: 'Standard', accent: '#B8B8B8', icon: <Settings className="h-4 w-4" /> },
 ];
 
 export function App() {
-  const [activeWorldId, setActiveWorldId] = useState<string>('globe');
-  const [viewMode, setViewMode] = useState<ViewMode>('Standard');
-  const [executionMode, setExecutionMode] = useState<ExecutionMode>('MANUAL+AI');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [starOpen, setStarOpen] = useState<boolean>(false);
-  const [windows, setWindows] = useState<FloatingWindow[]>([
-    {
-      id: 'telemetry-win',
-      title: 'World Globe Telemetry',
-      subtitle: '10 Self-Contained Worlds Online',
-      minimized: false,
-    },
-  ]);
+  const [activeWorld, setActiveWorld] = useState<WorldId>('globe');
+  const [viewMode, setViewMode] = useState<ViewMode>('All');
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>('Guarded Auto');
+  const [floatingWindows, setFloatingWindows] = useState<FloatingWin[]>([]);
+  const [accountsOpen, setAccountsOpen] = useState<boolean>(false);
+  const [starOrbOpen, setStarOrbOpen] = useState<boolean>(false);
 
-  const filteredWorlds = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return WORLDS;
-    return WORLDS.filter(
-      (w) =>
-        w.name.toLowerCase().includes(q) ||
-        w.tagline.toLowerCase().includes(q) ||
-        w.domainRule.toLowerCase().includes(q)
-    );
-  }, [searchQuery]);
+  const visibleWorlds = useMemo(() => {
+    if (viewMode === 'Standard') return WORLDS.filter((w) => w.tier === 'Standard');
+    if (viewMode === 'Advanced') return WORLDS.filter((w) => w.tier === 'Advanced' || w.id === 'globe');
+    return WORLDS;
+  }, [viewMode]);
 
-  const openWindow = (id: string, title: string, subtitle: string) => {
-    setWindows((prev) => {
-      const existing = prev.find((w) => w.id === id);
-      if (existing) {
-        return prev.map((w) => (w.id === id ? { ...w, minimized: false } : w));
-      }
-      return [...prev, { id, title, subtitle, minimized: false }];
+  const handleSelectWorld = (worldId: string) => {
+    const match = WORLDS.find((w) => w.id === worldId);
+    if (match) {
+      setActiveWorld(match.id);
+      return;
+    }
+    if (worldId === 'wallet' || worldId === 'urban-wallet') setActiveWorld('wallet');
+    else if (worldId === 'bots' || worldId === 'bot-operations') setActiveWorld('bots');
+    else setActiveWorld('globe');
+  };
+
+  const renderWorldContent = (id: WorldId) => {
+    switch (id) {
+      case 'globe':
+        return <WorldGlobe onSelectWorld={handleSelectWorld} />;
+      case 'crypto':
+        return <CryptoWorld />;
+      case 'earnings':
+        return <EarningsWorld />;
+      case 'bots':
+        return <BotOperations />;
+      case 'wallet':
+        return <UrbanWallet />;
+      case 'opportunities':
+        return <OpportunitiesWorld />;
+      case 'positions':
+        return <PositionsAssetsWorld />;
+      case 'encyclopedia':
+        return <EncyclopediaWorld />;
+      case 'security':
+        return <SecurityWorld />;
+      case 'settings':
+        return <SettingsWorld />;
+      default:
+        return <WorldGlobe onSelectWorld={handleSelectWorld} />;
+    }
+  };
+
+  const openFloatingWindow = (id: WorldId) => {
+    const def = WORLDS.find((w) => w.id === id);
+    if (!def) return;
+    setFloatingWindows((prev) => {
+      if (prev.some((w) => w.id === id)) return prev;
+      return [...prev, { id, title: def.label, minimized: false }];
     });
   };
 
-  const toggleMinimizeWindow = (id: string) => {
-    setWindows((prev) =>
-      prev.map((w) => (w.id === id ? { ...w, minimized: !w.minimized } : w))
+  const closeFloatingWindow = (id: WorldId) => {
+    setFloatingWindows((prev) => prev.filter((w) => w.id !== id));
+  };
+
+  const toggleMinimizeWindow = (id: WorldId) => {
+    setFloatingWindows((prev) =>
+      prev.map((w) => (w.id === id ? { ...w, minimized: !w.minimized } : w)),
     );
   };
 
-  const closeWindow = (id: string) => {
-    setWindows((prev) => prev.filter((w) => w.id !== id));
-  };
-
-  const selectWorld = (world: WorldDefinition) => {
-    setActiveWorldId(world.id);
-    openWindow(`world-${world.id}`, world.name, `${world.domainRule} - ${world.tagline}`);
-  };
-
-  const activeWorld = WORLDS.find((w) => w.id === activeWorldId);
-
   return (
     <div
-      style={{
-        minHeight: '100vh',
-        backgroundColor: MTI6_WORLD_OS.canvas,
-        color: MTI6_COLORS.textPrimary,
-        fontFamily: 'Inter, system-ui, sans-serif',
-        display: 'flex',
-        flexDirection: 'column',
-      }}
+      className="min-h-screen text-white flex flex-col"
+      style={{ backgroundColor: MTI6_COLORS.bgVoid }}
     >
-      {/* Top Command Bar */}
-      <header
-        style={{
-          backgroundColor: MTI6_WORLD_OS.shellSurface,
-          borderBottom: `1px solid ${MTI6_WORLD_OS.borderInteractive}`,
-          padding: '12px 20px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '16px',
-          flexWrap: 'wrap',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button
-            type="button"
-            onClick={() => setActiveWorldId('globe')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              backgroundColor:
-                activeWorldId === 'globe' ? MTI6_COLORS.bgInteractive : 'transparent',
-              color: MTI6_COLORS.textPrimary,
-              border: `1px solid ${
-                activeWorldId === 'globe'
-                  ? MTI6_WORLD_OS.focusRing
-                  : MTI6_WORLD_OS.borderInteractive
-              }`,
-              borderRadius: '8px',
-              padding: '8px 12px',
-              cursor: 'pointer',
-              fontWeight: 600,
-            }}
-          >
-            <Globe size={18} color={MTI6_COLORS.accentCyan} />
-            <span>World Globe</span>
-          </button>
-          <span style={{ color: MTI6_COLORS.textSecondary, fontSize: '13px' }}>
-            MTI6-GTADWIY OS
-          </span>
-        </div>
+      {/* Persistent Top OS Bar */}
+      <header className="sticky top-0 z-30 border-b border-white/10 bg-[#0A0A0A]/95 backdrop-blur px-4 py-3">
+        <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3">
+          {/* Brand */}
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#00B7FF]/15 text-[#00B7FF] border border-[#00B7FF]/35">
+              <Layers className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-sm font-bold tracking-wide">
+                {MTI6_WORLD_OS?.name ?? 'MTI6 GTADWIY COCKPIT'}
+              </div>
+              <div className="text-[11px] text-[#B8B8B8]">
+                10-World Sovereign Operating Shell · STAR Active
+              </div>
+            </div>
+          </div>
 
-        {/* Universal Search */}
-        <div
-          style={{
-            flex: '1 1 280px',
-            maxWidth: '460px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            backgroundColor: MTI6_WORLD_OS.worldCard,
-            border: `1px solid ${MTI6_WORLD_OS.borderInteractive}`,
-            borderRadius: '8px',
-            padding: '8px 12px',
-          }}
-        >
-          <Search size={16} color={MTI6_COLORS.textSecondary} />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Universal Search across 10 Worlds..."
-            aria-label="Universal Search"
-            style={{
-              width: '100%',
-              backgroundColor: 'transparent',
-              border: 'none',
-              outline: 'none',
-              color: MTI6_COLORS.textPrimary,
-              fontSize: '14px',
-            }}
-          />
-        </div>
-
-        {/* View Mode Switcher & Accounts */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div
-            role="group"
-            aria-label="View Mode"
-            style={{
-              display: 'flex',
-              backgroundColor: MTI6_WORLD_OS.worldCard,
-              border: `1px solid ${MTI6_WORLD_OS.borderInteractive}`,
-              borderRadius: '8px',
-              padding: '3px',
-            }}
-          >
+          {/* View Modes (Standard | Advanced | All) */}
+          <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-[#151515] p-1">
             {(['Standard', 'Advanced', 'All'] as ViewMode[]).map((mode) => (
               <button
                 key={mode}
-                type="button"
                 onClick={() => setViewMode(mode)}
-                style={{
-                  padding: '6px 10px',
-                  borderRadius: '6px',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  backgroundColor:
-                    viewMode === mode ? MTI6_COLORS.bgInteractive : 'transparent',
-                  color:
-                    viewMode === mode
-                      ? MTI6_COLORS.accentCyan
-                      : MTI6_COLORS.textSecondary,
-                }}
+                className={`rounded-lg px-3 py-1 text-xs font-medium transition ${
+                  viewMode === mode
+                    ? 'bg-[#00B7FF] text-black font-semibold'
+                    : 'text-[#B8B8B8] hover:text-white'
+                }`}
               >
                 {mode}
               </button>
             ))}
           </div>
 
-          <button
-            type="button"
-            onClick={() =>
-              openWindow(
-                'accounts-win',
-                'Accounts',
-                'Read-only session directory (Zero private keys or secrets stored)'
-              )
-            }
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              backgroundColor: MTI6_COLORS.bgInteractive,
-              color: MTI6_COLORS.textPrimary,
-              border: `1px solid ${MTI6_WORLD_OS.borderInteractive}`,
-              borderRadius: '8px',
-              padding: '8px 12px',
-              cursor: 'pointer',
-              fontSize: '13px',
-              fontWeight: 600,
-            }}
-          >
-            <UserCheck size={16} color={MTI6_COLORS.accentCyan} />
-            <span>Accounts</span>
-          </button>
-        </div>
-      </header>
+          {/* Execution Mode Strip + Accounts Center Trigger */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-[#151515] px-2 py-1">
+              <Activity className="h-3.5 w-3.5 text-[#00B7FF] mr-1" />
+              {(['Read-Only', 'Paper / Sim', 'Guarded Auto', 'Live'] as ExecutionMode[]).map(
+                (em) => (
+                  <button
+                    key={em}
+                    onClick={() => setExecutionMode(em)}
+                    className={`rounded-md px-2 py-0.5 text-[11px] font-medium transition ${
+                      executionMode === em
+                        ? em === 'Live'
+                          ? 'bg-[#FF3B30] text-white'
+                          : 'bg-[#8B5CFF] text-white'
+                        : 'text-[#B8B8B8] hover:text-white'
+                    }`}
+                  >
+                    {em}
+                  </button>
+                ),
+              )}
+            </div>
 
-      {/* Execution Mode Strip */}
-      <div
-        style={{
-          backgroundColor: MTI6_COLORS.bgPrimary,
-          borderBottom: `1px solid ${MTI6_WORLD_OS.borderInteractive}`,
-          padding: '8px 20px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '12px',
-          flexWrap: 'wrap',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span
-            style={{
-              fontSize: '11px',
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-              color: MTI6_COLORS.textSecondary,
-            }}
-          >
-            Execution Mode
-          </span>
-          {(['MANUAL', 'MANUAL+AI', 'AUTO'] as ExecutionMode[]).map((mode) => {
-            const active = executionMode === mode;
-            const activeColor =
-              mode === 'AUTO'
-                ? MTI6_COLORS.accentViolet
-                : mode === 'MANUAL+AI'
-                ? MTI6_COLORS.accentCyan
-                : MTI6_COLORS.accentBlue;
-            return (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setExecutionMode(mode)}
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  backgroundColor: active ? MTI6_COLORS.bgInteractive : 'transparent',
-                  color: active ? activeColor : MTI6_COLORS.textSecondary,
-                  border: `1px solid ${
-                    active ? activeColor : MTI6_WORLD_OS.borderInteractive
-                  }`,
-                }}
-              >
-                {mode}
-              </button>
-            );
-          })}
-        </div>
+            <button
+              onClick={() => openFloatingWindow(activeWorld)}
+              className="rounded-xl border border-white/15 bg-[#151515] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#202020]"
+            >
+              Pop Out World
+            </button>
 
-        <div style={{ fontSize: '12px', color: MTI6_COLORS.textSecondary }}>
-          View: <strong style={{ color: MTI6_COLORS.textPrimary }}>{viewMode}</strong> |
-          Root: <strong style={{ color: MTI6_COLORS.accentCyan }}>World Globe</strong>
-        </div>
-      </div>
-
-      {/* Main OS Workspace */}
-      <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-        {/* 10-World Navigation Rail */}
-        <nav
-          aria-label="10-World Navigation"
-          style={{
-            width: '240px',
-            backgroundColor: MTI6_WORLD_OS.shellSurface,
-            borderRight: `1px solid ${MTI6_WORLD_OS.borderInteractive}`,
-            padding: '12px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '6px',
-            overflowY: 'auto',
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => setActiveWorldId('globe')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              padding: '10px 12px',
-              borderRadius: '8px',
-              border: `1px solid ${
-                activeWorldId === 'globe'
-                  ? MTI6_COLORS.accentCyan
-                  : 'transparent'
-              }`,
-              backgroundColor:
-                activeWorldId === 'globe' ? MTI6_COLORS.bgInteractive : 'transparent',
-              color: MTI6_COLORS.textPrimary,
-              cursor: 'pointer',
-              textAlign: 'left',
-              fontWeight: 600,
-              fontSize: '13px',
-            }}
-          >
-            <Globe size={16} color={MTI6_COLORS.accentCyan} />
-            <span>World Globe (Home)</span>
-          </button>
-
-          <div
-            style={{
-              fontSize: '11px',
-              color: MTI6_COLORS.textSecondary,
-              padding: '8px 8px 2px',
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-            }}
-          >
-            10 Self-Contained Worlds
+            <button
+              onClick={() => setAccountsOpen(true)}
+              className="flex items-center gap-1.5 rounded-xl border border-[#00B7FF]/40 bg-[#00B7FF]/15 px-3 py-1.5 text-xs font-semibold text-[#00B7FF] hover:bg-[#00B7FF]/25"
+            >
+              <UserCheck className="h-3.5 w-3.5" /> Accounts Center
+            </button>
           </div>
+        </div>
 
-          {WORLDS.map((world) => {
-            const Icon = world.icon;
-            const isActive = activeWorldId === world.id;
+        {/* 10-World Navigation Dock */}
+        <nav className="mx-auto mt-3 flex max-w-[1600px] gap-1.5 overflow-x-auto pb-1">
+          {visibleWorlds.map((w) => {
+            const active = activeWorld === w.id;
             return (
               <button
-                key={world.id}
-                type="button"
-                onClick={() => selectWorld(world)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '8px',
-                  padding: '9px 12px',
-                  borderRadius: '8px',
-                  border: `1px solid ${isActive ? world.accent : 'transparent'}`,
-                  backgroundColor: isActive ? MTI6_COLORS.bgInteractive : 'transparent',
-                  color: MTI6_COLORS.textPrimary,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  fontSize: '13px',
-                }}
+                key={w.id}
+                onClick={() => setActiveWorld(w.id)}
+                className={`flex shrink-0 items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-medium transition ${
+                  active
+                    ? 'border-[#00B7FF] bg-[#00B7FF]/15 text-white'
+                    : 'border-white/10 bg-[#121212] text-[#B8B8B8] hover:border-white/25 hover:text-white'
+                }`}
               >
-                <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Icon size={15} color={world.accent} />
-                  <span>{world.name}</span>
-                </span>
+                <span style={{ color: active ? w.accent : undefined }}>{w.icon}</span>
+                <span>{w.label}</span>
               </button>
             );
           })}
         </nav>
+      </header>
 
-        {/* Active World / Globe Canvas */}
-        <main style={{ flex: 1, padding: '24px', overflowY: 'auto' }}>
-          {activeWorldId === 'globe' ? (
-            <div>
-              <div
-                style={{
-                  backgroundColor: MTI6_WORLD_OS.worldCard,
-                  border: `1px solid ${MTI6_WORLD_OS.borderInteractive}`,
-                  borderRadius: '12px',
-                  padding: '20px',
-                  marginBottom: '20px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '16px',
-                }}
-              >
-                <div>
-                  <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700 }}>
-                    World Globe — Master Home
-                  </h1>
-                  <p
-                    style={{
-                      margin: '6px 0 0',
-                      color: MTI6_COLORS.textSecondary,
-                      fontSize: '14px',
-                    }}
-                  >
-                    10 self-contained Worlds. Crypto World is strictly crypto; Earnings
-                    is strictly non-crypto.
-                  </p>
-                </div>
-                <Globe size={42} color={MTI6_COLORS.accentCyan} />
-              </div>
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-                  gap: '14px',
-                }}
-              >
-                {filteredWorlds.map((world) => {
-                  const Icon = world.icon;
-                  return (
-                    <button
-                      key={world.id}
-                      type="button"
-                      onClick={() => selectWorld(world)}
-                      style={{
-                        backgroundColor: MTI6_WORLD_OS.worldCard,
-                        border: `1px solid ${MTI6_WORLD_OS.borderInteractive}`,
-                        borderRadius: '10px',
-                        padding: '16px',
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        color: MTI6_COLORS.textPrimary,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '8px',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                        }}
-                      >
-                        <Icon size={20} color={world.accent} />
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            color: world.accent,
-                            fontWeight: 600,
-                          }}
-                        >
-                          {world.domainRule}
-                        </span>
-                      </div>
-                      <div style={{ fontWeight: 700, fontSize: '15px' }}>{world.name}</div>
-                      <div style={{ fontSize: '12px', color: MTI6_COLORS.textSecondary }}>
-                        {world.tagline}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            activeWorld && (
-              <div
-                style={{
-                  backgroundColor: MTI6_WORLD_OS.worldCard,
-                  border: `1px solid ${activeWorld.accent}`,
-                  borderRadius: '12px',
-                  padding: '24px',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <activeWorld.icon size={24} color={activeWorld.accent} />
-                  <div>
-                    <h1 style={{ margin: 0, fontSize: '20px' }}>{activeWorld.name}</h1>
-                    <p
-                      style={{
-                        margin: '4px 0 0',
-                        color: MTI6_COLORS.textSecondary,
-                        fontSize: '13px',
-                      }}
-                    >
-                      {activeWorld.domainRule} — {activeWorld.tagline}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )
-          )}
-        </main>
-      </div>
+      {/* Main World Viewport */}
+      <main className="mx-auto w-full max-w-[1600px] flex-1 p-4 md:p-6">
+        {renderWorldContent(activeWorld)}
+      </main>
 
       {/* Floating Window Manager */}
-      <section
-        aria-label="Floating Window Manager"
-        style={{
-          position: 'fixed',
-          bottom: '20px',
-          left: '260px',
-          display: 'flex',
-          gap: '12px',
-          flexWrap: 'wrap',
-          pointerEvents: 'none',
-          zIndex: 30,
-        }}
-      >
-        {windows.map((win) => (
-          <div
-            key={win.id}
-            style={{
-              width: '280px',
-              backgroundColor: MTI6_COLORS.bgElevated,
-              border: `1px solid ${MTI6_WORLD_OS.borderInteractive}`,
-              borderRadius: '10px',
-              boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
-              pointerEvents: 'auto',
-              overflow: 'hidden',
-            }}
-          >
+      {floatingWindows.length > 0 && (
+        <div className="fixed bottom-20 left-4 z-40 flex flex-wrap gap-3 max-w-[90vw]">
+          {floatingWindows.map((win) => (
             <div
-              style={{
-                backgroundColor: MTI6_COLORS.bgInteractive,
-                padding: '8px 12px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                borderBottom: win.minimized
-                  ? 'none'
-                  : `1px solid ${MTI6_WORLD_OS.borderInteractive}`,
-              }}
+              key={win.id}
+              className="w-[380px] rounded-2xl border border-white/20 bg-[#101010] shadow-2xl overflow-hidden"
             >
-              <span style={{ fontSize: '12px', fontWeight: 700 }}>{win.title}</span>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                <button
-                  type="button"
-                  onClick={() => toggleMinimizeWindow(win.id)}
-                  aria-label={`Toggle ${win.title}`}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: MTI6_COLORS.textSecondary,
-                    cursor: 'pointer',
-                    padding: 0,
-                  }}
-                >
-                  {win.minimized ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => closeWindow(win.id)}
-                  aria-label={`Close ${win.title}`}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: MTI6_COLORS.textSecondary,
-                    cursor: 'pointer',
-                    padding: 0,
-                  }}
-                >
-                  <X size={14} />
-                </button>
+              <div className="flex items-center justify-between border-b border-white/10 bg-[#181818] px-3 py-2">
+                <span className="text-xs font-semibold text-white">{win.title} · Floating</span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => toggleMinimizeWindow(win.id)}
+                    className="rounded p-1 text-[#B8B8B8] hover:bg-white/10 hover:text-white"
+                  >
+                    {win.minimized ? (
+                      <Maximize2 className="h-3.5 w-3.5" />
+                    ) : (
+                      <Minimize2 className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                  <button
+                    onClick={() => closeFloatingWindow(win.id)}
+                    className="rounded p-1 text-[#B8B8B8] hover:bg-[#FF3B30]/20 hover:text-[#FF3B30]"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+              {!win.minimized && (
+                <div className="max-h-[320px] overflow-y-auto p-3">
+                  {renderWorldContent(win.id)}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Accounts Center Slide-Over */}
+      {accountsOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm">
+          <div className="h-full w-full max-w-md border-l border-white/15 bg-[#101010] p-6 overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <h3 className="text-base font-semibold">Accounts Center</h3>
+              <button
+                onClick={() => setAccountsOpen(false)}
+                className="rounded-lg p-1.5 text-[#B8B8B8] hover:bg-white/10 hover:text-white"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mt-5 space-y-3 text-xs">
+              <div className="rounded-xl bg-[#151515] p-3.5">
+                <div className="font-semibold text-white">Sovereign Treasury Profile</div>
+                <div className="mt-1 text-[#B8B8B8]">Execution Mode: {executionMode}</div>
+              </div>
+              <div className="rounded-xl bg-[#151515] p-3.5">
+                <div className="font-semibold text-white">RAIL-A USD/JPY Custody</div>
+                <div className="mt-1 text-[#FF3B30] font-semibold">EXECUTE DISABLED / READ-ONLY</div>
+              </div>
+              <div className="rounded-xl bg-[#151515] p-3.5">
+                <div className="font-semibold text-white">RAIL-B EUR &amp; RAIL-C GBP/CAD</div>
+                <div className="mt-1 text-[#32D74B]">Synced &amp; Ready</div>
               </div>
             </div>
-            {!win.minimized && (
-              <div
-                style={{
-                  padding: '12px',
-                  fontSize: '12px',
-                  color: MTI6_COLORS.textSecondary,
-                }}
-              >
-                {win.subtitle}
-              </div>
-            )}
           </div>
-        ))}
-      </section>
+        </div>
+      )}
 
       {/* Persistent Lower-Right STAR Orb */}
-      <div
-        style={{
-          position: 'fixed',
-          right: '24px',
-          bottom: '24px',
-          zIndex: 40,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'flex-end',
-          gap: '10px',
-        }}
-      >
-        {starOpen && (
-          <div
-            style={{
-              width: '300px',
-              backgroundColor: MTI6_COLORS.bgElevated,
-              border: `1px solid ${MTI6_WORLD_OS.intelligenceAccent}`,
-              borderRadius: '12px',
-              padding: '14px',
-              boxShadow: '0 12px 32px rgba(0,0,0,0.65)',
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: '8px',
-              }}
-            >
-              <strong style={{ color: MTI6_COLORS.accentViolet, fontSize: '13px' }}>
-                STAR Intelligence
-              </strong>
-              <span style={{ fontSize: '11px', color: MTI6_COLORS.textSecondary }}>
-                {executionMode}
+      <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-2">
+        {starOrbOpen && (
+          <div className="w-80 rounded-2xl border border-[#00B7FF]/40 bg-[#101010] p-4 shadow-2xl text-xs">
+            <div className="flex items-center justify-between border-b border-white/10 pb-2 mb-2">
+              <span className="font-semibold text-[#00B7FF] flex items-center gap-1.5">
+                <Sparkles className="h-3.5 w-3.5" /> STAR Core Assistant
               </span>
+              <button onClick={() => setStarOrbOpen(false)} className="text-[#B8B8B8] hover:text-white">
+                <X className="h-3.5 w-3.5" />
+              </button>
             </div>
-            <p style={{ margin: 0, fontSize: '12px', color: MTI6_COLORS.textSecondary }}>
-              Active Context: {activeWorld ? activeWorld.name : 'World Globe'} ({viewMode}{' '}
-              View)
+            <p className="text-[#B8B8B8]">
+              Active World: <strong className="text-white">{activeWorld}</strong> · Mode:{' '}
+              <strong className="text-[#8B5CFF]">{executionMode}</strong>. All 12 Tribes nominal; RAIL-A held in Read-Only.
             </p>
           </div>
         )}
-
         <button
-          type="button"
-          onClick={() => setStarOpen((prev) => !prev)}
+          onClick={() => setStarOrbOpen((v) => !v)}
           aria-label="STAR Orb"
-          style={{
-            width: '56px',
-            height: '56px',
-            borderRadius: '9999px',
-            border: `2px solid ${MTI6_COLORS.accentCyan}`,
-            background: `radial-gradient(circle at 30% 30%, ${MTI6_COLORS.accentViolet}, ${MTI6_COLORS.bgVoid})`,
-            color: MTI6_COLORS.textPrimary,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            boxShadow: `0 0 20px ${MTI6_COLORS.accentViolet}`,
-          }}
+          className="flex h-14 w-14 items-center justify-center rounded-full border border-[#00B7FF]/60 bg-gradient-to-br from-[#00B7FF] to-[#8B5CFF] text-white shadow-[0_0_25px_rgba(0,183,255,0.45)] transition hover:scale-105"
         >
-          <Sparkles size={22} color={MTI6_COLORS.textPrimary} />
+          <Sparkles className="h-6 w-6" />
         </button>
       </div>
     </div>
