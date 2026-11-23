@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Activity,
   Globe,
@@ -10,6 +10,11 @@ import {
 
 import type { ViewMode, WorldId } from '../App';
 import { useCockpitDb } from '../hooks/useCockpitDb';
+import {
+  WorldMapEngine,
+  type MapEngineStatus,
+  type MapViewReport,
+} from './WorldMapEngine';
 
 export interface WorldGlobeProps {
   onSelectWorld?: (world: WorldId) => void;
@@ -65,42 +70,7 @@ const DOMAIN_RADARS: { id: string; label: string; world: WorldId; status: string
   { id: 'earnings-radar', label: 'Earnings Radar', world: 'earnings', status: 'STANDBY · NO DATA' },
   { id: 'crypto-radar', label: 'Crypto Radar', world: 'crypto', status: 'RPC NOT CONNECTED' },
   { id: 'asset-radar', label: 'Asset Radar', world: 'positions', status: 'STANDBY · NO DATA' },
-  { id: 'security-radar', label: 'Security Radar', world: 'security', status: 'UNMEASURED · 2 ALERTS' },
-];
-
-// Map markers only: name + region + position. No telemetry exists in
-// this build — no latency, no status, no alert, no route is claimed
-// for any node.
-interface EarthRegionNode {
-  id: string;
-  name: string;
-  region: string;
-  x: number;
-  y: number;
-}
-
-const EARTH_NODES: EarthRegionNode[] = [
-  { id: 'nyc', name: 'New York Hub', region: 'North America', x: 286, y: 174 },
-  { id: 'sfo', name: 'San Francisco', region: 'North America', x: 168, y: 182 },
-  { id: 'lon', name: 'London Core', region: 'Europe', x: 486, y: 138 },
-  { id: 'fra', name: 'Frankfurt IX', region: 'Europe', x: 518, y: 146 },
-  { id: 'sao', name: 'Sao Paulo', region: 'South America', x: 356, y: 334 },
-  { id: 'dxb', name: 'Dubai Gateway', region: 'MENA', x: 632, y: 212 },
-  { id: 'sin', name: 'Singapore Hub', region: 'Asia-Pacific', x: 766, y: 268 },
-  { id: 'tyo', name: 'Tokyo Relay', region: 'Asia-Pacific', x: 844, y: 184 },
-  { id: 'syd', name: 'Sydney Node', region: 'Oceania', x: 874, y: 366 },
-];
-
-const ROUTE_ARCS: Array<{ from: string; to: string; path: string }> = [
-  { from: 'nyc', to: 'lon', path: 'M 286 174 Q 386 112 486 138' },
-  { from: 'sfo', to: 'nyc', path: 'M 168 182 Q 227 154 286 174' },
-  { from: 'nyc', to: 'sao', path: 'M 286 174 Q 338 250 356 334' },
-  { from: 'lon', to: 'fra', path: 'M 486 138 Q 502 135 518 146' },
-  { from: 'fra', to: 'dxb', path: 'M 518 146 Q 584 166 632 212' },
-  { from: 'dxb', to: 'sin', path: 'M 632 212 Q 705 224 766 268' },
-  { from: 'sin', to: 'tyo', path: 'M 766 268 Q 815 222 844 184' },
-  { from: 'sin', to: 'syd', path: 'M 766 268 Q 828 310 874 366' },
-  { from: 'sfo', to: 'tyo', path: 'M 168 182 Q 80 140 20 170' },
+  { id: 'security-radar', label: 'Security Radar', world: 'security', status: 'UNMEASURED · NO DATA' },
 ];
 
 // No transit feed is connected in this build. No departures, stops,
@@ -108,32 +78,12 @@ const ROUTE_ARCS: Array<{ from: string; to: string; path: string }> = [
 // figures are claimed. The real Transitland capability lives in the
 // vanilla app; wiring it into this map is Phase 2 work.
 
-const CONTINENT_PATHS = [
-  'M 96 92 L 152 72 L 235 66 L 298 84 L 318 118 L 292 162 L 265 198 L 242 225 L 224 252 L 204 236 L 188 214 L 166 196 L 148 158 L 116 128 Z',
-  'M 326 42 L 382 36 L 404 68 L 368 96 L 334 84 Z',
-  'M 244 256 L 298 258 L 352 288 L 372 332 L 344 388 L 316 446 L 292 448 L 284 392 L 262 334 L 242 288 Z',
-  'M 454 114 L 516 86 L 568 92 L 584 128 L 558 158 L 524 166 L 486 164 L 462 146 Z',
-  'M 464 118 L 478 114 L 484 136 L 468 140 Z',
-  'M 466 184 L 538 180 L 584 204 L 606 248 L 578 308 L 554 378 L 520 392 L 498 344 L 486 286 L 456 246 L 452 212 Z',
-  'M 594 334 L 608 326 L 606 364 L 592 366 Z',
-  'M 584 94 L 686 78 L 798 86 L 888 104 L 866 146 L 832 184 L 788 232 L 758 264 L 722 252 L 684 268 L 654 228 L 614 218 L 588 182 L 574 142 Z',
-  'M 838 164 L 856 154 L 854 192 L 836 196 Z',
-  'M 754 274 L 798 278 L 818 292 L 774 294 Z',
-  'M 786 334 L 854 326 L 888 358 L 872 404 L 816 398 L 784 368 Z',
-  'M 908 394 L 924 388 L 920 422 L 904 418 Z',
-];
-
-const COUNTRY_BORDERS = [
-  'M 152 136 L 288 138',
-  'M 176 202 L 236 212',
-  'M 278 296 L 352 318',
-  'M 294 358 L 348 368',
-  'M 492 128 L 534 152',
-  'M 464 236 L 576 238',
-  'M 508 298 L 572 302',
-  'M 622 152 L 784 156',
-  'M 684 196 L 752 214',
-];
+function fmtLon(lon: number): string {
+  return `${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'}`;
+}
+function fmtLat(lat: number): string {
+  return `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'}`;
+}
 
 export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   const cockpitDb = useCockpitDb();
@@ -145,25 +95,44 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
       prev.includes(id) ? (prev.length > 1 ? prev.filter((item) => item !== id) : prev) : [...prev, id],
     );
   };
-  const [selectedNodeId, setSelectedNodeId] = useState<string>(EARTH_NODES[0].id);
-  // Log lines are UI events only (the map initialized, the user clicked
-  // a marker). No line claims a live feed, a latency, or an alert.
+  // Log lines are UI events only (the engine initialized, the zoom
+  // level changed). No line claims a live feed, a latency, or an alert.
   const [activityLog, setActivityLog] = useState<string[]>([
-    '[SYNC] Command vector grid initialized (#00B7FF)',
-    '[STATUS] No live feed connected — map markers only · NOT_CONNECTED',
+    '[SYNC] Flat map engine initialized — Natural Earth vector floor',
+    '[STATUS] Base imagery: keyless chain — OSM raster over the vector floor',
+    '[STATUS] No live feed connected — map layers NOT_CONNECTED',
   ]);
+  const [mapView, setMapView] = useState<MapViewReport>({
+    lon: 0,
+    lat: 18.6,
+    zoom: 1.15,
+    level: 'World',
+  });
+  const [engineStatus, setEngineStatus] = useState<MapEngineStatus>({
+    base: 'FLOOR',
+    tileZoom: 0,
+    tilesLoaded: 0,
+    tilesFailed: 0,
+  });
+  const lastLevelRef = useRef<string>('World');
 
-  const selectedNode = EARTH_NODES.find((n) => n.id === selectedNodeId) ?? EARTH_NODES[0];
-  const currentViewMeta = GLOBE_VIEWS.find((v) => v.id === activeView) ?? GLOBE_VIEWS[0];
-  const isRealistic = activeView === 'realistic';
-
-  const handleSelectRegion = (node: EarthRegionNode) => {
-    setSelectedNodeId(node.id);
-    setActivityLog((prev) => [
-      `[FOCUS] ${node.name} (${node.region}) · Map marker only — no live feed`,
-      ...prev.slice(0, 7),
-    ]);
+  const handleViewChange = (report: MapViewReport) => {
+    setMapView(report);
+    if (report.level !== lastLevelRef.current) {
+      lastLevelRef.current = report.level;
+      setActivityLog((prev) =>
+        [`[ZOOM] Level: ${report.level} (z${report.zoom.toFixed(1)})`, ...prev].slice(0, 8),
+      );
+    }
   };
+
+  const currentViewMeta = GLOBE_VIEWS.find((v) => v.id === activeView) ?? GLOBE_VIEWS[0];
+  const baseLabel =
+    engineStatus.base === 'RASTER'
+      ? 'OSM RASTER'
+      : engineStatus.base === 'FLOOR'
+        ? 'VECTOR FLOOR'
+        : 'ENGINE UNAVAILABLE';
 
   return (
     <div className="min-h-screen bg-[#050505] text-white p-4 md:p-6 space-y-5">
@@ -232,13 +201,13 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
-        <div className="xl:col-span-3 rounded-xl border border-[#00B7FF]/25 bg-[#050505] overflow-hidden">
+        <div className="xl:col-span-3 rounded-xl border border-[#00B7FF]/25 bg-[#050505] overflow-hidden flex flex-col">
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/10 bg-[#101010]">
             <div className="flex items-center gap-2 text-xs font-mono text-[#00B7FF]">
               <Radio className="h-3.5 w-3.5" />
-              <span>EARTH VECTOR PROJECTION · {isRealistic ? 'REALISTIC EARTH' : 'COMMAND VIEW'}</span>
+              <span>FLAT WORLD MAP · WEBGL PLANE — {mapView.level.toUpperCase()}</span>
             </div>
-            <span className="text-[11px] font-mono text-[#B8B8B8]">CLICK REGION NODE TO INSPECT</span>
+            <span className="text-[11px] font-mono text-[#B8B8B8]">DRAG TO PAN · SCROLL TO ZOOM · FETCH ON SETTLE</span>
           </div>
           <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-white/10 bg-[#0b0b0b] text-[11px] font-mono">
             <span className="px-2 py-0.5 rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-300">
@@ -246,6 +215,9 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
             </span>
             <span className="px-2 py-0.5 rounded border border-[#00B7FF]/40 bg-[#00B7FF]/10 text-[#00B7FF]">
               World Engine: 957 Nodes
+            </span>
+            <span className="px-2 py-0.5 rounded border border-[#00B7FF]/40 bg-[#00B7FF]/10 text-[#00B7FF]">
+              Base: {baseLabel}
             </span>
             <span className="px-2 py-0.5 rounded border border-amber-500/40 bg-amber-500/10 text-amber-300">
               STAR Backend: NOT CONNECTED
@@ -256,7 +228,8 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
             <span className="px-2 py-0.5 rounded border border-[#00B7FF]/40 bg-[#00B7FF]/10 text-[#00B7FF]">CockpitDB: {cockpitDb.status} ({cockpitDb.storeCount} stores)</span>
           </div>
 
-          <div className="relative w-full aspect-[2/1] bg-[#050505]">
+          <div className="relative w-full h-[58dvh] min-h-[340px] md:aspect-[2/1] md:h-auto xl:aspect-none xl:flex-1 xl:min-h-[460px] bg-[#050505]">
+            <WorldMapEngine onViewChange={handleViewChange} onStatusChange={setEngineStatus} />
             <div className="absolute top-2 left-2 right-2 z-10 pointer-events-none flex flex-col gap-1.5">
               <div className="pointer-events-auto flex flex-wrap gap-1">
                 {(Object.keys(LAYER_STATUS) as GlobeViewId[]).map((layerId) => {
@@ -282,66 +255,6 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 <span>{LAYER_STATUS[activeView].statusText}</span>
               </div>
             </div>
-            <svg viewBox="0 0 1000 500" className="w-full h-full select-none">
-              <defs>
-                <radialGradient id="earthOcean" cx="50%" cy="50%" r="65%">
-                  <stop offset="0%" stopColor={isRealistic ? '#0A2238' : '#080C12'} />
-                  <stop offset="100%" stopColor="#050505" />
-                </radialGradient>
-              </defs>
-              <rect width="1000" height="500" fill="url(#earthOcean)" />
-              {[100, 200, 300, 400].map((y) => (
-                <line key={`lat-${y}`} x1="0" y1={y} x2="1000" y2={y} stroke="#00B7FF" strokeOpacity="0.1" strokeDasharray="3 5" />
-              ))}
-              {[125, 250, 375, 500, 625, 750, 875].map((x) => (
-                <line key={`lon-${x}`} x1={x} y1="0" x2={x} y2="500" stroke="#00B7FF" strokeOpacity="0.1" strokeDasharray="3 5" />
-              ))}
-              {CONTINENT_PATHS.map((d, i) => (
-                <path
-                  key={`land-${i}`}
-                  d={d}
-                  fill={isRealistic ? '#0E2E47' : '#0D141C'}
-                  stroke="#00B7FF"
-                  strokeOpacity={isRealistic ? 0.7 : 0.5}
-                  strokeWidth="1.2"
-                />
-              ))}
-              {COUNTRY_BORDERS.map((d, i) => (
-                <path
-                  key={`border-${i}`}
-                  d={d}
-                  fill="none"
-                  stroke="#00B7FF"
-                  strokeOpacity="0.35"
-                  strokeWidth="0.9"
-                  strokeDasharray="2 2"
-                />
-              ))}
-              {ROUTE_ARCS.map((arc, idx) => (
-                <path
-                  key={`arc-${idx}`}
-                  d={arc.path}
-                  fill="none"
-                  stroke="#00B7FF"
-                  strokeOpacity="0.75"
-                  strokeWidth="1.5"
-                  strokeDasharray="4 4"
-                />
-              ))}
-              {EARTH_NODES.map((node) => {
-                const isSelected = node.id === selectedNode.id;
-                const nodeColor = '#00B7FF';
-                return (
-                  <g key={node.id} onClick={() => handleSelectRegion(node)} className="cursor-pointer">
-                    <circle cx={node.x} cy={node.y} r={isSelected ? 12 : 8} fill={nodeColor} fillOpacity={isSelected ? 0.28 : 0.16} />
-                    <circle cx={node.x} cy={node.y} r={isSelected ? 5 : 3.5} fill={nodeColor} stroke="#050505" strokeWidth="1.5" />
-                    <text x={node.x + 8} y={node.y + 3} fill={isSelected ? '#FFFFFF' : '#B8B8B8'} fontSize="10" fontFamily="monospace">
-                      {node.id.toUpperCase()}
-                    </text>
-                  </g>
-                );
-              })}
-            </svg>
           </div>
         </div>
 
@@ -350,27 +263,29 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <MapPin className="h-4 w-4 text-[#00B7FF]" />
-                <h2 className="text-sm font-semibold">{selectedNode.name}</h2>
+                <h2 className="text-sm font-semibold">Map Position</h2>
               </div>
               <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-[#00B7FF]/15 text-[#00B7FF] border border-[#00B7FF]/40">
-                NOT_CONNECTED
+                {baseLabel}
               </span>
             </div>
             <div className="text-xs text-[#B8B8B8] space-y-1 font-mono">
-              <div>REGION: {selectedNode.region}</div>
-              <div>LATENCY: NO_DATA</div>
-              <div>STATUS: NOT_CONNECTED</div>
+              <div>CENTRE: {fmtLon(mapView.lon)} · {fmtLat(mapView.lat)}</div>
+              <div>LEVEL: {mapView.level} · z{mapView.zoom.toFixed(1)}</div>
+              <div>TILES: {engineStatus.tilesLoaded} loaded · {engineStatus.tilesFailed} failed (floor beneath)</div>
+              <div>TERRAIN: CANDIDATE — hillshade not rendered</div>
             </div>
             <p className="text-xs text-[#B8B8B8]">
-              Map marker only — no live feed is connected for this node, so no telemetry, status, or alert
-              is claimed.
+              Markers appear only for records with verified locations — none are
+              placed in this build. The Natural Earth vector floor is always
+              beneath the tiles, so the map is never blank.
             </p>
           </div>
 
           <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-2">
             <div className="text-xs font-mono text-[#00B7FF]">COVERAGE HERE</div>
             <div className="text-xs text-[#B8B8B8] space-y-1 font-mono">
-              <div>Region: {selectedNode.region} ({selectedNode.name})</div>
+              <div>Viewport centre: {fmtLon(mapView.lon)} · {fmtLat(mapView.lat)}</div>
               <div>Active Layers: {activeLayers.map((id) => LAYER_STATUS[id].label).join(', ')}</div>
               <div>Data Coverage: NO DATA / PARTIAL</div>
               <div>Live Telemetry: UNMEASURED</div>
@@ -385,7 +300,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               <div>Bot Status: PROPOSE-ONLY</div>
               <div>Data Status: {cockpitDb.status} ({cockpitDb.storeCount} stores)</div>
               <div>Security Status: UNMEASURED</div>
-              <div className="text-amber-300">Alerts: 2 Active</div>
+              <div>Alerts: UNMEASURED</div>
             </div>
           </div>
 
