@@ -93,6 +93,21 @@ export const BotOperations: React.FC = () => {
         </div>
       </div>
 
+      {/* Runtime truth band (Phase 2, step 8): STAR above the
+          principals, workers beneath them — all of it record-keeping
+          until a runtime connects. Nothing here is live. */}
+      <div className="flex flex-col gap-2 rounded-xl border border-[#8B5CFF]/30 bg-[#101010] p-3 font-mono text-[11px] md:flex-row md:items-center md:justify-between">
+        <span className="text-[#B8B8B8]">
+          <span className="font-semibold text-[#8B5CFF]">STAR</span> — DEMO ·
+          NO AI BACKEND CONNECTED · SITS ABOVE THE 12 PRINCIPALS
+        </span>
+        <span className="text-[#B8B8B8]">
+          <span className="font-semibold text-[#8B5CFF]">TASK WORKERS</span> —
+          ACTIVE: 0 · RUNTIME: NOT_CONNECTED · RECORD SYSTEM ONLY, NO
+          WORKER RUNTIME EXISTS
+        </span>
+      </div>
+
       {/* 3-Pane Operational Hub */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
         {/* Left Pane: Non-Crypto Opportunity Scanner + Operational Earnings Chart */}
@@ -115,7 +130,7 @@ export const BotOperations: React.FC = () => {
 
           <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs font-mono text-[#32D74B]">
+              <div className="flex items-center gap-2 text-xs font-mono text-[#B8B8B8]">
                 <TrendingUp className="h-4 w-4" />
                 <span>OPERATIONAL EARNINGS</span>
               </div>
@@ -131,7 +146,7 @@ export const BotOperations: React.FC = () => {
         {/* Center Pane: Bot Operations Management */}
         <div className="xl:col-span-5 rounded-xl border border-white/10 bg-[#101010] p-4 space-y-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs font-mono text-[#00B7FF]">
+            <div className="flex items-center gap-2 text-xs font-mono text-[#8B5CFF]">
               <Sliders className="h-4 w-4" />
               <span>BOT OPERATIONS MANAGEMENT</span>
             </div>
@@ -167,13 +182,13 @@ export const BotOperations: React.FC = () => {
                   onClick={() => setSelectedTribe(tribe.id)}
                   className={`p-3 rounded-lg border text-left transition space-y-1 ${
                     isSelected
-                      ? 'bg-[#151515] border-[#00B7FF]'
+                      ? 'bg-[#151515] border-[#8B5CFF]'
                       : 'bg-[#050505] border-white/10 hover:border-white/25'
                   }`}
                 >
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-semibold text-white">{tribe.displayName}</span>
-                    <Shield className="h-3.5 w-3.5 text-[#00B7FF]" />
+                    <Shield className="h-3.5 w-3.5 text-[#8B5CFF]" />
                   </div>
                   <div className="flex items-center justify-between text-[10px] font-mono text-[#B8B8B8]">
                     <span>TAB: {activeTab.toUpperCase()}</span>
@@ -185,7 +200,7 @@ export const BotOperations: React.FC = () => {
           </div>
 
           <div className="p-3 rounded-lg bg-[#050505] border border-white/10 text-xs font-mono text-[#B8B8B8] flex items-center gap-2">
-            <Activity className="h-3.5 w-3.5 text-[#00B7FF]" />
+            <Activity className="h-3.5 w-3.5 text-[#8B5CFF]" />
             <span>Runtime: READ-ONLY · NOT CONNECTED · Zero autonomous trades or payouts executed.</span>
           </div>
         </div>
