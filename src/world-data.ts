@@ -139,6 +139,48 @@ export const TERRAIN_CHAIN: ChainEntry[] = [
   },
 ];
 
+/* ------------------------------------------------------------------ */
+/* Earnings location rules — owner decision D4 (2026-11-23).           */
+/* Which Earnings World categories may carry geography on the map:     */
+/*   PLACE_BOUND    — the category is place-bound by nature; a pin     */
+/*                    still needs a specific recorded opportunity.     */
+/*   PIN_FROM_RECORD — a pin ONLY from a specific recorded             */
+/*                    opportunity's real location.                     */
+/*   NEVER          — the category never carries location.             */
+/* Category names are the canonical js/worlds.js Earnings categories.  */
+/* Zero opportunity records exist in this build, so the rules currently */
+/* place zero pins — they govern the moment records exist.             */
+/* ------------------------------------------------------------------ */
+
+export type EarningsLocationRule = 'PLACE_BOUND' | 'PIN_FROM_RECORD' | 'NEVER';
+
+export const EARNINGS_LOCATION_RULES: Record<string, EarningsLocationRule> = {
+  'Gig Economy Opportunities': 'PLACE_BOUND',
+  'Local Money-Making Opportunities': 'PLACE_BOUND',
+  'Rental Opportunities': 'PLACE_BOUND',
+  'Freelance Opportunities': 'PIN_FROM_RECORD',
+  'Side Hustles': 'PIN_FROM_RECORD',
+  'Commerce Opportunities': 'PIN_FROM_RECORD',
+  'Content Creation Earnings': 'PIN_FROM_RECORD',
+  'AI Service Opportunities': 'PIN_FROM_RECORD',
+  Cashback: 'NEVER',
+  'Reward Programs': 'NEVER',
+  'Loyalty Points': 'NEVER',
+  'Gift Cards': 'NEVER',
+  Rebates: 'NEVER',
+  Coupons: 'NEVER',
+  'Referral Programs': 'NEVER',
+  'Affiliate Programs': 'NEVER',
+  'Survey Opportunities': 'NEVER',
+  'Banking Bonuses': 'NEVER',
+  'Savings Rewards': 'NEVER',
+  'Promotional Offers': 'NEVER',
+};
+
+export function earningsLocationFor(category: string): EarningsLocationRule {
+  return EARNINGS_LOCATION_RULES[category] ?? 'NEVER';
+}
+
 export interface BaseMapResolution {
   kind: 'raster';
   sourceId: string;

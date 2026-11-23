@@ -10,6 +10,8 @@ import {
 
 import type { ViewMode, WorldId } from '../App';
 import { useCockpitDb } from '../hooks/useCockpitDb';
+import { MTI6_LAYER } from '../tokens';
+import { EARNINGS_LOCATION_RULES } from '../world-data';
 import {
   WorldMapEngine,
   type MapEngineStatus,
@@ -21,49 +23,87 @@ export interface WorldGlobeProps {
   viewMode?: ViewMode;
 }
 
-type GlobeViewId =
-  | 'command'
-  | 'realistic'
-  | 'transitland'
-  | 'macro'
-  | 'local'
-  | 'earnings'
+/* The canonical layer system (Phase 2, step 4 — owner directive
+ * 2026-11-23). Eight layers on ONE map: base is always on; the other
+ * seven toggle. A layer places a marker ONLY for a record with a
+ * verified location — in this build every layer's record set is
+ * empty or unconnected, so the map honestly carries zero markers,
+ * and each layer's status line says why. */
+type LayerId =
+  | 'base'
   | 'crypto'
+  | 'earnings'
   | 'opportunities'
-  | 'asset'
+  | 'positions'
+  | 'transit'
+  | 'security'
   | 'intelligence';
 
-interface GlobeViewMeta {
-  id: GlobeViewId;
+interface LayerMeta {
+  id: LayerId;
   label: string;
-  subtitle: string;
+  accent: string;
+  statusText: string;
 }
 
-const GLOBE_VIEWS: GlobeViewMeta[] = [
-  { id: 'command', label: 'Command', subtitle: 'Master multi-domain view — no live feed connected' },
-  { id: 'realistic', label: 'Realistic Earth', subtitle: 'Topographic & atmospheric surface mesh' },
-  { id: 'transitland', label: 'Transitland', subtitle: 'Transitland proxy standby — READY (Not Polled)' },
-  { id: 'macro', label: 'Macro', subtitle: 'Macro economic indicators — no live feed connected' },
-  { id: 'local', label: 'Local', subtitle: 'Local municipal & corridor layer — no live feed connected' },
-  { id: 'earnings', label: 'Earnings', subtitle: 'Non-crypto income & local yield corridors — no live feed connected' },
-  { id: 'crypto', label: 'Crypto', subtitle: 'On-chain liquidity & validator clusters — no live feed connected' },
-  { id: 'opportunities', label: 'Opportunities', subtitle: 'High-signal arbitrage & local bounties — no live feed connected' },
-  { id: 'asset', label: 'Asset', subtitle: 'Physical, real-world & equity custody nodes — no live feed connected' },
-  { id: 'intelligence', label: 'Intelligence', subtitle: 'Geopolitical, macro & threat synthesis — no live feed connected' },
-];
+const earningsRuleCounts = (() => {
+  const counts = { PLACE_BOUND: 0, PIN_FROM_RECORD: 0, NEVER: 0 };
+  for (const rule of Object.values(EARNINGS_LOCATION_RULES)) counts[rule] += 1;
+  return counts;
+})();
 
-const LAYER_STATUS: Record<GlobeViewId, { label: string; statusText: string }> = {
-  command: { label: 'Command', statusText: 'STANDBY — Command layer active; awaiting live multi-domain telemetry.' },
-  realistic: { label: 'Realistic Earth', statusText: 'STANDBY — Realistic Earth base projection; satellite overlay not connected.' },
-  transitland: { label: 'Transitland', statusText: 'READY (Not Polled) — Transitland proxy ready; no live route query executed.' },
-  macro: { label: 'Macro', statusText: 'NO DATA — Macro indicator feed not connected in this build.' },
-  local: { label: 'Local', statusText: 'NO DATA — Local corridor & municipal layer awaiting regional feed.' },
-  crypto: { label: 'Crypto', statusText: 'NOT CONNECTED — Crypto RPC offline; no on-chain layer telemetry.' },
-  earnings: { label: 'Earnings', statusText: 'NO DATA — Earnings calendar & filings stream not connected.' },
-  opportunities: { label: 'Opportunities', statusText: 'NO DATA — Opportunity scanner in standby; no live signals.' },
-  asset: { label: 'Asset', statusText: 'NO DATA — Asset custody & valuation layer awaiting feed.' },
-  intelligence: { label: 'Intelligence', statusText: 'UNMEASURED — Intelligence layer awaiting STAR backend connection.' },
-};
+const LAYERS: LayerMeta[] = [
+  {
+    id: 'base',
+    label: 'Base',
+    accent: MTI6_LAYER.all,
+    statusText: 'ALWAYS ON — Natural Earth vector floor + keyless OSM raster. The map is never blank.',
+  },
+  {
+    id: 'crypto',
+    label: 'Crypto',
+    accent: MTI6_LAYER.crypto,
+    statusText:
+      'SPHERE-ONLY (owner ruling D6) — crypto never pins the flat map; it opens as the Sphere lens. Zero verified crypto locations exist.',
+  },
+  {
+    id: 'earnings',
+    label: 'Earnings',
+    accent: MTI6_LAYER.earnings,
+    statusText: `LOCATION RULES (D4) — place-bound ${earningsRuleCounts.PLACE_BOUND} · pin-from-record ${earningsRuleCounts.PIN_FROM_RECORD} · never located ${earningsRuleCounts.NEVER}. Recorded opportunities: 0 — no pins placed.`,
+  },
+  {
+    id: 'opportunities',
+    label: 'Opportunities',
+    accent: MTI6_LAYER.all,
+    statusText: 'NO DATA — the opportunity pipeline holds zero records; nothing exists to place.',
+  },
+  {
+    id: 'positions',
+    label: 'Positions',
+    accent: MTI6_LAYER.all,
+    statusText: 'UNAVAILABLE — no account or wallet is connected; no position has a location to show.',
+  },
+  {
+    id: 'transit',
+    label: 'Transit',
+    accent: MTI6_LAYER.all,
+    statusText: 'READY (Not Polled) — Transitland proxy ready; no route query executed, no stops placed.',
+  },
+  {
+    id: 'security',
+    label: 'Security',
+    accent: MTI6_LAYER.all,
+    statusText:
+      'UNMEASURED — AngelSecurity has no verified active alerts in this build. The map turns red only for a CONFIRMED, active alert.',
+  },
+  {
+    id: 'intelligence',
+    label: 'Intelligence',
+    accent: MTI6_LAYER.all,
+    statusText: 'UNMEASURED — intelligence layer awaiting STAR backend connection.',
+  },
+];
 
 const DOMAIN_RADARS: { id: string; label: string; world: WorldId; status: string }[] = [
   { id: 'opportunity-radar', label: 'Opportunity Radar', world: 'opportunities', status: 'STANDBY · NO DATA' },
@@ -87,16 +127,11 @@ function fmtLat(lat: number): string {
 
 export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   const cockpitDb = useCockpitDb();
-  const [activeView, setActiveView] = useState<GlobeViewId>('command');
-  const [activeLayers, setActiveLayers] = useState<GlobeViewId[]>(['command']);
-  const toggleLayer = (id: GlobeViewId) => {
-    setActiveView(id);
-    setActiveLayers((prev) =>
-      prev.includes(id) ? (prev.length > 1 ? prev.filter((item) => item !== id) : prev) : [...prev, id],
-    );
-  };
-  // Log lines are UI events only (the engine initialized, the zoom
-  // level changed). No line claims a live feed, a latency, or an alert.
+  const [activeLayers, setActiveLayers] = useState<LayerId[]>(['base']);
+  const [focusedLayer, setFocusedLayer] = useState<LayerId>('base');
+  // Log lines are UI events only (the engine initialized, a layer was
+  // toggled, the zoom level changed). No line claims a live feed, a
+  // latency, or an alert.
   const [activityLog, setActivityLog] = useState<string[]>([
     '[SYNC] Flat map engine initialized — Natural Earth vector floor',
     '[STATUS] Base imagery: keyless chain — OSM raster over the vector floor',
@@ -116,6 +151,23 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   });
   const lastLevelRef = useRef<string>('World');
 
+  const toggleLayer = (id: LayerId) => {
+    if (id === 'base') {
+      setFocusedLayer('base');
+      return; // base is always on — it cannot be toggled off
+    }
+    const on = !activeLayers.includes(id);
+    setActiveLayers(on ? [...activeLayers, id] : activeLayers.filter((item) => item !== id));
+    setFocusedLayer(on ? id : 'base');
+    const meta = LAYERS.find((l) => l.id === id);
+    setActivityLog((log) =>
+      [
+        `[LAYER] ${meta?.label} ${on ? 'ON' : 'OFF'} — ${on ? meta?.statusText : 'layer hidden'}`,
+        ...log,
+      ].slice(0, 8),
+    );
+  };
+
   const handleViewChange = (report: MapViewReport) => {
     setMapView(report);
     if (report.level !== lastLevelRef.current) {
@@ -126,7 +178,8 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     }
   };
 
-  const currentViewMeta = GLOBE_VIEWS.find((v) => v.id === activeView) ?? GLOBE_VIEWS[0];
+  const focusedMeta = LAYERS.find((l) => l.id === focusedLayer) ?? LAYERS[0];
+  const cryptoOn = activeLayers.includes('crypto');
   const baseLabel =
     engineStatus.base === 'RASTER'
       ? 'OSM RASTER'
@@ -145,10 +198,12 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-lg font-semibold tracking-wide text-white">WORLD MAP · MASTER COMMAND</h1>
               <span className="px-2 py-0.5 text-[11px] font-mono rounded bg-[#050505] border border-[#00B7FF]/40 text-[#00B7FF]">
-                {activeView.toUpperCase()}
+                {activeLayers.length} LAYER{activeLayers.length === 1 ? '' : 'S'} ON
               </span>
             </div>
-            <p className="text-xs text-[#B8B8B8]">{currentViewMeta.subtitle}</p>
+            <p className="text-xs text-[#B8B8B8]">
+              One flat map — every world is a layer on it. No second map exists.
+            </p>
           </div>
         </div>
 
@@ -175,29 +230,6 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
             </>
           )}
         </div>
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-        {GLOBE_VIEWS.map((view) => {
-          const isActive = view.id === activeView;
-          return (
-            <button
-              key={view.id}
-              type="button"
-              onClick={() => setActiveView(view.id)}
-              className={`px-3 py-2.5 rounded-lg border text-left transition ${
-                isActive
-                  ? 'bg-[#151515] border-[#00B7FF] text-white'
-                  : 'bg-[#101010] border-white/10 text-[#B8B8B8] hover:border-[#00B7FF]/40'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold truncate">{view.label}</span>
-                <Layers className={`h-3.5 w-3.5 ${isActive ? 'text-[#00B7FF]' : 'text-white/30'}`} />
-              </div>
-            </button>
-          );
-        })}
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
@@ -229,31 +261,75 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
           </div>
 
           <div className="relative w-full h-[58dvh] min-h-[340px] md:aspect-[2/1] md:h-auto xl:aspect-none xl:flex-1 xl:min-h-[460px] bg-[#050505]">
-            <WorldMapEngine onViewChange={handleViewChange} onStatusChange={setEngineStatus} />
-            <div className="absolute top-2 left-2 right-2 z-10 pointer-events-none flex flex-col gap-1.5">
-              <div className="pointer-events-auto flex flex-wrap gap-1">
-                {(Object.keys(LAYER_STATUS) as GlobeViewId[]).map((layerId) => {
-                  const isOn = activeLayers.includes(layerId);
+            <WorldMapEngine
+              markers={[]}
+              onViewChange={handleViewChange}
+              onStatusChange={setEngineStatus}
+            />
+            {/* Layer chips — 44px touch targets at every tier (the
+                Phase 1 chips were ~18px and failed the rule). Phone:
+                overlay, scrolls horizontally. Tablet/Desktop: overlay,
+                wraps. Ultra-wide: the chips move to a LEFT RAIL
+                (owner ruling R2). */}
+            <div className="absolute top-2 left-2 right-2 z-10 pointer-events-none flex flex-col gap-1.5 2xl:right-auto 2xl:bottom-2 2xl:w-48">
+              <div className="pointer-events-auto flex gap-1.5 overflow-x-auto md:flex-wrap md:overflow-visible 2xl:flex-col 2xl:flex-nowrap 2xl:overflow-visible">
+                {LAYERS.map((layer) => {
+                  const isOn = activeLayers.includes(layer.id);
+                  const isFocused = focusedLayer === layer.id;
                   return (
                     <button
-                      key={layerId}
+                      key={layer.id}
                       type="button"
-                      onClick={() => toggleLayer(layerId)}
-                      className={`px-2 py-0.5 rounded text-[10px] font-mono border transition ${
+                      onClick={() => toggleLayer(layer.id)}
+                      aria-pressed={isOn}
+                      className={`flex h-11 shrink-0 items-center gap-2 rounded-lg border px-3 font-mono text-[11px] transition ${
                         isOn
-                          ? 'bg-[#00B7FF]/20 border-[#00B7FF] text-white'
-                          : 'bg-[#0b0b0b]/85 border-white/15 text-[#B8B8B8] hover:border-[#00B7FF]/50'
-                      }`}
+                          ? 'bg-[#0b0b0b]/90 text-white'
+                          : 'bg-[#0b0b0b]/85 border-white/15 text-[#B8B8B8] hover:border-white/40'
+                      } ${isFocused ? 'ring-1 ring-[#0080FF]' : ''}`}
+                      style={
+                        isOn
+                          ? { borderColor: layer.accent, color: '#FFFFFF' }
+                          : undefined
+                      }
                     >
-                      {LAYER_STATUS[layerId].label}
+                      <Layers
+                        className="h-3.5 w-3.5 shrink-0"
+                        style={{ color: isOn ? layer.accent : '#B8B8B8' }}
+                      />
+                      <span className="whitespace-nowrap">{layer.label}</span>
+                      <span className="font-mono text-[9px] text-[#B8B8B8]">
+                        {layer.id === 'base' ? 'ALWAYS' : isOn ? 'ON' : 'OFF'}
+                      </span>
                     </button>
                   );
                 })}
               </div>
-              <div className="pointer-events-auto inline-flex items-center gap-2 self-start px-2.5 py-1 rounded bg-[#0b0b0b]/90 border border-[#00B7FF]/30 text-[11px] font-mono text-[#B8B8B8]">
-                <span className="text-[#00B7FF] font-semibold">{LAYER_STATUS[activeView].label}:</span>
-                <span>{LAYER_STATUS[activeView].statusText}</span>
+              <div className="pointer-events-auto inline-flex max-w-full items-center gap-2 self-start px-2.5 py-1 rounded bg-[#0b0b0b]/90 border border-[#00B7FF]/30 text-[11px] font-mono text-[#B8B8B8] 2xl:self-stretch">
+                <span className="font-semibold shrink-0" style={{ color: focusedMeta.accent }}>
+                  {focusedMeta.label}:
+                </span>
+                <span className="truncate">{focusedMeta.statusText}</span>
               </div>
+              {/* D6: with Crypto on, the flat map carries this notice
+                  instead of pins — the sphere is the crypto view. */}
+              {cryptoOn && (
+                <div className="pointer-events-auto self-start rounded border border-[#8B5CFF]/50 bg-[#0b0b0b]/90 px-2.5 py-2 font-mono text-[11px] text-[#B8B8B8] 2xl:self-stretch">
+                  <span className="font-semibold text-[#8B5CFF]">CRYPTO IS SPHERE-ONLY.</span>{' '}
+                  No crypto pins exist on the flat map. The Sphere lens lands in
+                  step 5 — until then, Crypto World holds the 24 contents and 56
+                  workspaces.
+                  {onSelectWorld && (
+                    <button
+                      type="button"
+                      onClick={() => onSelectWorld('crypto')}
+                      className="ml-2 font-semibold text-white underline decoration-[#8B5CFF] underline-offset-2"
+                    >
+                      OPEN CRYPTO WORLD
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -274,11 +350,12 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               <div>LEVEL: {mapView.level} · z{mapView.zoom.toFixed(1)}</div>
               <div>TILES: {engineStatus.tilesLoaded} loaded · {engineStatus.tilesFailed} failed (floor beneath)</div>
               <div>TERRAIN: CANDIDATE — hillshade not rendered</div>
+              <div>MARKERS PLACED: 0 — no verified locations</div>
             </div>
             <p className="text-xs text-[#B8B8B8]">
-              Markers appear only for records with verified locations — none are
-              placed in this build. The Natural Earth vector floor is always
-              beneath the tiles, so the map is never blank.
+              Markers appear only for records with verified locations. Every
+              layer's record set is currently empty or unconnected, so the map
+              honestly places none.
             </p>
           </div>
 
@@ -286,7 +363,13 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
             <div className="text-xs font-mono text-[#00B7FF]">COVERAGE HERE</div>
             <div className="text-xs text-[#B8B8B8] space-y-1 font-mono">
               <div>Viewport centre: {fmtLon(mapView.lon)} · {fmtLat(mapView.lat)}</div>
-              <div>Active Layers: {activeLayers.map((id) => LAYER_STATUS[id].label).join(', ')}</div>
+              <div>
+                Active Layers:{' '}
+                {activeLayers
+                  .map((id) => LAYERS.find((l) => l.id === id)?.label)
+                  .filter(Boolean)
+                  .join(', ')}
+              </div>
               <div>Data Coverage: NO DATA / PARTIAL</div>
               <div>Live Telemetry: UNMEASURED</div>
             </div>
