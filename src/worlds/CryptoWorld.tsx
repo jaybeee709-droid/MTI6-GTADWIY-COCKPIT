@@ -18,9 +18,20 @@ import {
   MEMBERSHIP_RULE,
   type CryptoGroup,
 } from '../worlds-data';
-import { fetchYields, fmtUsd, useObservation } from '../live-data';
+import { fetchYields, fmtUsd, useObservation, useProvenanceLog } from '../live-data';
 import { ProvenanceChip } from '../ProvenanceChip';
 import { CANONICAL_60, ENCYCLOPEDIA_FAMILIES } from '../encyclopedia-data';
+import { ENTITY_COUNTS, ENTITY_UNIVERSE } from '../entity-data';
+
+/** Gemini-adopted background treatment (owner, 2026-11-23): the
+ *  concept set's deep-space tint, rendered ONLY in the platform's
+ *  own colours (#00B7FF command cyan, #8B5CFF STAR purple) over the
+ *  ruled #050505 base. Backgrounds only — no token or status colour
+ *  changes. */
+export const SPACE_BG: React.CSSProperties = {
+  backgroundImage:
+    'radial-gradient(1100px 550px at 85% -10%, rgba(139,92,255,0.16), transparent 60%), radial-gradient(900px 500px at -10% 0%, rgba(0,183,255,0.12), transparent 55%), linear-gradient(#050505, #050505)',
+};
 
 /** LIVE DATA — yields (A1, 2026-11-23; the owner's CW-5 pattern:
  *  capability → approved source → normalized observation → panel).
@@ -213,6 +224,86 @@ const CRYPTO_EVENT_LOG = [
 // canonical classification — it only filters the grid.
 const GROUPS: CryptoGroup[] = ['Markets', 'Yield & Credit', 'Infrastructure', 'Assets & Sectors'];
 
+/** CRYPTO HEALTH (Copilot CW-0 Gap 16 / CW-3 Home): the summary is
+ *  derived ONLY from this session's real provenance observations.
+ *  The rule is never-HEALTHY-when-unknown: with no observations the
+ *  strip says so instead of claiming a state. */
+const CryptoHealthStrip: React.FC = () => {
+  const prov = useProvenanceLog();
+  const counts = { LIVE: 0, CACHED: 0, STALE: 0, NO_DATA: 0 } as Record<string, number>;
+  for (const r of prov) counts[r.status] = (counts[r.status] ?? 0) + 1;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 font-mono text-[10px]">
+      <span className="text-[#B8B8B8]">CRYPTO HEALTH — OBSERVED THIS SESSION:</span>
+      {prov.length === 0 ? (
+        <span className="rounded border border-white/15 bg-[#101010] px-2 py-1 text-[#B8B8B8]">
+          NO OBSERVATIONS YET — HEALTH IS NOT CLAIMED
+        </span>
+      ) : (
+        <>
+          <span className="rounded border border-[#32D74B]/50 bg-[#101010] px-2 py-1 text-white">LIVE {counts.LIVE}</span>
+          <span className="rounded border border-[#00B7FF]/50 bg-[#101010] px-2 py-1 text-white">CACHED {counts.CACHED}</span>
+          <span className="rounded border border-[#FFB020]/50 bg-[#101010] px-2 py-1 text-white">STALE {counts.STALE}</span>
+          <span className="rounded border border-white/15 bg-[#101010] px-2 py-1 text-[#B8B8B8]">NO_DATA {counts.NO_DATA}</span>
+        </>
+      )}
+      <span className="rounded border border-white/15 bg-[#101010] px-2 py-1 text-[#B8B8B8]">
+        EVERYTHING NOT OBSERVED READS NOT_CONNECTED — NEVER &quot;HEALTHY&quot;
+      </span>
+    </div>
+  );
+};
+
+/** ENTITY REGISTRIES (Copilot CW-0 Gap 4 / CW-3): the canonical
+ *  11 networks / 18 assets / 19 protocols listed BY NAME inside
+ *  Crypto World — previously they appeared here only as counts.
+ *  Data is the generated frozen-batch data (v137); all UNVERIFIED. */
+const EntityRegistriesPanel: React.FC = () => {
+  const groups: { key: string; label: string; render: (e: (typeof ENTITY_UNIVERSE)[number]) => string }[] = [
+    {
+      key: 'chains',
+      label: `NETWORKS · ${ENTITY_COUNTS.chains}`,
+      render: (e) => (typeof e.chainId === 'number' ? `CHAIN ID ${e.chainId}` : 'CHAIN ID NOT RECORDED'),
+    },
+    {
+      key: 'assets',
+      label: `ASSETS · ${ENTITY_COUNTS.assets}`,
+      render: (e) => (e.symbol ? `SYMBOL ${e.symbol}` : 'SYMBOL NOT RECORDED'),
+    },
+    {
+      key: 'protocols',
+      label: `PROTOCOLS · ${ENTITY_COUNTS.protocols}`,
+      render: (e) => `${e.activityRefs?.length ?? 0} BACKBONE ACTIVITIES LINKED`,
+    },
+  ];
+  return (
+    <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs font-mono text-[#00B7FF]">
+          <Network className="h-4 w-4" />
+          <span>ENTITY REGISTRIES — THE {ENTITY_COUNTS.total} CANONICAL ENTITIES BY NAME</span>
+        </div>
+        <span className="font-mono text-[10px] text-[#B8B8B8]">ALL UNVERIFIED · FULL RECORDS: ENCYCLOPEDIA</span>
+      </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        {groups.map((g) => (
+          <div key={g.key} className="rounded-lg border border-white/10 bg-[#151515] p-3">
+            <div className="mb-2 font-mono text-[10px] font-semibold text-[#00B7FF]">{g.label}</div>
+            <div className="max-h-56 space-y-1 overflow-y-auto">
+              {ENTITY_UNIVERSE.filter((e) => e.registry === g.key).map((e) => (
+                <div key={e.id} className="flex items-center justify-between gap-2 font-mono text-[10px]">
+                  <span className="truncate text-white">{e.title}</span>
+                  <span className="shrink-0 text-[#B8B8B8]">{g.render(e)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) => {
   const [selectedGroup, setSelectedGroup] = useState<CryptoGroup | 'All'>('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -234,7 +325,7 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
   }, [selectedGroup, searchQuery]);
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white p-4 md:p-6 space-y-5">
+    <div className="min-h-screen bg-[#050505] text-white p-4 md:p-6 space-y-5" style={SPACE_BG}>
       {/* Header + Strict Domain & Connection Pills */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border border-[#00B7FF]/30 bg-[#101010] rounded-xl p-4">
         <div className="flex items-center gap-3">
@@ -329,6 +420,10 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
           EVERY RECORD UNVERIFIED · COST UNKNOWN AND RISK UNPROFILED UNTIL A SOURCED RECORD SAYS OTHERWISE.
         </p>
       </div>
+
+      <CryptoHealthStrip />
+
+      <EntityRegistriesPanel />
 
       <StarPresenterCard />
 

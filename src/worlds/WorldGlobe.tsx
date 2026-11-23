@@ -20,6 +20,7 @@ import {
   type MapViewReport,
 } from './WorldMapEngine';
 import { CryptoSphere } from './CryptoSphere';
+import { SPACE_BG } from './CryptoWorld';
 import { ALL_ADAPTERS } from '../provider-adapters';
 
 export interface WorldGlobeProps {
@@ -396,7 +397,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
         : 'ENGINE UNAVAILABLE';
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white p-4 md:p-6 space-y-5">
+    <div className="min-h-screen bg-[#050505] text-white p-4 md:p-6 space-y-5" style={SPACE_BG}>
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border border-[#00B7FF]/25 bg-[#101010] rounded-xl p-4">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-lg bg-[#050505] border border-[#00B7FF]/50 flex items-center justify-center text-[#00B7FF]">
