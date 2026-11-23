@@ -20,6 +20,7 @@ import {
 } from '../worlds-data';
 import { fetchYields, fmtUsd, useObservation } from '../live-data';
 import { ProvenanceChip } from '../ProvenanceChip';
+import { CANONICAL_60, ENCYCLOPEDIA_FAMILIES } from '../encyclopedia-data';
 
 /** LIVE DATA — yields (A1, 2026-11-23; the owner's CW-5 pattern:
  *  capability → approved source → normalized observation → panel).
@@ -295,6 +296,39 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
       </div>
 
       <LiveYieldsPanel />
+
+      {/* 60 MAPPED ACTIVITIES — the owner's Copilot-built backbone,
+          counted from the generated canonical data (v136). The full
+          browsable backbone lives on the Encyclopedia screen. */}
+      <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs font-mono text-[#00B7FF]">
+            <Layers className="h-4 w-4" />
+            <span>60 MAPPED ACTIVITIES — THE CANONICAL BACKBONE</span>
+          </div>
+          <span className="font-mono text-[10px] text-[#B8B8B8]">
+            FULL BACKBONE BROWSER: ENCYCLOPEDIA SCREEN
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {ENCYCLOPEDIA_FAMILIES.map((f) => {
+            const n = CANONICAL_60.filter((m) => m.family === f.id).length;
+            if (n === 0) return null;
+            return (
+              <span
+                key={f.id}
+                className="rounded border border-white/15 bg-[#151515] px-2 py-1 font-mono text-[10px] text-[#B8B8B8]"
+              >
+                {f.title.toUpperCase()} · <span className="text-white">{n}</span>
+              </span>
+            );
+          })}
+        </div>
+        <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+          60 MAJOR ACTIVITIES ACROSS 20 FAMILIES · 334 TYPES + 404 STRATEGIES BENEATH THEM ·
+          EVERY RECORD UNVERIFIED · COST UNKNOWN AND RISK UNPROFILED UNTIL A SOURCED RECORD SAYS OTHERWISE.
+        </p>
+      </div>
 
       <StarPresenterCard />
 
