@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Accessibility,
   AlertOctagon,
@@ -14,11 +14,18 @@ import {
   Palette,
   PieChart,
   Power,
+  Search,
   Shield,
   Smartphone,
   Sparkles,
   Volume2,
 } from 'lucide-react';
+import {
+  CANONICAL_60,
+  ENCYCLOPEDIA_COUNTS,
+  ENCYCLOPEDIA_FAMILIES,
+  ENCYCLOPEDIA_INDEX,
+} from '../encyclopedia-data';
 
 /* ============================================================================
  * 1. OpportunitiesWorld — honest: the pipeline ends at PREPARED with
@@ -171,21 +178,70 @@ export const PositionsAssetsWorld: React.FC = () => {
 };
 
 /* ============================================================================
- * 3. EncyclopediaWorld — honest: the 6-level structure only. The
- * canonical encyclopedia has 60 entities, but that content has not been
- * migrated into this build, so no family, activity, strategy, or entry
- * is invented here. Every level reports NOT_CONNECTED / NO_DATA.
+ * 3. EncyclopediaWorld — the canonical taxonomy, surfaced (v136,
+ * 2026-11-23, owner: "do all" on the 60-backbone audit). The records
+ * below are generated mechanically from the frozen canonical data
+ * files (src/encyclopedia-data.ts) — nothing retyped, nothing
+ * invented. All 826 records are UNVERIFIED (TAXONOMY_IMPORTED is an
+ * import status, not verification). Action and Sub-Action levels
+ * honestly hold ZERO records — that depth does not exist yet.
  * ============================================================================ */
-const DRILL_LEVELS = [
-  'Family',
-  'Major Activity',
-  'Type',
-  'Strategy',
-  'Action',
-  'Sub-Action',
-] as const;
+const DRILL_LEVELS: { label: string; count: number; note: string }[] = [
+  { label: 'Family', count: ENCYCLOPEDIA_COUNTS.families, note: 'BATCH A · IMPORTED' },
+  { label: 'Major Activity', count: ENCYCLOPEDIA_COUNTS.majors, note: 'THE CANONICAL 60 BACKBONE' },
+  { label: 'Type', count: ENCYCLOPEDIA_COUNTS.types, note: 'BATCH B · IMPORTED' },
+  { label: 'Strategy', count: ENCYCLOPEDIA_COUNTS.strategies, note: 'BATCH B · IMPORTED' },
+  { label: 'Action', count: ENCYCLOPEDIA_COUNTS.actions, note: 'NO RECORDS EXIST AT THIS DEPTH YET' },
+  { label: 'Sub-Action', count: ENCYCLOPEDIA_COUNTS.subActions, note: 'NO RECORDS EXIST AT THIS DEPTH YET' },
+];
+
+const LEVEL_LABEL: Record<string, string> = {
+  FAMILY: 'FAMILY',
+  MAJOR_ACTIVITY: 'MAJOR ACTIVITY',
+  TYPE: 'TYPE',
+  STRATEGY: 'STRATEGY',
+};
 
 export const EncyclopediaWorld: React.FC = () => {
+  const [backboneQuery, setBackboneQuery] = useState('');
+  const [indexQuery, setIndexQuery] = useState('');
+
+  const familyTitle = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const f of ENCYCLOPEDIA_FAMILIES) map.set(f.id, f.title);
+    return map;
+  }, []);
+  const entryTitle = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const e of ENCYCLOPEDIA_INDEX) map.set(e.id, e.title);
+    return map;
+  }, []);
+
+  const backboneGroups = useMemo(() => {
+    const q = backboneQuery.trim().toLowerCase();
+    const groups = new Map<string, typeof CANONICAL_60>();
+    for (const m of CANONICAL_60) {
+      if (
+        q &&
+        !m.title.toLowerCase().includes(q) &&
+        !(familyTitle.get(m.family) ?? '').toLowerCase().includes(q)
+      ) {
+        continue;
+      }
+      const list = groups.get(m.family) ?? [];
+      list.push(m);
+      groups.set(m.family, list);
+    }
+    return [...groups.entries()];
+  }, [backboneQuery, familyTitle]);
+  const backboneShown = backboneGroups.reduce((n, [, list]) => n + list.length, 0);
+
+  const indexMatches = useMemo(() => {
+    const q = indexQuery.trim().toLowerCase();
+    if (!q) return [];
+    return ENCYCLOPEDIA_INDEX.filter((e) => e.title.toLowerCase().includes(q)).slice(0, 50);
+  }, [indexQuery]);
+
   return (
     <div className="space-y-5 text-white">
       <div className="rounded-2xl border border-white/10 bg-[#101010] p-5">
@@ -199,32 +255,130 @@ export const EncyclopediaWorld: React.FC = () => {
               6-Layer Taxonomy Drilldown (Family → Major Activity → Type → Strategy → Action → Sub-Action) &amp; World Engine Graph
             </p>
             <p className="text-xs text-[#B8B8B8] mt-0.5">
-              The canonical encyclopedia has 60 entities; that content has not been migrated into this
-              build. No family or entry is shown here rather than an invented one.
+              {ENCYCLOPEDIA_COUNTS.total} canonical records, read from the frozen taxonomy data —
+              all UNVERIFIED. TAXONOMY_IMPORTED is an import status, not external verification.
             </p>
           </div>
         </div>
       </div>
 
-      {/* 6-Level Structure — levels only, no invented entries */}
+      {/* 6-Level Structure — real recorded counts per level */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {DRILL_LEVELS.map((lvl) => (
-          <div key={lvl} className="rounded-2xl border border-white/10 bg-[#101010] p-4">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-[#00B7FF] mb-2">{lvl}</div>
-            <p className="text-xs text-[#B8B8B8]">
-              Entries: NO_DATA — encyclopedia content not migrated in this package.
-            </p>
-            <p className="mt-1 text-[11px] font-mono text-[#B8B8B8]">STATUS: NOT_CONNECTED</p>
+          <div key={lvl.label} className="rounded-2xl border border-white/10 bg-[#101010] p-4">
+            <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-[#00B7FF]">{lvl.label}</div>
+            <p className="font-mono text-2xl font-bold text-white">{lvl.count}</p>
+            <p className="mt-1 text-[11px] font-mono text-[#B8B8B8]">{lvl.note}</p>
           </div>
         ))}
       </div>
 
-      {/* World Engine Relationships */}
+      {/* THE 60 BACKBONE — the Canonical 60 Major Activities, grouped
+          by their recorded primary family. */}
+      <div className="space-y-4 rounded-2xl border border-[#00B7FF]/25 bg-[#101010] p-5">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold">THE 60 BACKBONE — CANONICAL MAJOR ACTIVITIES</h3>
+            <p className="mt-0.5 font-mono text-[10px] text-[#B8B8B8]">
+              {backboneShown} OF 60 SHOWN · GROUPED BY PRIMARY FAMILY · EVERY RECORD UNVERIFIED
+            </p>
+          </div>
+          <div className="relative w-full md:w-72">
+            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-[#B8B8B8]" />
+            <input
+              type="text"
+              value={backboneQuery}
+              onChange={(e) => setBackboneQuery(e.target.value)}
+              placeholder="Filter the 60 backbone..."
+              className="w-full rounded-lg border border-white/15 bg-[#050505] py-1.5 pl-8 pr-3 text-xs text-white placeholder-[#B8B8B8]/60 focus:border-[#00B7FF] focus:outline-none"
+            />
+          </div>
+        </div>
+        {backboneGroups.length === 0 && (
+          <p className="font-mono text-[11px] text-[#B8B8B8]">NO BACKBONE RECORD MATCHES THAT FILTER.</p>
+        )}
+        {backboneGroups.map(([familyId, majors]) => (
+          <div key={familyId} className="space-y-2">
+            <div className="flex items-center gap-2 font-mono text-[11px] text-[#00B7FF]">
+              <span className="font-semibold">{(familyTitle.get(familyId) ?? familyId).toUpperCase()}</span>
+              <span className="text-[#B8B8B8]">· {majors.length}</span>
+            </div>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              {majors.map((m) => (
+                <div key={m.id} className="space-y-1.5 rounded-lg border border-white/10 bg-[#151515] p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-xs font-semibold text-white">{m.title}</span>
+                    <span className="shrink-0 rounded border border-white/15 bg-[#050505] px-1.5 py-0.5 font-mono text-[9px] text-[#B8B8B8]">
+                      UNVERIFIED
+                    </span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-[#B8B8B8]">{m.definition}</p>
+                  <p className="font-mono text-[9px] text-[#B8B8B8]">WORKSPACE (RECORDED): {m.workspace}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* FULL INDEX — search across all 826 canonical records */}
+      <div className="space-y-3 rounded-2xl border border-white/10 bg-[#101010] p-5">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold">FULL INDEX — {ENCYCLOPEDIA_COUNTS.total} RECORDS</h3>
+            <p className="mt-0.5 font-mono text-[10px] text-[#B8B8B8]">
+              FAMILIES · MAJOR ACTIVITIES · TYPES · STRATEGIES — SEARCH BY NAME
+            </p>
+          </div>
+          <div className="relative w-full md:w-72">
+            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-[#B8B8B8]" />
+            <input
+              type="text"
+              value={indexQuery}
+              onChange={(e) => setIndexQuery(e.target.value)}
+              placeholder="Search all 826 records..."
+              className="w-full rounded-lg border border-white/15 bg-[#050505] py-1.5 pl-8 pr-3 text-xs text-white placeholder-[#B8B8B8]/60 focus:border-[#00B7FF] focus:outline-none"
+            />
+          </div>
+        </div>
+        {indexQuery.trim() === '' ? (
+          <p className="font-mono text-[11px] text-[#B8B8B8]">
+            TYPE TO SEARCH — RESULTS SHOW THE RECORD&apos;S LEVEL AND ITS RECORDED PARENT.
+          </p>
+        ) : indexMatches.length === 0 ? (
+          <p className="font-mono text-[11px] text-[#B8B8B8]">NO RECORD MATCHES THAT SEARCH.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {indexMatches.map((e) => (
+              <div
+                key={e.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[#151515] px-3 py-2"
+              >
+                <span className="text-xs font-semibold text-white">{e.title}</span>
+                <span className="flex items-center gap-2 font-mono text-[9px] text-[#B8B8B8]">
+                  <span className="rounded border border-white/15 bg-[#050505] px-1.5 py-0.5">
+                    {LEVEL_LABEL[e.level] ?? e.level}
+                  </span>
+                  {e.parent && <span>UNDER: {(entryTitle.get(e.parent) ?? e.parent).toUpperCase()}</span>}
+                  <span>UNVERIFIED</span>
+                </span>
+              </div>
+            ))}
+            <p className="font-mono text-[9px] text-[#B8B8B8]">SHOWING UP TO 50 MATCHES.</p>
+          </div>
+        )}
+      </div>
+
+      {/* World Engine Relationships — recorded counts; the graph
+          browser itself is not part of this app yet. */}
       <div className="rounded-2xl border border-white/10 bg-[#101010] p-5">
         <h3 className="text-sm font-semibold mb-3">World Engine Relationships</h3>
-        <p className="text-xs text-[#B8B8B8]">
-          Relationship data: NO_DATA — no feed, bot, risk gate, or settlement link is claimed until the
-          encyclopedia migration lands.
+        <p className="font-mono text-[11px] text-[#B8B8B8]">
+          RECORDED IN THE PLATFORM WORLD ENGINE: 957 NODES · 1007 RELATIONSHIPS · 0 UNRESOLVED.
+        </p>
+        <p className="mt-1 text-xs text-[#B8B8B8]">
+          The interactive graph browser is not part of this app yet — no live feed, bot, risk gate,
+          or settlement link is claimed here.
         </p>
       </div>
     </div>
