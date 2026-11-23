@@ -172,6 +172,49 @@ const WORLDS: WorldDef[] = [
   { id: 'crypto-workspaces', label: 'Crypto Workspaces', tier: 'Advanced', accent: '#8B5CFF', icon: <LayoutGrid className="h-4 w-4" /> },
 ];
 
+/* Platform menu content (owner revision, 2026-11-23): the menu inside
+ * the clickable logo shows EVERYTHING the platform does. The ten
+ * worlds get cards; the twelve screens get compact rows. Every line
+ * is an honest state, not a promise — feeds are NOT_CONNECTED,
+ * holdings UNAVAILABLE, records UNVERIFIED, execution DISABLED. */
+const MENU_WORLD_IDS: WorldId[] = [
+  'globe',
+  'crypto',
+  'earnings',
+  'bots',
+  'wallet',
+  'opportunities',
+  'positions',
+  'encyclopedia',
+  'security',
+  'settings',
+];
+
+const MENU_DESC: Record<WorldId, string> = {
+  globe: 'The master surface — flat map, layers, real geography',
+  crypto: '24 contents · 56 workspaces — feeds NOT_CONNECTED',
+  earnings: '20 earning categories — catalogue, nothing live',
+  bots: 'STAR + 12 Tribe principals — propose-only',
+  wallet: 'Currencies & rails — no wallet connected',
+  opportunities: 'Pipeline ends at PREPARED — none live',
+  positions: 'Holdings UNAVAILABLE — nothing connected',
+  encyclopedia: '826 activity records — all UNVERIFIED',
+  security: 'AngelSecurity — alerts UNMEASURED in this build',
+  settings: 'Cockpit preferences & shell options',
+  'cockpit-status': 'Shell, data & connection status',
+  knowledge: 'Notes, references & the record',
+  'mission-tasks': 'Mission Control task board',
+  'mission-projects': 'Mission Control project board',
+  'resource-tracker': 'Provider registry & capability chains',
+  'crypto-market': 'Market screens — feeds NOT_CONNECTED',
+  'bot-profile': 'Bot identities, roles & assignments',
+  operations: 'Operations console',
+  'accounts-finance': 'Accounts, rails & finance profile',
+  'web-bot-work': 'Web work queue for bots',
+  'data-analytics': 'Charts & analysis',
+  'crypto-workspaces': 'All 56 crypto workspaces',
+};
+
 export function App() {
   const [activeWorld, setActiveWorld] = useState<WorldId>('globe');
   const [viewMode, setViewMode] = useState<ViewMode>('All');
@@ -328,6 +371,14 @@ export function App() {
     if (worldId === 'wallet' || worldId === 'urban-wallet') setActiveWorld('wallet');
     else if (worldId === 'bots' || worldId === 'bot-operations') setActiveWorld('bots');
     else setActiveWorld('globe');
+  };
+
+  /** Menu navigation: the menu shows everything, so a target outside
+   *  the current view-mode filter first widens the filter to All. */
+  const selectFromMenu = (id: WorldId) => {
+    if (!visibleWorlds.some((w) => w.id === id)) setViewMode('All');
+    setActiveWorld(id);
+    setMenuOpen(false);
   };
 
   const renderWorldContent = (id: WorldId) => {
@@ -731,74 +782,147 @@ export function App() {
           </div>
         )}
 
-        {/* ☰ menu panel: brand, view modes, execution strip, pop-out.
-            Always mounted (hidden while closed) so the shell controls —
-            and the "Execution disabled by design" notice — stay part of
-            the header. */}
+        {/* ☰ PLATFORM MENU (owner revision, 2026-11-23): the logo is
+            the menu, and the menu shows EVERYTHING the platform does —
+            all ten worlds as cards, all twelve screens as rows, one tap
+            to navigate — over the shell controls in its footer. Always
+            mounted (hidden while closed) so the controls, and the
+            "Execution disabled by design" notice, stay in the header. */}
         <div hidden={!menuOpen} className="border-t border-white/10">
-          <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center gap-3 px-4 py-3">
-            {/* Brand */}
-            <div className="flex items-center gap-3">
+          <div className="mx-auto max-h-[72dvh] w-full max-w-[1600px] space-y-4 overflow-y-auto px-4 py-4">
+            {/* Brand + platform status */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <div className="text-sm font-bold tracking-wide">
                   {MTI6_WORLD_OS?.name ?? 'MTI6 GTADWIY COCKPIT'}
                 </div>
                 <div className="text-[11px] text-[#B8B8B8]">
-                  22-Screen Sovereign Operating Shell · STAR demo / NOT_CONNECTED
+                  Everything the platform does — every world, every screen, one tap away.
                 </div>
+              </div>
+              <div className="font-mono text-[10px] text-[#B8B8B8]">
+                WORLD ENGINE 957 NODES · ENCYCLOPEDIA 826 · ENTITIES 48 · STAR DEMO / NOT_CONNECTED
               </div>
             </div>
 
-          {/* View Modes (Standard | Advanced | All) */}
-          <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-[#151515] p-1">
-            {(['Standard', 'Advanced', 'All'] as ViewMode[]).map((mode) => (
-              <button
-                key={mode}
-                onClick={() => setViewMode(mode)}
-                className={`rounded-lg px-3 py-1 text-xs font-medium transition ${
-                  viewMode === mode
-                    ? 'bg-[#00B7FF] text-black font-semibold'
-                    : 'text-[#B8B8B8] hover:text-white'
-                }`}
-              >
-                {mode}
-              </button>
-            ))}
-          </div>
+            {/* Worlds */}
+            <div>
+              <div className="mb-2 font-mono text-[10px] tracking-widest text-[#00B7FF]">WORLDS</div>
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
+                {MENU_WORLD_IDS.map((id) => WORLDS.find((w) => w.id === id)!).map((w) => {
+                  const active = activeWorld === w.id;
+                  return (
+                    <button
+                      key={w.id}
+                      type="button"
+                      onClick={() => selectFromMenu(w.id)}
+                      className={`rounded-xl border p-3 text-left transition ${
+                        active
+                          ? 'border-[#00B7FF] bg-[#00B7FF]/10'
+                          : 'border-white/10 bg-[#101010] hover:border-[#00B7FF]/50'
+                      }`}
+                    >
+                      <span
+                        className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-[#151515] [&>svg]:h-4 [&>svg]:w-4"
+                        style={{ color: w.accent }}
+                      >
+                        {w.icon}
+                      </span>
+                      <span className="block text-xs font-semibold text-white">{w.label}</span>
+                      <span className="mt-0.5 block text-[10px] leading-snug text-[#B8B8B8]">
+                        {MENU_DESC[w.id]}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
-          {/* Execution Mode Strip + Accounts Center Trigger */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[10px] font-mono text-[#B8B8B8]">Execution disabled by design</span>
-            <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-[#151515] px-2 py-1">
-              <Activity className="h-3.5 w-3.5 text-[#00B7FF] mr-1" />
-              {(['Read-Only', 'Paper / Sim', 'Guarded Auto'] as ExecutionMode[]).map(
-                (em) => (
+            {/* Screens */}
+            <div>
+              <div className="mb-2 font-mono text-[10px] tracking-widest text-[#00B7FF]">SCREENS</div>
+              <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3 xl:grid-cols-4">
+                {WORLDS.filter((w) => !MENU_WORLD_IDS.includes(w.id)).map((w) => {
+                  const active = activeWorld === w.id;
+                  return (
+                    <button
+                      key={w.id}
+                      type="button"
+                      onClick={() => selectFromMenu(w.id)}
+                      className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition ${
+                        active
+                          ? 'border-[#00B7FF] bg-[#00B7FF]/10 text-white'
+                          : 'border-white/10 bg-[#101010] text-[#B8B8B8] hover:border-[#00B7FF]/50 hover:text-white'
+                      }`}
+                    >
+                      <span
+                        className="flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4"
+                        style={{ color: w.accent }}
+                      >
+                        {w.icon}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-[11px] font-semibold">{w.label}</span>
+                        <span className="block truncate text-[9px] text-[#B8B8B8]">
+                          {MENU_DESC[w.id]}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Shell controls footer */}
+            <div className="flex flex-wrap items-center gap-3 border-t border-white/10 pt-3">
+              {/* View Modes (Standard | Advanced | All) */}
+              <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-[#151515] p-1">
+                {(['Standard', 'Advanced', 'All'] as ViewMode[]).map((mode) => (
                   <button
-                    key={em}
-                    onClick={() => setExecutionMode(em)}
-                    className={`rounded-md px-2 py-0.5 text-[11px] font-medium transition ${
-                      executionMode === em
-                        ? 'bg-[#8B5CFF] text-white'
+                    key={mode}
+                    onClick={() => setViewMode(mode)}
+                    className={`rounded-lg px-3 py-1 text-xs font-medium transition ${
+                      viewMode === mode
+                        ? 'bg-[#00B7FF] text-black font-semibold'
                         : 'text-[#B8B8B8] hover:text-white'
                     }`}
                   >
-                    {em}
+                    {mode}
                   </button>
-                ),
-              )}
+                ))}
+              </div>
+
+              {/* Execution Mode Strip */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-mono text-[#B8B8B8]">Execution disabled by design</span>
+                <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-[#151515] px-2 py-1">
+                  <Activity className="h-3.5 w-3.5 text-[#00B7FF] mr-1" />
+                  {(['Read-Only', 'Paper / Sim', 'Guarded Auto'] as ExecutionMode[]).map(
+                    (em) => (
+                      <button
+                        key={em}
+                        onClick={() => setExecutionMode(em)}
+                        className={`rounded-md px-2 py-0.5 text-[11px] font-medium transition ${
+                          executionMode === em
+                            ? 'bg-[#8B5CFF] text-white'
+                            : 'text-[#B8B8B8] hover:text-white'
+                        }`}
+                      >
+                        {em}
+                      </button>
+                    ),
+                  )}
+                </div>
+
+                <button
+                  onClick={() => openFloatingWindow(activeWorld)}
+                  className="rounded-xl border border-white/15 bg-[#151515] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#202020]"
+                >
+                  Pop Out World
+                </button>
+              </div>
             </div>
-
-            <button
-              onClick={() => openFloatingWindow(activeWorld)}
-              className="rounded-xl border border-white/15 bg-[#151515] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#202020]"
-            >
-              Pop Out World
-            </button>
-
-            {/* Accounts Center opens from the top bar's card glyph
-                (Phase 2) — no second trigger lives in the menu. */}
           </div>
-        </div>
         </div>
 
         {/* 5 — screens rail: scrollable, never wraps, active centred */}
