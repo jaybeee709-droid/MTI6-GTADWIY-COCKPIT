@@ -22,6 +22,15 @@ import {
   unassign,
   type AssignmentMap,
 } from '../principal-assignments';
+import {
+  TASK_TRANSITIONS,
+  createTask,
+  loadTasks,
+  removeTask,
+  transitionTask,
+  type TaskState,
+  type WorkerTask,
+} from '../worker-tasks';
 
 type ConsoleTab =
   | 'Overview'
@@ -66,6 +75,24 @@ export const BotOperations: React.FC = () => {
   const [assignNote, setAssignNote] = useState('');
   const assignedCount = TRIBE_PRINCIPALS.filter((t) => assignments[t.id]?.currentRole || assignments[t.id]?.currentTask).length;
   const selectedAssignment = assignments[selectedTribe];
+  // Bot work queue (v151) — canonical worker-task store
+  // (mti6_worker_tasks_v1). Owner-recorded workflow states only.
+  const [tasks, setTasks] = useState<WorkerTask[]>(() => loadTasks());
+  const [taskTitle, setTaskTitle] = useState('');
+  const [taskRole, setTaskRole] = useState<string>(ROLE_LABELS[0]);
+  const [taskPrincipal, setTaskPrincipal] = useState<string>('');
+  const [taskMsg, setTaskMsg] = useState('');
+  const [evidenceText, setEvidenceText] = useState<Record<string, string>>({});
+  const principalName = (id: string | null) =>
+    id ? (TRIBE_PRINCIPALS.find((t) => t.id === id)?.displayName ?? id) : 'UNASSIGNED POOL';
+  const doTransition = (task: WorkerTask, to: TaskState) => {
+    const res = transitionTask(tasks, task.id, to, { evidence: evidenceText[task.id] ?? '' });
+    if (res.error) setTaskMsg(res.error);
+    else {
+      setTasks(res.tasks);
+      setTaskMsg('');
+    }
+  };
   // Demo console only: no AI backend is connected. Entries are logged
   // locally and nothing is executed.
   const [consoleHistory, setConsoleHistory] = useState<string[]>([
@@ -394,6 +421,131 @@ export const BotOperations: React.FC = () => {
             </div>
           </form>
         </div>
+      </div>
+
+      {/* BOT WORK QUEUE (v151) — canonical worker-task store. States
+          are owner-recorded workflow states under the model's
+          transition allowlist; the runtime line below the header
+          keeps records distinct from live activity. */}
+      <div className="rounded-xl border border-white/10 p-4 space-y-3" style={SPACE_BG}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-mono text-xs text-[#8B5CFF]">BOT WORK QUEUE</span>
+          <span className="font-mono text-[10px] text-[#B8B8B8]">
+            TASKS RECORDED: {tasks.length} · WORKER RUNTIME: NOT_CONNECTED · WORKERS ACTIVE: 0
+          </span>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={taskTitle}
+            onChange={(e) => setTaskTitle(e.target.value)}
+            placeholder="Task title — e.g. Research Lido stETH rate sources"
+            aria-label="New task title"
+            className="h-9 min-w-[220px] flex-1 rounded-lg border border-white/15 bg-[#050505] px-2.5 text-xs text-white outline-none placeholder:text-[#B8B8B8]/60 focus:border-[#8B5CFF]"
+          />
+          <select
+            value={taskRole}
+            onChange={(e) => setTaskRole(e.target.value)}
+            aria-label="Task role"
+            className="h-9 rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white outline-none focus:border-[#8B5CFF]"
+          >
+            {ROLE_LABELS.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+          <select
+            value={taskPrincipal}
+            onChange={(e) => setTaskPrincipal(e.target.value)}
+            aria-label="Task principal"
+            className="h-9 rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white outline-none focus:border-[#8B5CFF]"
+          >
+            <option value="">Unassigned pool</option>
+            {TRIBE_PRINCIPALS.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.displayName}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => {
+              if (!taskTitle.trim()) return setTaskMsg('A task title is required.');
+              setTasks((prev) =>
+                createTask(prev, {
+                  title: taskTitle,
+                  role: taskRole,
+                  principal: taskPrincipal || null,
+                }),
+              );
+              setTaskTitle('');
+              setTaskMsg('');
+            }}
+            className="flex min-h-[44px] items-center rounded-lg bg-[#8B5CFF] px-4 text-xs font-semibold text-white"
+          >
+            RECORD TASK
+          </button>
+        </div>
+        {taskMsg && <p className="font-mono text-[10px] text-[#FFB020]">{taskMsg}</p>}
+
+        {tasks.length === 0 ? (
+          <p className="font-mono text-[10px] text-[#B8B8B8]">
+            QUEUE EMPTY — NO TASKS RECORDED. NOTHING IS INVENTED TO FILL IT.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {tasks.map((task) => (
+              <div key={task.id} className="rounded-lg border border-white/10 bg-[#050505] p-3 space-y-1.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-white">{task.title}</span>
+                  <span className="rounded border border-[#8B5CFF]/50 px-2 py-0.5 font-mono text-[9px] text-white">
+                    {task.state} · {task.role.toUpperCase()} · {principalName(task.principal)}
+                  </span>
+                </div>
+                <p className="font-mono text-[9px] text-[#B8B8B8]">
+                  {task.id} · APPROVAL: {task.approvalStatus}
+                  {task.approvalRequired ? ' (REQUIRED)' : ''} · CREATED {task.createdAt.slice(0, 10)}
+                  {task.completionEvidence ? ` · EVIDENCE: ${task.completionEvidence}` : ''}
+                  {task.blockerReason ? ` · BLOCKER: ${task.blockerReason}` : ''}
+                </p>
+                {task.state === 'ACTIVE' && (
+                  <input
+                    value={evidenceText[task.id] ?? ''}
+                    onChange={(e) => setEvidenceText((m) => ({ ...m, [task.id]: e.target.value }))}
+                    placeholder="Completion evidence (required to mark COMPLETE) — what was produced, in words"
+                    aria-label={`Completion evidence for ${task.title}`}
+                    className="h-9 w-full rounded-lg border border-white/15 bg-[#101010] px-2.5 text-xs text-white outline-none placeholder:text-[#B8B8B8]/60 focus:border-[#8B5CFF]"
+                  />
+                )}
+                <div className="flex flex-wrap gap-1.5">
+                  {TASK_TRANSITIONS[task.state].map((to) => (
+                    <button
+                      key={to}
+                      type="button"
+                      onClick={() => doTransition(task, to)}
+                      className="flex min-h-[44px] items-center rounded border border-white/15 px-2.5 font-mono text-[9px] text-[#B8B8B8] hover:text-white"
+                    >
+                      → {to}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setTasks((prev) => removeTask(prev, task.id))}
+                    className="flex min-h-[44px] items-center rounded border border-white/10 px-2.5 font-mono text-[9px] text-[#B8B8B8]"
+                  >
+                    REMOVE RECORD
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+          STATES ARE OWNER-RECORDED WORKFLOW STATES UNDER THE CANONICAL TRANSITION ALLOWLIST —
+          A TASK MARKED ACTIVE IS A RECORD, NOT A LIVE WORKER. COMPLETING REQUIRES EVIDENCE.
+          EXECUTION IS NOT A TASK STATE AND DOES NOT EXIST HERE.
+        </p>
       </div>
     </div>
   );
