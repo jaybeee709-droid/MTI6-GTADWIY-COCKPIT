@@ -44,6 +44,7 @@ import {
 import { DISPLAY_CURRENCIES, currencyOf } from './currencies';
 import { fetchStarStatus, starChat, StarError } from './star-client';
 import { buildStarSystemPrompt } from './star-context';
+import { answerLocally } from './star-local';
 import { STAR_EXPRESSIONS, STAR_PORTRAIT } from './star-avatar-data';
 import { SPACE_BG } from './worlds/CryptoWorld';
 import { WorldGlobe } from './worlds/WorldGlobe';
@@ -279,12 +280,17 @@ export function App() {
     setStarThread(threadWithUser);
     setStarInput('');
     if (starConfigured !== true) {
+      // Local brain first (v146): deterministic answers from the
+      // platform's own records, still labelled DEMO; the canned
+      // reply remains the fallback for anything off-records.
+      const local = answerLocally(text);
       setStarThread([
         ...threadWithUser,
         {
           role: 'assistant',
           content:
-            'Demo reply — no AI backend is configured on the server yet, so I cannot actually answer. Once the provider key is added in Netlify (MTI6_STAR_API_KEY), I come online. Nothing was acted on; execution is disabled by design.',
+            local ??
+            'Demo reply — no AI backend is configured on the server yet, and that is outside what my local brain can answer from the records. Once the provider key is added in Netlify (MTI6_STAR_API_KEY), I come fully online. Nothing was acted on; execution is disabled by design.',
           kind: 'demo',
         },
       ]);
