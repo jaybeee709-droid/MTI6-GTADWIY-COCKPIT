@@ -28,6 +28,7 @@ export interface WorldShellConfig {
 }
 
 export const MTI6_WORLD_OS = {
+  name: 'MTI6 GTADWIY COCKPIT',
   canvas: MTI6_COLORS.bgVoid,
   shellSurface: MTI6_COLORS.bgPrimary,
   worldCard: MTI6_COLORS.bgElevated,

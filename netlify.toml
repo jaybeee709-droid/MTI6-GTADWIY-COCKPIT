@@ -1,5 +1,14 @@
 # MTI6-GTADWIY-COCKPIT — Netlify hosting config
 #
+# Phase 1 unified React app: Netlify builds the app (npm run build)
+# and publishes the Vite output (dist/). Before this, Netlify served
+# the repo root statically with no build step, so the React shell
+# could never deploy. The /api/mti6 gateway rewrite below is
+# unchanged — the proxy function still deploys from netlify/functions.
+[build]
+  command = "npm run build"
+  publish = "dist"
+
 # The service worker file (sw.js) must never be served from a stale cache —
 # if a browser or CDN caches an old copy of sw.js, the app can get stuck on
 # an outdated version and never learn a new one is available. This forces

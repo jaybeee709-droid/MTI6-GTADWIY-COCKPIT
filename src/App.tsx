@@ -3,19 +3,31 @@ import {
   Activity,
   BookOpen,
   Bot,
+  ChartColumn,
   Coins,
   Compass,
+  Cpu,
   DollarSign,
+  FolderKanban,
+  Gauge,
   Globe,
+  Landmark,
   Layers,
+  LayoutGrid,
+  Library,
+  ListChecks,
   Maximize2,
   Minimize2,
+  Monitor,
   PieChart,
   Settings,
   Shield,
   Sparkles,
+  TrendingUp,
+  User,
   UserCheck,
   Wallet,
+  Wrench,
   X,
 } from 'lucide-react';
 import { MTI6_COLORS, MTI6_WORLD_OS } from './tokens';
@@ -31,9 +43,23 @@ import {
   SecurityWorld,
   SettingsWorld,
 } from './worlds/OtherWorlds';
+import {
+  CockpitStatusScreen,
+  KnowledgeScreen,
+  MissionControlTasksScreen,
+  MissionControlProjectsScreen,
+  ResourceTrackerScreen,
+  CryptoMarketScreen,
+  BotProfileScreen,
+  OperationsScreen,
+  AccountsFinanceScreen,
+  WebBotWorkScreen,
+  DataAnalyticsScreen,
+  CryptoWorkspacesScreen,
+} from './screens';
 
 type ViewMode = 'Standard' | 'Advanced' | 'All';
-type ExecutionMode = 'Read-Only' | 'Paper / Sim' | 'Guarded Auto' | 'Live';
+type ExecutionMode = 'Read-Only' | 'Paper / Sim' | 'Guarded Auto';
 
 type WorldId =
   | 'globe'
@@ -45,7 +71,19 @@ type WorldId =
   | 'positions'
   | 'encyclopedia'
   | 'security'
-  | 'settings';
+  | 'settings'
+  | 'cockpit-status'
+  | 'knowledge'
+  | 'mission-tasks'
+  | 'mission-projects'
+  | 'resource-tracker'
+  | 'crypto-market'
+  | 'bot-profile'
+  | 'operations'
+  | 'accounts-finance'
+  | 'web-bot-work'
+  | 'data-analytics'
+  | 'crypto-workspaces';
 
 interface WorldDef {
   id: WorldId;
@@ -72,12 +110,27 @@ const WORLDS: WorldDef[] = [
   { id: 'encyclopedia', label: 'Encyclopedia', tier: 'Advanced', accent: '#8B5CFF', icon: <BookOpen className="h-4 w-4" /> },
   { id: 'security', label: 'Security World', tier: 'Advanced', accent: '#FF3B30', icon: <Shield className="h-4 w-4" /> },
   { id: 'settings', label: 'Settings World', tier: 'Standard', accent: '#B8B8B8', icon: <Settings className="h-4 w-4" /> },
+  // Phase 1, package 4 — the 11 screens migrated in package 3, plus the
+  // Crypto Workspaces index (22nd screen). Tier: Standard = everyday
+  // command-center screens; Advanced = the rest. 'All' shows everything.
+  { id: 'cockpit-status', label: 'Cockpit Status', tier: 'Standard', accent: '#00B7FF', icon: <Gauge className="h-4 w-4" /> },
+  { id: 'knowledge', label: 'Knowledge', tier: 'Advanced', accent: '#8B5CFF', icon: <Library className="h-4 w-4" /> },
+  { id: 'mission-tasks', label: 'Mission Control Tasks', tier: 'Standard', accent: '#00B7FF', icon: <ListChecks className="h-4 w-4" /> },
+  { id: 'mission-projects', label: 'Mission Control Projects', tier: 'Standard', accent: '#00B7FF', icon: <FolderKanban className="h-4 w-4" /> },
+  { id: 'resource-tracker', label: 'Resource Tracker', tier: 'Advanced', accent: '#32D74B', icon: <Cpu className="h-4 w-4" /> },
+  { id: 'crypto-market', label: 'Crypto Market', tier: 'Standard', accent: '#8B5CFF', icon: <TrendingUp className="h-4 w-4" /> },
+  { id: 'bot-profile', label: 'Bot Profile', tier: 'Advanced', accent: '#00B7FF', icon: <User className="h-4 w-4" /> },
+  { id: 'operations', label: 'Operations', tier: 'Standard', accent: '#32D74B', icon: <Wrench className="h-4 w-4" /> },
+  { id: 'accounts-finance', label: 'Accounts & Finance', tier: 'Standard', accent: '#32D74B', icon: <Landmark className="h-4 w-4" /> },
+  { id: 'web-bot-work', label: 'Web — Bot Work', tier: 'Advanced', accent: '#00B7FF', icon: <Monitor className="h-4 w-4" /> },
+  { id: 'data-analytics', label: 'Data Analytics', tier: 'Standard', accent: '#8B5CFF', icon: <ChartColumn className="h-4 w-4" /> },
+  { id: 'crypto-workspaces', label: 'Crypto Workspaces', tier: 'Advanced', accent: '#8B5CFF', icon: <LayoutGrid className="h-4 w-4" /> },
 ];
 
 export function App() {
   const [activeWorld, setActiveWorld] = useState<WorldId>('globe');
   const [viewMode, setViewMode] = useState<ViewMode>('All');
-  const [executionMode, setExecutionMode] = useState<ExecutionMode>('Guarded Auto');
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>('Read-Only');
   const [floatingWindows, setFloatingWindows] = useState<FloatingWin[]>([]);
   const [accountsOpen, setAccountsOpen] = useState<boolean>(false);
   const [starOrbOpen, setStarOrbOpen] = useState<boolean>(false);
@@ -104,7 +157,7 @@ export function App() {
       case 'globe':
         return <WorldGlobe onSelectWorld={handleSelectWorld} />;
       case 'crypto':
-        return <CryptoWorld />;
+        return <CryptoWorld onOpenWorkspaces={() => setActiveWorld('crypto-workspaces')} />;
       case 'earnings':
         return <EarningsWorld />;
       case 'bots':
@@ -121,6 +174,30 @@ export function App() {
         return <SecurityWorld />;
       case 'settings':
         return <SettingsWorld />;
+      case 'cockpit-status':
+        return <CockpitStatusScreen />;
+      case 'knowledge':
+        return <KnowledgeScreen />;
+      case 'mission-tasks':
+        return <MissionControlTasksScreen />;
+      case 'mission-projects':
+        return <MissionControlProjectsScreen />;
+      case 'resource-tracker':
+        return <ResourceTrackerScreen />;
+      case 'crypto-market':
+        return <CryptoMarketScreen />;
+      case 'bot-profile':
+        return <BotProfileScreen />;
+      case 'operations':
+        return <OperationsScreen />;
+      case 'accounts-finance':
+        return <AccountsFinanceScreen />;
+      case 'web-bot-work':
+        return <WebBotWorkScreen />;
+      case 'data-analytics':
+        return <DataAnalyticsScreen />;
+      case 'crypto-workspaces':
+        return <CryptoWorkspacesScreen />;
       default:
         return <WorldGlobe onSelectWorld={handleSelectWorld} />;
     }
@@ -163,7 +240,7 @@ export function App() {
                 {MTI6_WORLD_OS?.name ?? 'MTI6 GTADWIY COCKPIT'}
               </div>
               <div className="text-[11px] text-[#B8B8B8]">
-                10-World Sovereign Operating Shell · STAR Active
+                22-Screen Sovereign Operating Shell · STAR demo / NOT_CONNECTED
               </div>
             </div>
           </div>
@@ -187,18 +264,17 @@ export function App() {
 
           {/* Execution Mode Strip + Accounts Center Trigger */}
           <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-mono text-[#B8B8B8]">Execution disabled by design</span>
             <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-[#151515] px-2 py-1">
               <Activity className="h-3.5 w-3.5 text-[#00B7FF] mr-1" />
-              {(['Read-Only', 'Paper / Sim', 'Guarded Auto', 'Live'] as ExecutionMode[]).map(
+              {(['Read-Only', 'Paper / Sim', 'Guarded Auto'] as ExecutionMode[]).map(
                 (em) => (
                   <button
                     key={em}
                     onClick={() => setExecutionMode(em)}
                     className={`rounded-md px-2 py-0.5 text-[11px] font-medium transition ${
                       executionMode === em
-                        ? em === 'Live'
-                          ? 'bg-[#FF3B30] text-white'
-                          : 'bg-[#8B5CFF] text-white'
+                        ? 'bg-[#8B5CFF] text-white'
                         : 'text-[#B8B8B8] hover:text-white'
                     }`}
                   >
@@ -224,7 +300,7 @@ export function App() {
           </div>
         </div>
 
-        {/* 10-World Navigation Dock */}
+        {/* 22-Screen Navigation Dock */}
         <nav className="mx-auto mt-3 flex max-w-[1600px] gap-1.5 overflow-x-auto pb-1">
           {visibleWorlds.map((w) => {
             const active = activeWorld === w.id;
@@ -314,7 +390,7 @@ export function App() {
               </div>
               <div className="rounded-xl bg-[#151515] p-3.5">
                 <div className="font-semibold text-white">RAIL-B EUR &amp; RAIL-C GBP/CAD</div>
-                <div className="mt-1 text-[#32D74B]">Synced &amp; Ready</div>
+                <div className="mt-1 text-[#FF3B30] font-semibold">READ-ONLY / DISABLED · Balance UNAVAILABLE</div>
               </div>
             </div>
           </div>
@@ -335,7 +411,7 @@ export function App() {
             </div>
             <p className="text-[#B8B8B8]">
               Active World: <strong className="text-white">{activeWorld}</strong> · Mode:{' '}
-              <strong className="text-[#8B5CFF]">{executionMode}</strong>. All 12 Tribes nominal; RAIL-A held in Read-Only.
+              <strong className="text-[#8B5CFF]">{executionMode}</strong>. STAR demo / NOT_CONNECTED — no live tribal status. Execution disabled by design.
             </p>
           </div>
         )}

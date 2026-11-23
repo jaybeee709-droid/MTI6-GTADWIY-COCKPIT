@@ -1,17 +1,10 @@
 import React, { useState } from 'react';
 import {
   Globe,
-  Activity,
-  Shield,
-  TrendingUp,
-  Zap,
   Compass,
-  Radio,
-  AlertTriangle,
   Train,
   MapPin,
-  Layers,
-  Cpu,
+  Radio,
   Eye,
 } from 'lucide-react';
 
@@ -26,6 +19,8 @@ export type GlobeViewMode =
 
 export type DomainRadarKey = 'Opportunity' | 'Earnings' | 'Crypto' | 'Asset' | 'Security';
 
+// Node positions are map markers only — no live telemetry exists in this
+// build. Latency, load, and status are honestly NO_DATA / NOT_CONNECTED.
 interface EarthNode {
   id: string;
   name: string;
@@ -33,32 +28,10 @@ interface EarthNode {
   coords: string;
   x: number;
   y: number;
-  status: 'NOMINAL' | 'ALERT' | 'MONITORING';
-  latencyMs: number;
-  loadPct: number;
-  summary: string;
-}
-
-interface TransitDeparture {
-  id: string;
-  stopName: string;
-  stopId: string;
-  route: string;
-  headsign: string;
-  minutesAway: number;
-  status: 'ON TIME' | 'DELAYED';
-}
-
-interface DomainRadar {
-  key: DomainRadarKey;
-  score: number;
-  signal: string;
-  activeAlerts: number;
-  status: 'NOMINAL' | 'ALERT';
 }
 
 const GLOBE_VIEWS: { id: GlobeViewMode; label: string; subtitle: string }[] = [
-  { id: 'Command', label: 'Command', subtitle: 'Master multi-domain telemetry & orbital lock' },
+  { id: 'Command', label: 'Command', subtitle: 'Master multi-domain view — no live feed connected' },
   { id: 'Realistic Earth', label: 'Realistic Earth', subtitle: 'Topographic & atmospheric surface mesh' },
   { id: 'Earnings', label: 'Earnings', subtitle: 'Non-crypto income & local yield corridors' },
   { id: 'Crypto', label: 'Crypto', subtitle: 'On-chain liquidity & validator clusters' },
@@ -68,114 +41,16 @@ const GLOBE_VIEWS: { id: GlobeViewMode; label: string; subtitle: string }[] = [
 ];
 
 const EARTH_NODES: EarthNode[] = [
-  {
-    id: 'nyc-01',
-    name: 'NYC-CORE-01',
-    region: 'North America · East',
-    coords: '40.7128° N, 74.0060° W',
-    x: 28,
-    y: 36,
-    status: 'NOMINAL',
-    latencyMs: 12,
-    loadPct: 44,
-    summary: 'Primary command uplink & Transitland Northeast feed active.',
-  },
-  {
-    id: 'lon-02',
-    name: 'LON-EDGE-02',
-    region: 'Europe · West',
-    coords: '51.5072° N, 0.1276° W',
-    x: 49,
-    y: 29,
-    status: 'ALERT',
-    latencyMs: 68,
-    loadPct: 89,
-    summary: 'Active alert: Elevated FX & settlement spread anomaly detected.',
-  },
-  {
-    id: 'tyo-03',
-    name: 'TYO-MESH-03',
-    region: 'Asia-Pacific · East',
-    coords: '35.6762° N, 139.6503° E',
-    x: 82,
-    y: 39,
-    status: 'NOMINAL',
-    latencyMs: 24,
-    loadPct: 51,
-    summary: 'APAC telemetry nominal; low-latency transit & market feeds synced.',
-  },
-  {
-    id: 'sao-04',
-    name: 'SAO-RELAY-04',
-    region: 'South America · East',
-    coords: '23.5505° S, 46.6333° W',
-    x: 34,
-    y: 69,
-    status: 'MONITORING',
-    latencyMs: 41,
-    loadPct: 63,
-    summary: 'Regional liquidity & local opportunity scanner calibrating.',
-  },
-  {
-    id: 'sgp-05',
-    name: 'SGP-VAULT-05',
-    region: 'Asia-Pacific · South',
-    coords: '1.3521° N, 103.8198° E',
-    x: 75,
-    y: 57,
-    status: 'ALERT',
-    latencyMs: 74,
-    loadPct: 92,
-    summary: 'Active alert: RPC finality jitter threshold exceeded.',
-  },
+  { id: 'nyc-01', name: 'NYC-CORE-01', region: 'North America · East', coords: '40.7128° N, 74.0060° W', x: 28, y: 36 },
+  { id: 'lon-02', name: 'LON-EDGE-02', region: 'Europe · West', coords: '51.5072° N, 0.1276° W', x: 49, y: 29 },
+  { id: 'tyo-03', name: 'TYO-MESH-03', region: 'Asia-Pacific · East', coords: '35.6762° N, 139.6503° E', x: 82, y: 39 },
+  { id: 'sao-04', name: 'SAO-RELAY-04', region: 'South America · East', coords: '23.5505° S, 46.6333° W', x: 34, y: 69 },
+  { id: 'sgp-05', name: 'SGP-VAULT-05', region: 'Asia-Pacific · South', coords: '1.3521° N, 103.8198° E', x: 75, y: 57 },
 ];
 
-const TRANSITLAND_DEPARTURES: TransitDeparture[] = [
-  {
-    id: 'dep-1',
-    stopName: 'Grand Central Terminal',
-    stopId: 's-dr5rs-grandcentral',
-    route: '4 · Lexington Exp',
-    headsign: 'Woodlawn',
-    minutesAway: 2,
-    status: 'ON TIME',
-  },
-  {
-    id: 'dep-2',
-    stopName: 'Grand Central Terminal',
-    stopId: 's-dr5rs-grandcentral',
-    route: '7 · Flushing Exp',
-    headsign: '34 St-Hudson Yards',
-    minutesAway: 5,
-    status: 'ON TIME',
-  },
-  {
-    id: 'dep-3',
-    stopName: 'Penn Station · Track 12',
-    stopId: 's-dr5ru-pennstation',
-    route: 'LIRR · Babylon',
-    headsign: 'Babylon Express',
-    minutesAway: 9,
-    status: 'DELAYED',
-  },
-  {
-    id: 'dep-4',
-    stopName: 'Fulton Center Hub',
-    stopId: 's-dr5re-fulton',
-    route: 'A · 8 Ave Express',
-    headsign: 'Inwood-207 St',
-    minutesAway: 11,
-    status: 'ON TIME',
-  },
-];
-
-const DOMAIN_RADARS: DomainRadar[] = [
-  { key: 'Opportunity', score: 86, signal: '14 high-fit leads indexed', activeAlerts: 0, status: 'NOMINAL' },
-  { key: 'Earnings', score: 91, signal: 'Non-crypto yield corridors open', activeAlerts: 0, status: 'NOMINAL' },
-  { key: 'Crypto', score: 72, signal: 'Read-only telemetry · RPC jitter', activeAlerts: 1, status: 'ALERT' },
-  { key: 'Asset', score: 88, signal: 'Custody & valuation baseline steady', activeAlerts: 0, status: 'NOMINAL' },
-  { key: 'Security', score: 64, signal: '1 active boundary alert in LON-EDGE-02', activeAlerts: 1, status: 'ALERT' },
-];
+// Domain radars carry no score in this build: no live feed is connected,
+// so no score, signal, or alert count is claimed.
+const DOMAIN_RADARS: DomainRadarKey[] = ['Opportunity', 'Earnings', 'Crypto', 'Asset', 'Security'];
 
 export interface WorldGlobeProps {
   onSelectWorld?: (world: string) => void;
@@ -187,7 +62,6 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   const [selectedRadar, setSelectedRadar] = useState<DomainRadarKey>('Opportunity');
 
   const selectedNode = EARTH_NODES.find((n) => n.id === selectedNodeId) ?? EARTH_NODES[0];
-  const activeAlerts = EARTH_NODES.filter((n) => n.status === 'ALERT');
   const currentViewMeta = GLOBE_VIEWS.find((v) => v.id === activeView) ?? GLOBE_VIEWS[0];
 
   return (
@@ -210,12 +84,9 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {activeAlerts.length > 0 && (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#FF3B30] bg-[#FF3B30]/10 text-[#FF3B30] text-xs font-mono font-semibold">
-              <AlertTriangle className="h-3.5 w-3.5" />
-              <span>{activeAlerts.length} ACTIVE ALERTS</span>
-            </div>
-          )}
+          <span className="px-3 py-1.5 rounded-lg border border-[#1E273B] bg-[#111623] text-slate-300 text-xs font-mono font-semibold">
+            NOT_CONNECTED · NO_DATA
+          </span>
           {onSelectWorld && (
             <div className="flex items-center gap-2">
               <button
@@ -262,7 +133,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
         })}
       </div>
 
-      {/* Main Grid: Interactive Earth Explorer + Transitland Departures */}
+      {/* Main Grid: Interactive Earth Explorer + Transit Departures */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
         {/* Interactive Earth Region / Node Explorer */}
         <div className="xl:col-span-2 border border-[#1E273B] bg-[#0C0F17] rounded-xl p-4 space-y-4">
@@ -276,7 +147,6 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
 
           {/* Orbital Projection Canvas */}
           <div className="relative h-72 rounded-xl border border-[#1E273B] bg-gradient-to-b from-[#080B14] via-[#0B1222] to-[#06080F] overflow-hidden">
-            {/* Grid Lines */}
             <div
               className="absolute inset-0 opacity-20"
               style={{
@@ -285,13 +155,11 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 backgroundSize: '36px 36px',
               }}
             />
-            {/* Globe Sphere Ring */}
             <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-56 w-56 rounded-full border border-sky-500/20 bg-sky-500/5" />
             <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-40 w-40 rounded-full border border-sky-400/20" />
 
             {EARTH_NODES.map((node) => {
               const isSelected = node.id === selectedNode.id;
-              const isAlert = node.status === 'ALERT';
               return (
                 <button
                   key={node.id}
@@ -299,25 +167,19 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   onClick={() => setSelectedNodeId(node.id)}
                   style={{ left: `${node.x}%`, top: `${node.y}%` }}
                   className={`absolute -translate-x-1/2 -translate-y-1/2 group flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-mono transition ${
-                    isAlert
-                      ? 'border-[#FF3B30] bg-[#FF3B30]/15 text-[#FF3B30]'
-                      : isSelected
+                    isSelected
                       ? 'border-sky-400 bg-sky-500/20 text-white'
                       : 'border-[#1E273B] bg-[#111623]/90 text-slate-300 hover:border-slate-500'
                   }`}
                 >
-                  <span
-                    className={`h-2 w-2 rounded-full ${
-                      isAlert ? 'bg-[#FF3B30] animate-pulse' : isSelected ? 'bg-sky-400' : 'bg-emerald-400'
-                    }`}
-                  />
+                  <span className={`h-2 w-2 rounded-full ${isSelected ? 'bg-sky-400' : 'bg-slate-500'}`} />
                   <span>{node.name}</span>
                 </button>
               );
             })}
           </div>
 
-          {/* Selected Node Telemetry */}
+          {/* Selected Node — honest state only */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="md:col-span-2 rounded-lg border border-[#1E273B] bg-[#111623] p-3 space-y-1.5">
               <div className="flex items-center justify-between">
@@ -326,82 +188,57 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   <span className="text-sm font-semibold text-white">{selectedNode.name}</span>
                   <span className="text-xs text-slate-400">· {selectedNode.region}</span>
                 </div>
-                <span
-                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-semibold ${
-                    selectedNode.status === 'ALERT'
-                      ? 'bg-[#FF3B30]/15 text-[#FF3B30] border border-[#FF3B30]'
-                      : 'bg-slate-800 text-slate-200 border border-[#1E273B]'
-                  }`}
-                >
-                  {selectedNode.status}
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-slate-800 text-slate-200 border border-[#1E273B]">
+                  NOT_CONNECTED
                 </span>
               </div>
-              <p className="text-xs text-slate-300">{selectedNode.summary}</p>
+              <p className="text-xs text-slate-300">
+                Map marker only — no live feed is connected for this node, so no telemetry, status, or alert
+                is claimed.
+              </p>
               <div className="text-[11px] font-mono text-slate-500">COORDS: {selectedNode.coords}</div>
             </div>
 
             <div className="rounded-lg border border-[#1E273B] bg-[#111623] p-3 flex flex-col justify-between">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-400">LATENCY</span>
-                <span className="font-mono text-white">{selectedNode.latencyMs} ms</span>
+                <span className="font-mono text-white">NO_DATA</span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-400">NODE LOAD</span>
-                <span className="font-mono text-white">{selectedNode.loadPct}%</span>
+                <span className="font-mono text-white">NO_DATA</span>
               </div>
-              <div className="w-full h-1.5 rounded-full bg-[#06070B] overflow-hidden mt-1">
-                <div
-                  className={`h-full ${selectedNode.status === 'ALERT' ? 'bg-[#FF3B30]' : 'bg-sky-400'}`}
-                  style={{ width: `${selectedNode.loadPct}%` }}
-                />
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">ALERTS</span>
+                <span className="font-mono text-white">NO_DATA</span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Transitland Stop Departures Panel */}
+        {/* Transit Departures Panel — no live feed in this build */}
         <div className="border border-[#1E273B] bg-[#0C0F17] rounded-xl p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Train className="h-4 w-4 text-sky-400" />
-              <h2 className="text-sm font-semibold tracking-wide text-white">TRANSITLAND STOP DEPARTURES</h2>
+              <h2 className="text-sm font-semibold tracking-wide text-white">TRANSIT DEPARTURES</h2>
             </div>
             <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#111623] border border-[#1E273B] text-slate-300">
-              LIVE FEED
+              NOT_CONNECTED
             </span>
           </div>
 
-          <div className="space-y-2.5">
-            {TRANSITLAND_DEPARTURES.map((dep) => {
-              const isDelayed = dep.status === 'DELAYED';
-              return (
-                <div
-                  key={dep.id}
-                  className="rounded-lg border border-[#1E273B] bg-[#111623] p-3 flex items-center justify-between gap-3"
-                >
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold text-white truncate">{dep.stopName}</div>
-                    <div className="text-[11px] font-mono text-sky-300 truncate">{dep.route}</div>
-                    <div className="text-[11px] text-slate-400 truncate">To {dep.headsign}</div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="text-sm font-mono font-semibold text-white">{dep.minutesAway} min</div>
-                    <div
-                      className={`text-[10px] font-mono font-semibold ${
-                        isDelayed ? 'text-[#FF3B30]' : 'text-slate-400'
-                      }`}
-                    >
-                      {dep.status}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+          <div className="rounded-lg border border-[#1E273B] bg-[#111623] p-3 space-y-1.5">
+            <p className="text-xs text-slate-300">
+              No transit feed is connected in this build. No departures, stops, routes, or arrival times are
+              shown — no stop IDs or minutes-away figures are claimed.
+            </p>
+            <p className="text-[11px] font-mono text-slate-500">DEPARTURES: NO_DATA · PROVIDER: NOT_CONNECTED</p>
           </div>
         </div>
       </div>
 
-      {/* 5 Domain Radars */}
+      {/* 5 Domain Radars — no scores in this build */}
       <div className="border border-[#1E273B] bg-[#0C0F17] rounded-xl p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -412,47 +249,27 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-          {DOMAIN_RADARS.map((radar) => {
-            const isAlert = radar.status === 'ALERT';
-            const isSelected = radar.key === selectedRadar;
-            const Icon =
-              radar.key === 'Opportunity'
-                ? Zap
-                : radar.key === 'Earnings'
-                ? TrendingUp
-                : radar.key === 'Crypto'
-                ? Cpu
-                : radar.key === 'Asset'
-                ? Layers
-                : Shield;
-
+          {DOMAIN_RADARS.map((key) => {
+            const isSelected = key === selectedRadar;
             return (
               <button
-                key={radar.key}
+                key={key}
                 type="button"
-                onClick={() => setSelectedRadar(radar.key)}
+                onClick={() => setSelectedRadar(key)}
                 className={`rounded-xl border p-3.5 text-left transition ${
-                  isAlert
-                    ? 'border-[#FF3B30] bg-[#FF3B30]/5'
-                    : isSelected
+                  isSelected
                     ? 'border-sky-400 bg-[#111623]'
                     : 'border-[#1E273B] bg-[#111623] hover:border-slate-600'
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Icon className={`h-4 w-4 ${isAlert ? 'text-[#FF3B30]' : 'text-sky-400'}`} />
-                    <span className="text-xs font-semibold text-white">{radar.key}</span>
-                  </div>
-                  <span className="text-xs font-mono font-semibold text-slate-200">{radar.score}/100</span>
+                  <span className="text-xs font-semibold text-white">{key}</span>
+                  <span className="text-xs font-mono font-semibold text-slate-400">NO_DATA</span>
                 </div>
-                <p className="text-[11px] text-slate-400 mt-2">{radar.signal}</p>
-                <div className="mt-2 flex items-center justify-between text-[10px] font-mono">
-                  <span className={isAlert ? 'text-[#FF3B30] font-semibold' : 'text-slate-500'}>
-                    {isAlert ? `${radar.activeAlerts} ACTIVE ALERT` : 'NOMINAL'}
-                  </span>
-                  <Activity className={`h-3 w-3 ${isAlert ? 'text-[#FF3B30]' : 'text-slate-600'}`} />
-                </div>
+                <p className="text-[11px] text-slate-400 mt-2">
+                  No live feed connected — no score, signal, or alert count is claimed for this domain.
+                </p>
+                <div className="mt-2 text-[10px] font-mono text-slate-500">STATUS: NOT_CONNECTED</div>
               </button>
             );
           })}

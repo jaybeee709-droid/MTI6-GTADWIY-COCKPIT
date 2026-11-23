@@ -4,18 +4,10 @@ import {
   AlertOctagon,
   Bell,
   BookOpen,
-  Bookmark,
   Bot,
-  CheckCircle2,
   Compass,
-  CreditCard,
-  DollarSign,
-  EyeOff,
-  FileText,
-  GitBranch,
   Globe,
   Key,
-  Layers,
   Layout,
   Lock,
   MapPin,
@@ -25,13 +17,12 @@ import {
   Shield,
   Smartphone,
   Sparkles,
-  Star,
-  TrendingUp,
   Volume2,
 } from 'lucide-react';
 
 /* ============================================================================
- * 1. OpportunitiesWorld
+ * 1. OpportunitiesWorld — honest: the pipeline ends at PREPARED with
+ * 0 records. No invented opportunity, score, or APY is shown.
  * ============================================================================ */
 const OPP_TABS = [
   'Feed',
@@ -47,28 +38,8 @@ const OPP_TABS = [
 
 type OppTab = (typeof OPP_TABS)[number];
 
-const OPPORTUNITIES = [
-  { id: 'opp-1', title: 'SOL / Jito Restaking Basis', category: 'Trending', region: 'Global', score: 94, apy: '+18.4%', saved: true },
-  { id: 'opp-2', title: 'NYC Real-World Tokenized T-Bills', category: 'Local', region: 'Local · NYC', score: 91, apy: '+5.15%', saved: false },
-  { id: 'opp-3', title: 'ETH L2 Sequencer Fee Arb', category: 'Intelligence', region: 'Global', score: 88, apy: '+14.2%', saved: true },
-  { id: 'opp-4', title: 'EUR/USD Carry Liquidity Pool', category: 'Discovery', region: 'Global', score: 84, apy: '+8.7%', saved: false },
-];
-
 export const OpportunitiesWorld: React.FC = () => {
   const [tab, setTab] = useState<OppTab>('Feed');
-  const [savedIds, setSavedIds] = useState<string[]>(['opp-1', 'opp-3']);
-
-  const toggleSave = (id: string) => {
-    setSavedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  };
-
-  const visible = OPPORTUNITIES.filter((o) => {
-    if (tab === 'Saved') return savedIds.includes(o.id);
-    if (tab === 'Local') return o.region.startsWith('Local');
-    if (tab === 'Global') return o.region === 'Global';
-    if (tab === 'Trending') return o.score >= 88;
-    return true;
-  });
 
   return (
     <div className="space-y-5 text-white">
@@ -80,7 +51,10 @@ export const OpportunitiesWorld: React.FC = () => {
           <div>
             <h2 className="text-lg font-semibold">Opportunities World</h2>
             <p className="text-xs text-[#B8B8B8]">
-              Curated alpha across Feed, Discovery, Rankings, Trending, Local, Global &amp; STAR Intelligence
+              Feed, Discovery, Rankings, Trending, Local, Global, Saved, Recommended &amp; Intelligence
+            </p>
+            <p className="text-xs text-[#B8B8B8] mt-0.5">
+              Pipeline ends at PREPARED — no opportunity is scored or ranked until a live feed is connected.
             </p>
           </div>
         </div>
@@ -101,54 +75,26 @@ export const OpportunitiesWorld: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {visible.map((opp) => {
-          const isSaved = savedIds.includes(opp.id);
-          return (
-            <div key={opp.id} className="rounded-2xl border border-white/10 bg-[#101010] p-5">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold">{opp.title}</span>
-                    <span className="rounded bg-[#8B5CFF]/20 px-2 py-0.5 text-[10px] font-semibold text-[#8B5CFF]">
-                      Score {opp.score}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex items-center gap-3 text-xs text-[#B8B8B8]">
-                    <span className="flex items-center gap-1">
-                      {opp.region.startsWith('Local') ? <MapPin className="h-3 w-3" /> : <Globe className="h-3 w-3" />}
-                      {opp.region}
-                    </span>
-                    <span className="text-[#32D74B] font-semibold">{opp.apy}</span>
-                  </div>
-                </div>
-                <button
-                  onClick={() => toggleSave(opp.id)}
-                  className={`rounded-lg border p-2 transition ${
-                    isSaved
-                      ? 'border-[#00B7FF] bg-[#00B7FF]/15 text-[#00B7FF]'
-                      : 'border-white/10 bg-[#151515] text-[#B8B8B8]'
-                  }`}
-                >
-                  <Bookmark className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-3 text-xs text-[#B8B8B8]">
-                <span>View: {tab}</span>
-                <span className="flex items-center gap-1 text-[#00B7FF]">
-                  <Star className="h-3.5 w-3.5" /> STAR Verified
-                </span>
-              </div>
-            </div>
-          );
-        })}
+      <div className="rounded-2xl border border-white/10 bg-[#101010] p-5 space-y-2">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <Globe className="h-4 w-4 text-[#00B7FF]" /> View: {tab}
+        </div>
+        <p className="text-xs text-[#B8B8B8]">
+          0 records. No opportunity title, score, APY, region, or STAR verification is claimed in this
+          build — the feed is NOT_CONNECTED and the data is NO_DATA.
+        </p>
+        <p className="text-xs font-mono text-[#B8B8B8]">OPPORTUNITIES: 0 RECORDS · STATUS: NOT_CONNECTED · NO_DATA</p>
+        <div className="flex items-center gap-2 text-xs text-[#B8B8B8]">
+          <MapPin className="h-3.5 w-3.5" /> Local and global views both report 0 records.
+        </div>
       </div>
     </div>
   );
 };
 
 /* ============================================================================
- * 2. PositionsAssetsWorld
+ * 2. PositionsAssetsWorld — honest: every value UNAVAILABLE, never zero.
+ * No net worth, allocation, PnL, or Sharpe figure is claimed.
  * ============================================================================ */
 const ASSET_TABS = ['Crypto', 'Cash', 'Cards', 'Points', 'Performance', 'Allocation'] as const;
 type AssetTab = (typeof ASSET_TABS)[number];
@@ -173,7 +119,8 @@ export const PositionsAssetsWorld: React.FC = () => {
           </div>
           <div className="text-right">
             <div className="text-[10px] uppercase text-[#B8B8B8]">Net Worth</div>
-            <div className="text-xl font-bold text-white">$2,842,610.00</div>
+            <div className="text-xl font-bold text-white">UNAVAILABLE</div>
+            <div className="text-[10px] text-[#B8B8B8]">NOT_CONNECTED · NO_DATA — never zero</div>
           </div>
         </div>
 
@@ -195,75 +142,40 @@ export const PositionsAssetsWorld: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border border-white/10 bg-[#101010] p-4">
-          <div className="flex items-center justify-between text-xs text-[#B8B8B8]">
-            <span>Crypto Positions</span>
-            <Layers className="h-4 w-4 text-[#8B5CFF]" />
+        {[
+          { label: 'Crypto Positions', note: 'Value: UNAVAILABLE · no allocation or PnL claimed' },
+          { label: 'Cash & FX Reserves', note: 'Value: UNAVAILABLE · no APY claimed' },
+          { label: 'Cards & Points Value', note: 'Value: UNAVAILABLE · no points balance claimed' },
+        ].map((card) => (
+          <div key={card.label} className="rounded-2xl border border-white/10 bg-[#101010] p-4">
+            <div className="text-xs text-[#B8B8B8]">{card.label}</div>
+            <div className="mt-2 text-xl font-bold">UNAVAILABLE</div>
+            <div className="mt-1 text-xs text-[#B8B8B8]">{card.note}</div>
           </div>
-          <div className="mt-2 text-xl font-bold">$1,625,840.00</div>
-          <div className="mt-1 text-xs text-[#32D74B]">57.2% of Net Worth · +14.8% MTD</div>
-        </div>
-        <div className="rounded-2xl border border-white/10 bg-[#101010] p-4">
-          <div className="flex items-center justify-between text-xs text-[#B8B8B8]">
-            <span>Cash &amp; FX Reserves</span>
-            <DollarSign className="h-4 w-4 text-[#32D74B]" />
-          </div>
-          <div className="mt-2 text-xl font-bold">$1,184,920.45</div>
-          <div className="mt-1 text-xs text-[#00B7FF]">41.7% of Net Worth · 4.6% Blended APY</div>
-        </div>
-        <div className="rounded-2xl border border-white/10 bg-[#101010] p-4">
-          <div className="flex items-center justify-between text-xs text-[#B8B8B8]">
-            <span>Cards &amp; Points Value</span>
-            <CreditCard className="h-4 w-4 text-[#00B7FF]" />
-          </div>
-          <div className="mt-2 text-xl font-bold">$31,849.55</div>
-          <div className="mt-1 text-xs text-[#8B5CFF]">482,900 Sovereign Points Active</div>
-        </div>
+        ))}
       </div>
 
       <div className="rounded-2xl border border-white/10 bg-[#101010] p-5 text-xs">
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm font-semibold">Active View: {tab}</span>
-          <span className="flex items-center gap-1 text-[#32D74B]">
-            <TrendingUp className="h-4 w-4" /> Sharpe 2.41 · Max DD -3.8%
-          </span>
+          <span className="text-[#B8B8B8]">Sharpe: NO_DATA · Max Drawdown: NO_DATA</span>
         </div>
-        <div className="space-y-2">
-          {[
-            { name: 'BTC Core Vault', weight: '32%', val: '$909,635', pnl: '+19.4%' },
-            { name: 'ETH + L2 Staking', weight: '25%', val: '$716,205', pnl: '+11.2%' },
-            { name: 'USD / EUR / GBP Treasury', weight: '41%', val: '$1,184,920', pnl: '+4.6%' },
-            { name: 'Black Card Rewards & Points', weight: '2%', val: '$31,850', pnl: '+5.0x' },
-          ].map((row) => (
-            <div key={row.name} className="flex items-center justify-between rounded-xl bg-[#151515] p-3">
-              <div>
-                <div className="font-semibold text-white">{row.name}</div>
-                <div className="text-[#B8B8B8]">Allocation: {row.weight}</div>
-              </div>
-              <div className="text-right font-mono">
-                <div className="font-semibold text-white">{row.val}</div>
-                <div className="text-[#32D74B]">{row.pnl}</div>
-              </div>
-            </div>
-          ))}
-        </div>
+        <p className="text-[#B8B8B8]">
+          No position rows are shown: no holding, weight, value, or return is claimed until a live
+          read-only feed is connected. Positions value is UNAVAILABLE, never zero.
+        </p>
+        <p className="mt-2 font-mono text-[11px] text-[#B8B8B8]">POSITIONS: NO_DATA · ALLOCATION: NO_DATA · PERFORMANCE: NO_DATA</p>
       </div>
     </div>
   );
 };
 
 /* ============================================================================
- * 3. EncyclopediaWorld
+ * 3. EncyclopediaWorld — honest: the 6-level structure only. The
+ * canonical encyclopedia has 60 entities, but that content has not been
+ * migrated into this build, so no family, activity, strategy, or entry
+ * is invented here. Every level reports NOT_CONNECTED / NO_DATA.
  * ============================================================================ */
-const ENCYCLOPEDIA_TREE = {
-  Family: ['Capital Markets', 'Treasury & FX', 'Autonomous Operations'],
-  'Major Activity': ['Liquidity Provision', 'Delta-Neutral Carry', 'Rail Reconciliation'],
-  Type: ['Perpetual Funding Arb', 'Spot-Futures Basis', 'Cross-Border Settlement'],
-  Strategy: ['STAR Adaptive Basis v4', 'BOJ-NET Read-Only Guard', 'Multi-Venue TWAP'],
-  Action: ['Stage Hedge Order', 'Lock Execution Rail', 'Rebalance Vault'],
-  'Sub-Action': ['Verify Margin Buffer', 'Emit Audit Hash', 'Notify STAR Orb'],
-};
-
 const DRILL_LEVELS = [
   'Family',
   'Major Activity',
@@ -274,15 +186,6 @@ const DRILL_LEVELS = [
 ] as const;
 
 export const EncyclopediaWorld: React.FC = () => {
-  const [selected, setSelected] = useState<Record<string, string>>({
-    Family: 'Capital Markets',
-    'Major Activity': 'Delta-Neutral Carry',
-    Type: 'Perpetual Funding Arb',
-    Strategy: 'STAR Adaptive Basis v4',
-    Action: 'Stage Hedge Order',
-    'Sub-Action': 'Verify Margin Buffer',
-  });
-
   return (
     <div className="space-y-5 text-white">
       <div className="rounded-2xl border border-white/10 bg-[#101010] p-5">
@@ -295,78 +198,43 @@ export const EncyclopediaWorld: React.FC = () => {
             <p className="text-xs text-[#B8B8B8]">
               6-Layer Taxonomy Drilldown (Family → Major Activity → Type → Strategy → Action → Sub-Action) &amp; World Engine Graph
             </p>
+            <p className="text-xs text-[#B8B8B8] mt-0.5">
+              The canonical encyclopedia has 60 entities; that content has not been migrated into this
+              build. No family or entry is shown here rather than an invented one.
+            </p>
           </div>
-        </div>
-
-        {/* Breadcrumb Path */}
-        <div className="mt-4 flex flex-wrap items-center gap-1.5 rounded-xl bg-[#151515] p-3 text-xs">
-          {DRILL_LEVELS.map((lvl, idx) => (
-            <React.Fragment key={lvl}>
-              <span className="rounded bg-[#00B7FF]/15 px-2 py-0.5 text-[#00B7FF] font-medium">
-                {lvl}: {selected[lvl]}
-              </span>
-              {idx < DRILL_LEVELS.length - 1 && <span className="text-[#B8B8B8]">→</span>}
-            </React.Fragment>
-          ))}
         </div>
       </div>
 
-      {/* 6-Level Interactive Drilldown Grid */}
+      {/* 6-Level Structure — levels only, no invented entries */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {DRILL_LEVELS.map((lvl) => (
           <div key={lvl} className="rounded-2xl border border-white/10 bg-[#101010] p-4">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-[#00B7FF] mb-2">
-              {lvl}
-            </div>
-            <div className="space-y-1.5">
-              {ENCYCLOPEDIA_TREE[lvl].map((opt) => {
-                const active = selected[lvl] === opt;
-                return (
-                  <button
-                    key={opt}
-                    onClick={() => setSelected((prev) => ({ ...prev, [lvl]: opt }))}
-                    className={`w-full rounded-lg border px-3 py-2 text-left text-xs transition ${
-                      active
-                        ? 'border-[#8B5CFF] bg-[#8B5CFF]/20 text-white font-semibold'
-                        : 'border-white/10 bg-[#151515] text-[#B8B8B8] hover:text-white'
-                    }`}
-                  >
-                    {opt}
-                  </button>
-                );
-              })}
-            </div>
+            <div className="text-[11px] font-bold uppercase tracking-wider text-[#00B7FF] mb-2">{lvl}</div>
+            <p className="text-xs text-[#B8B8B8]">
+              Entries: NO_DATA — encyclopedia content not migrated in this package.
+            </p>
+            <p className="mt-1 text-[11px] font-mono text-[#B8B8B8]">STATUS: NOT_CONNECTED</p>
           </div>
         ))}
       </div>
 
       {/* World Engine Relationships */}
       <div className="rounded-2xl border border-white/10 bg-[#101010] p-5">
-        <div className="flex items-center gap-2 mb-3">
-          <GitBranch className="h-4 w-4 text-[#00B7FF]" />
-          <h3 className="text-sm font-semibold">World Engine Relationships</h3>
-        </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3 text-xs">
-          <div className="rounded-xl bg-[#151515] p-3">
-            <div className="text-[#B8B8B8]">Feeds Into</div>
-            <div className="mt-1 font-semibold text-white">Bot Operations (Orion-R1 &amp; Vulcan-B4)</div>
-          </div>
-          <div className="rounded-xl bg-[#151515] p-3">
-            <div className="text-[#B8B8B8]">Risk Gated By</div>
-            <div className="mt-1 font-semibold text-white">Security World &amp; Urban Wallet Rails</div>
-          </div>
-          <div className="rounded-xl bg-[#151515] p-3">
-            <div className="text-[#B8B8B8]">Capital Settled Via</div>
-            <div className="mt-1 font-semibold text-white">Crypto World &amp; Positions Ledger</div>
-          </div>
-        </div>
+        <h3 className="text-sm font-semibold mb-3">World Engine Relationships</h3>
+        <p className="text-xs text-[#B8B8B8]">
+          Relationship data: NO_DATA — no feed, bot, risk gate, or settlement link is claimed until the
+          encyclopedia migration lands.
+        </p>
       </div>
     </div>
   );
 };
 
 /* ============================================================================
- * 4. SecurityWorld
+ * 4. SecurityWorld — structure kept; every claimed fact replaced with an
+ * honest state. No key count, encryption claim, incident count, audit
+ * entry, device, or permission is asserted without a live source.
  * ============================================================================ */
 const SEC_TABS = [
   'Security Dashboard',
@@ -401,6 +269,10 @@ export const SecurityWorld: React.FC = () => {
             <h2 className="text-lg font-semibold">Security World &amp; Governance</h2>
             <p className="text-xs text-[#B8B8B8]">
               Security Dashboard, Permissions, Audit Logs, Bot Permissions, Devices, Privacy &amp; Emergency Kill Switches
+            </p>
+            <p className="text-xs text-[#B8B8B8] mt-0.5">
+              Execution is DISABLED by design. Security state below is NOT_CONNECTED / NO_DATA unless a live
+              source is attached.
             </p>
           </div>
         </div>
@@ -438,9 +310,9 @@ export const SecurityWorld: React.FC = () => {
         </div>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           {[
-            { key: 'allExecution', label: 'Halt All Order Execution', desc: 'Freeze all live DEX/CEX & FX routing' },
-            { key: 'railATransfer', label: 'Lock RAIL-A USD/JPY', desc: 'Enforce Read-Only during mismatch' },
-            { key: 'botAutonomy', label: 'Revoke Bot Autonomy', desc: 'Force all 12 Tribes to Manual Confirm' },
+            { key: 'allExecution', label: 'Halt All Order Execution', desc: 'Execution is already disabled by design' },
+            { key: 'railATransfer', label: 'Lock RAIL-A USD/JPY', desc: 'Enforce Read-Only on RAIL-A' },
+            { key: 'botAutonomy', label: 'Revoke Bot Autonomy', desc: 'No worker runtime is live in this build' },
           ].map((sw) => {
             const engaged = killSwitches[sw.key];
             return (
@@ -471,44 +343,32 @@ export const SecurityWorld: React.FC = () => {
         <div className="text-sm font-semibold mb-3">{tab}</div>
         {tab === 'Security Dashboard' && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="rounded-xl bg-[#151515] p-3.5 flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-[#32D74B]" />
-              <span>Hardware FIDO2 Keys: <strong>2 Active</strong></span>
-            </div>
-            <div className="rounded-xl bg-[#151515] p-3.5 flex items-center gap-2">
-              <Lock className="h-4 w-4 text-[#00B7FF]" />
-              <span>Session Encryption: <strong>AES-256-GCM</strong></span>
-            </div>
-            <div className="rounded-xl bg-[#151515] p-3.5 flex items-center gap-2">
-              <AlertOctagon className="h-4 w-4 text-[#FF3B30]" />
-              <span>Active Incidents: <strong>1 (RAIL-A Lock)</strong></span>
-            </div>
+            <div className="rounded-xl bg-[#151515] p-3.5">Hardware Keys: <strong>NO_DATA</strong></div>
+            <div className="rounded-xl bg-[#151515] p-3.5">Session Encryption: <strong>NO_DATA</strong></div>
+            <div className="rounded-xl bg-[#151515] p-3.5">Active Incidents: <strong>NO_DATA</strong></div>
           </div>
         )}
         {tab === 'Permissions' && (
           <div className="flex items-center gap-2 text-[#B8B8B8]">
-            <Key className="h-4 w-4 text-[#00B7FF]" /> Sovereign Root Role active · Multi-sig 2/3 required for withdrawals &gt; $50,000.
+            <Key className="h-4 w-4 text-[#00B7FF]" /> Permissions: NO_DATA — no role or multi-sig state is claimed without a live source.
           </div>
         )}
         {tab === 'Audit Logs' && (
-          <div className="space-y-1.5 font-mono text-[11px] text-[#B8B8B8]">
-            <div className="flex items-center gap-2"><FileText className="h-3.5 w-3.5 text-[#FF3B30]" /> [14:04 UTC] RAIL-A locked to READ-ONLY by Cerberus-S0</div>
-            <div className="flex items-center gap-2"><FileText className="h-3.5 w-3.5 text-[#32D74B]" /> [13:12 UTC] Hardware key attestation verified</div>
-          </div>
+          <div className="text-[#B8B8B8]">Audit logs: NO_DATA — no log entries are claimed in this build.</div>
         )}
         {tab === 'Bot Permissions' && (
           <div className="flex items-center gap-2 text-[#B8B8B8]">
-            <Bot className="h-4 w-4 text-[#8B5CFF]" /> 12 Tribes scoped to Read/Propose; Execution requires STAR + Sentinel Risk clearance.
+            <Bot className="h-4 w-4 text-[#8B5CFF]" /> Bot permissions: NO_DATA — no worker runtime is live; execution is disabled by design.
           </div>
         )}
         {tab === 'Devices' && (
           <div className="flex items-center gap-2 text-[#B8B8B8]">
-            <Smartphone className="h-4 w-4 text-[#00B7FF]" /> MacBook Pro M4 Max (NYC · Trusted) · iPhone 17 Pro (Biometric Passkey).
+            <Smartphone className="h-4 w-4 text-[#00B7FF]" /> Devices: NO_DATA — no trusted device is claimed.
           </div>
         )}
         {tab === 'Privacy' && (
           <div className="flex items-center gap-2 text-[#B8B8B8]">
-            <EyeOff className="h-4 w-4 text-[#32D74B]" /> Zero-knowledge telemetry mode enabled · Local balance masking ready.
+            <Lock className="h-4 w-4 text-[#32D74B]" /> Privacy: NO_DATA — no telemetry mode is claimed.
           </div>
         )}
       </div>
@@ -517,7 +377,7 @@ export const SecurityWorld: React.FC = () => {
 };
 
 /* ============================================================================
- * 5. SettingsWorld
+ * 5. SettingsWorld — local UI preferences only; no live claims.
  * ============================================================================ */
 const SETTINGS_TABS = [
   'Appearance Studio',
@@ -612,7 +472,7 @@ export const SettingsWorld: React.FC = () => {
 
         {tab === 'Notifications' && (
           <div className="flex items-center gap-2 text-[#B8B8B8]">
-            <Bell className="h-4 w-4 text-[#FFB800]" /> Critical Rail Alerts (#FF3B30) &amp; STAR Trade Confirmations: Push + In-Cockpit Toast.
+            <Bell className="h-4 w-4 text-[#FFB800]" /> Critical Alerts (#FF3B30): Push + In-Cockpit Toast.
           </div>
         )}
 
