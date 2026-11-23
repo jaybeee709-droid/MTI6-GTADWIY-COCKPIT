@@ -144,6 +144,105 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     fetchedAt: number | null;
   }>({ state: 'idle', message: 'NOT QUERIED — the proxy is ready; nothing has been polled.', fetchedAt: null });
   const [selectedStop, setSelectedStop] = useState<MapMarker | null>(null);
+  // stop_key per marker id (Onestop ID or feed key from the stops
+  // response) — the departures lookup key. A stop whose response
+  // carried no key simply has no entry, and says so when asked.
+  const [stopKeys, setStopKeys] = useState<Record<string, string>>({});
+  const [departures, setDepartures] = useState<{
+    state: 'idle' | 'loading' | 'ok' | 'error';
+    message: string;
+    rows: { time: string; label: string }[];
+    fetchedAt: number | null;
+  }>({ state: 'idle', message: '', rows: [], fetchedAt: null });
+
+  const queryDepartures = async (stop: MapMarker) => {
+    const key = stopKeys[stop.id];
+    if (!key) {
+      setDepartures({
+        state: 'error',
+        message: 'This stop carried no Transitland lookup key in the stops response — departures cannot be queried for it.',
+        rows: [],
+        fetchedAt: null,
+      });
+      return;
+    }
+    if (typeof fetch !== 'function') {
+      setDepartures({ state: 'error', message: 'NO FETCH IN THIS ENVIRONMENT.', rows: [], fetchedAt: null });
+      return;
+    }
+    setDepartures({ state: 'loading', message: 'QUERYING DEPARTURES…', rows: [], fetchedAt: null });
+    try {
+      const res = await fetch('/api/mti6', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'transit.departures',
+          payload: { stop_key: key, limit: 8, include_alerts: false },
+        }),
+      });
+      const env = (await res.json().catch(() => null)) as
+        | { ok?: boolean; data?: unknown; error?: { code?: string } }
+        | null;
+      if (!env || !env.ok) {
+        const code = env?.error?.code ?? 'UPSTREAM_ERROR';
+        setDepartures({
+          state: 'error',
+          message:
+            code === 'AUTH_REQUIRED'
+              ? 'NOT_CONFIGURED — no Transitland key is set on the server.'
+              : code === 'NOT_FOUND'
+                ? 'NOT_FOUND — Transitland has no departures record for this stop.'
+                : `DEPARTURES QUERY FAILED (${code}).`,
+          rows: [],
+          fetchedAt: null,
+        });
+        return;
+      }
+      const data = env.data as {
+        departures?: unknown[];
+        stop?: { departures?: unknown[] };
+      } | null;
+      const list = data?.departures ?? data?.stop?.departures ?? [];
+      const rows: { time: string; label: string }[] = [];
+      for (const raw of list) {
+        if (!raw || typeof raw !== 'object') continue;
+        const d = raw as Record<string, unknown>;
+        const stopTime = d.stop_time as Record<string, unknown> | undefined;
+        const trip = d.trip as Record<string, unknown> | undefined;
+        const route = trip?.route as Record<string, unknown> | undefined;
+        const rawTime =
+          d.departure_time ?? d.arrival_time ?? stopTime?.departure_time ?? stopTime?.arrival_time;
+        let time = '—';
+        if (typeof rawTime === 'string') {
+          const parsed = new Date(rawTime);
+          time = Number.isNaN(parsed.getTime())
+            ? rawTime
+            : parsed.toLocaleTimeString('en-US', { hour12: false });
+        } else if (typeof rawTime === 'number') {
+          time = new Date(rawTime * 1000).toLocaleTimeString('en-US', { hour12: false });
+        }
+        const label =
+          (typeof route?.route_short_name === 'string' && route.route_short_name) ||
+          (typeof route?.route_long_name === 'string' && route.route_long_name) ||
+          (typeof trip?.headsign === 'string' && trip.headsign) ||
+          (typeof d.headsign === 'string' && d.headsign) ||
+          'Route';
+        rows.push({ time, label: String(label) });
+        if (rows.length >= 8) break;
+      }
+      setDepartures({
+        state: 'ok',
+        message:
+          rows.length > 0
+            ? `${rows.length} UPCOMING DEPARTURE${rows.length === 1 ? '' : 'S'} (SCHEDULED FEED DATA).`
+            : 'NO DEPARTURES RETURNED FOR THIS STOP TODAY.',
+        rows,
+        fetchedAt: Date.now(),
+      });
+    } catch {
+      setDepartures({ state: 'error', message: 'DEPARTURES QUERY FAILED (NETWORK).', rows: [], fetchedAt: null });
+    }
+  };
 
   const queryTransitStops = async () => {
     if (typeof fetch !== 'function') {
@@ -178,6 +277,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
       }
       const data = env.data as { stops?: unknown[] } | null;
       const stops: MapMarker[] = [];
+      const keys: Record<string, string> = {};
       if (data && Array.isArray(data.stops)) {
         data.stops.forEach((raw, i) => {
           if (!raw || typeof raw !== 'object') return;
@@ -209,9 +309,18 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 ? String(s.id)
                 : `stop-${i}`;
           stops.push({ id, lat, lon, label: name, color: MTI6_LAYER.all });
+          const key =
+            typeof s.onestop_id === 'string'
+              ? s.onestop_id
+              : typeof s.id === 'string' || typeof s.id === 'number'
+                ? String(s.id)
+                : null;
+          if (key) keys[id] = key;
         });
       }
       setTransitStops(stops);
+      setStopKeys(keys);
+      setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
       setTransitQuery({
         state: 'ok',
         message: `${stops.length} STOP${stops.length === 1 ? '' : 'S'} WITHIN 1.5 KM OF THE MAP CENTRE.`,
@@ -364,7 +473,10 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               markers={transitOn ? transitStops : []}
               onViewChange={handleViewChange}
               onStatusChange={setEngineStatus}
-              onMarkerSelect={setSelectedStop}
+              onMarkerSelect={(m) => {
+                setSelectedStop(m);
+                setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
+              }}
             />
             {/* Layer chips — 44px touch targets at every tier (the
                 Phase 1 chips were ~18px and failed the rule). Phone:
@@ -462,6 +574,37 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                       STOP: <span className="text-white">{selectedStop.label}</span> ·{' '}
                       {selectedStop.lat.toFixed(5)}, {selectedStop.lon.toFixed(5)} · SOURCE:
                       TRANSITLAND
+                      <button
+                        type="button"
+                        onClick={() => queryDepartures(selectedStop)}
+                        disabled={departures.state === 'loading'}
+                        className="ml-2 font-semibold text-white underline decoration-[#00B7FF] underline-offset-2 disabled:opacity-50"
+                      >
+                        {departures.state === 'loading' ? 'QUERYING…' : 'DEPARTURES'}
+                      </button>
+                      {departures.state !== 'idle' && (
+                        <div className="mt-1">
+                          <div>{departures.message}</div>
+                          {departures.rows.length > 0 && (
+                            <ul className="mt-1 space-y-0.5">
+                              {departures.rows.map((r, i) => (
+                                <li key={i} className="flex justify-between gap-3">
+                                  <span className="truncate">{r.label}</span>
+                                  <span className="shrink-0 text-white">{r.time}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          {departures.fetchedAt !== null && (
+                            <div>
+                              SOURCE: TRANSITLAND · FETCHED{' '}
+                              {new Date(departures.fetchedAt).toLocaleTimeString('en-US', {
+                                hour12: false,
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
