@@ -1234,6 +1234,26 @@
     ];
     addSection("overview", panel("Overview", overviewKids));
 
+    // ---- 1b. World contents (owner directive, 2026-11-22) --------------
+    // The 24 named Crypto World contents, rendered from js/worlds.js
+    // so the list can never drift from the canonical declaration.
+    // The rule decides anything the list does not name.
+    var W = global.Worlds;
+    if (W && W.CRYPTO_WORLD && Array.isArray(W.CRYPTO_WORLD.contents)) {
+      var worldKids = [
+        meta("Crypto World contains everything crypto only. The 24 named contents below are the owner's directive of 2026-11-22, in order."),
+        labelList(W.CRYPTO_WORLD.contents),
+        meta(W.SIMPLE_RULE ? W.SIMPLE_RULE.cryptoWorld : "Crypto = Crypto World"),
+        meta(W.CRYPTO_WORLD.membershipRule || ""),
+        meta("Note: the 24 above are the named contents. The rule decides anything not named — if it is fundamentally a crypto activity, it belongs in Crypto World. So Mining, Prediction Markets, GameFi, SocialFi, DeSci and ReFi remain Crypto World under the rule, not under the list. Anything that makes money and is NOT crypto belongs in Earnings (#/earn).")
+      ];
+      addSection("overview", panel("💱 Crypto World — contents", worldKids));
+    } else {
+      addSection("overview", panel("💱 Crypto World — contents", [
+        meta("Worlds: NOT LOADED — the Crypto World contents are unavailable in this build.")
+      ]));
+    }
+
     // ---- 2. Activities drill-down ----------------------------------------
     var activitiesPanel = U.el("div", { class: "api-panel" }, [
       U.el("h3", {}, "Activities — Major Activities, Types & Strategies"),

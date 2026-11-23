@@ -30,7 +30,7 @@
     "crypto-ws": { label: "Crypto Workspace", icon: "💱" },
     wallets: { label: "Wallets", icon: "◈" },
     opportunities: { label: "Opportunities", icon: "◎" },
-    earn: { label: "Earnings", icon: "💵" },
+    earn: { label: "Earnings", icon: "💰" },
     positions: { label: "Positions & Assets", icon: "▦" },
     encyclopedia: { label: "Encyclopedia", icon: "📖" },
     operations: { label: "Operations", icon: "⚙" },
