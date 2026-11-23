@@ -8,21 +8,30 @@
 // EXECUTE rung stays disabled here too. No returns figure appears
 // anywhere: no projected profit, no APY, no performance promise.
 //
-// PriceScout is not wired into this React build, so the chart, the
-// watchlist, and the order book render their honest NO DATA state —
-// no price, change, candle, bid, or ask is invented. The chart frame
-// (grid, axes, crosshair) is real UI over MTI6_CHART tokens; the
-// crosshair reads NO DATA at every point because there is no series
-// to read. When a feed is wired, the series lands in this frame.
+// Live data (A1, 2026-11-23): prices and chart history are fetched
+// from keyless public sources through the governor in
+// src/live-data.ts (CoinGecko → Coinbase → CoinPaprika), and every
+// figure carries its provenance (src/ProvenanceChip.tsx). When every
+// source fails, the observation is NO_DATA and the chart keeps its
+// honest empty frame — no price, change, or candle is invented. The
+// order book and positions remain NO DATA: no venue or account feed
+// exists, and none is simulated.
 //
 // The chart colour law is scoped to this screen's chart and order
 // controls ONLY: green = BUY, red = SELL, amber = WARNING / WATCH.
 // It never leaks into world accents, chips, or the status strip.
 
 import React, { useRef, useState } from 'react';
-import { ChevronDown, Lock, TrendingUp } from 'lucide-react';
-import { MonoLine, Panel, ScreenHeader, StatusPill } from './shared';
+import { ChevronDown, Lock, RefreshCw, TrendingUp } from 'lucide-react';
+import { MonoLine, Panel, ScreenHeader } from './shared';
 import { MTI6_CHART } from '../tokens';
+import {
+  fetchHistory,
+  fetchPrice,
+  fmtUsd,
+  useObservation,
+} from '../live-data';
+import { ProvenanceChip } from '../ProvenanceChip';
 
 const PRICE_COINS = ['BTC', 'ETH', 'SOL', 'DOGE', 'XRP', 'LTC', 'ADA'] as const;
 const CHART_RANGES = ['1d', '7d', '30d'] as const;
@@ -38,6 +47,58 @@ interface Proposal {
 
 const LADDER = ['MONITOR', 'ANALYZE', 'RECOMMEND', 'PREPARE', 'OWNER APPROVAL', 'EXECUTE'];
 
+/** One watchlist row with its own live price observation. The price,
+ *  its 24h change, and its provenance chip all come from the same
+ *  observation — a figure is never shown without its source. */
+const CoinRow: React.FC<{
+  sym: string;
+  selected: boolean;
+  onSelect: () => void;
+  refreshSignal: number;
+}> = ({ sym, selected, onSelect, refreshSignal }) => {
+  const { obs } = useObservation(() => fetchPrice(sym), [sym, refreshSignal]);
+  const v = obs.value;
+  return (
+    <div
+      className={`rounded-xl p-3 transition ${
+        selected
+          ? 'border border-[#8B5CFF]/60 bg-[#8B5CFF]/10'
+          : 'bg-[#151515] hover:bg-[#1b1b1b]'
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-pressed={selected}
+        className="flex w-full flex-wrap items-center justify-between gap-2 text-left"
+      >
+        <span className="text-sm font-semibold">{sym}</span>
+        <span className="flex items-center gap-2">
+          <span className="text-xs font-bold">
+            {v ? fmtUsd(v.price) : 'UNAVAILABLE'}
+          </span>
+          <span
+            className="text-[10px] font-mono"
+            style={{
+              color:
+                v?.change24h == null
+                  ? '#B8B8B8'
+                  : v.change24h >= 0
+                    ? MTI6_CHART.up
+                    : MTI6_CHART.down,
+            }}
+          >
+            24h: {v?.change24h == null ? 'NO_DATA' : `${v.change24h >= 0 ? '+' : ''}${v.change24h.toFixed(2)}%`}
+          </span>
+        </span>
+      </button>
+      <div className="mt-1.5">
+        <ProvenanceChip obs={obs} compact />
+      </div>
+    </div>
+  );
+};
+
 export const CryptoMarketScreen: React.FC = () => {
   const [coin, setCoin] = useState<string>('BTC');
   const [range, setRange] = useState<string>('7d');
@@ -47,7 +108,33 @@ export const CryptoMarketScreen: React.FC = () => {
   const [panelOpen, setPanelOpen] = useState<boolean>(false);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [crosshair, setCrosshair] = useState<{ x: number; y: number } | null>(null);
+  const [refreshSignal, setRefreshSignal] = useState(0);
   const chartRef = useRef<HTMLDivElement | null>(null);
+
+  // Live chart history for the selected coin + range. When every
+  // source fails the observation is NO_DATA and the chart keeps its
+  // honest empty frame — no series is ever drawn from made-up data.
+  const hist = useObservation(
+    () => fetchHistory(coin, range as '1d' | '7d' | '30d'),
+    [coin, range, refreshSignal],
+  );
+  const points = hist.obs.value?.points ?? null;
+  const priceMin = points ? Math.min(...points.map((pt) => pt.p)) : null;
+  const priceMax = points ? Math.max(...points.map((pt) => pt.p)) : null;
+  const polyline =
+    points && priceMin !== null && priceMax !== null && priceMax > priceMin
+      ? points
+          .map((pt, i) => {
+            const x = (i / (points.length - 1)) * 100;
+            const y = 96 - ((pt.p - priceMin) / (priceMax - priceMin)) * 88;
+            return `${x.toFixed(2)},${y.toFixed(2)}`;
+          })
+          .join(' ')
+      : null;
+  const crosshairPoint =
+    crosshair && points
+      ? points[Math.round(crosshair.x * (points.length - 1))]
+      : null;
 
   const amountNum = Number(amount);
   const limitNum = Number(limit);
@@ -105,7 +192,7 @@ export const CryptoMarketScreen: React.FC = () => {
         icon={TrendingUp}
         title="Crypto Market"
         subtitle="Trading terminal — prepare-only. The boundary below governs everything on this screen."
-        note="PriceScout (CoinGecko → Coinbase → CoinPaprika) is not wired in this build, so no price is shown. Stocks need a server-side proxy first — no stock price is shown either."
+        note="Prices and history are LIVE from keyless public sources (CoinGecko → Coinbase → CoinPaprika); every figure carries a provenance chip — tap it to audit the source. Stocks still need a server-side proxy first, so no stock price is shown."
       />
 
       {/* 1 — THE EXECUTION BOUNDARY, FIRST */}
@@ -169,8 +256,8 @@ export const CryptoMarketScreen: React.FC = () => {
                   {r}
                 </button>
               ))}
-              <span className="ml-auto font-mono text-[10px] text-[#B8B8B8]">
-                FEED: NOT_CONNECTED
+              <span className="ml-auto flex items-center gap-2">
+                <ProvenanceChip obs={hist.obs} compact />
               </span>
             </div>
             <div
@@ -207,7 +294,26 @@ export const CryptoMarketScreen: React.FC = () => {
                   />
                 ))}
               </svg>
-              {/* Crosshair (MTI6_CHART.crosshair) — reads NO DATA: no series exists */}
+              {/* The live series, when a source served one */}
+              {polyline && (
+                <svg
+                  className="absolute inset-0 h-full w-full"
+                  viewBox="0 0 100 100"
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
+                >
+                  <polygon points={`0,100 ${polyline} 100,100`} fill="rgba(0,183,255,0.08)" />
+                  <polyline
+                    points={polyline}
+                    fill="none"
+                    stroke={MTI6_CHART.crosshair}
+                    strokeWidth="0.7"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                </svg>
+              )}
+              {/* Crosshair (MTI6_CHART.crosshair) — reads the real series
+                  point under the pointer, or NO DATA when there is none */}
               {crosshair && (
                 <>
                   <div
@@ -221,30 +327,37 @@ export const CryptoMarketScreen: React.FC = () => {
                   <div
                     className="absolute rounded border border-[#00B7FF]/60 bg-[#050505]/90 px-1.5 py-0.5 font-mono text-[9px] text-white"
                     style={{
-                      left: `${Math.min(88, crosshair.x * 100)}%`,
+                      left: `${Math.min(80, crosshair.x * 100)}%`,
                       top: `${Math.max(2, crosshair.y * 100 - 8)}%`,
                     }}
                   >
-                    {coin}/USD · NO DATA
+                    {crosshairPoint
+                      ? `${coin}/USD · ${fmtUsd(crosshairPoint.p)} · ${new Date(crosshairPoint.t).toLocaleString('en-US', { hour12: false })}`
+                      : `${coin}/USD · NO DATA`}
                   </div>
                 </>
               )}
-              <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
-                <p className="max-w-sm font-mono text-[11px] leading-relaxed text-[#B8B8B8]">
-                  NO DATA — {coin}/USD ({range}) history is NOT_CONNECTED. No
-                  chart is drawn from made-up data; the frame lights up when a
-                  feed is wired, labelled with its source and status.
-                </p>
-              </div>
+              {!points && (
+                <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
+                  <p className="max-w-sm font-mono text-[11px] leading-relaxed text-[#B8B8B8]">
+                    {hist.loading
+                      ? `FETCHING — ${coin}/USD (${range}) from the source chain…`
+                      : `NO DATA — ${coin}/USD (${range}) history could not be fetched from any source in the chain. No chart is drawn from made-up data.`}
+                  </p>
+                </div>
+              )}
               <span
                 className="absolute bottom-1.5 right-2 font-mono text-[9px]"
                 style={{ color: MTI6_CHART.axisText }}
               >
-                PRICE AXIS: —
+                {priceMin !== null && priceMax !== null
+                  ? `HIGH ${fmtUsd(priceMax)} · LOW ${fmtUsd(priceMin)}`
+                  : 'PRICE AXIS: —'}
               </span>
             </div>
             <MonoLine>
-              CHART: NOT_CONNECTED · NO_DATA · SOURCE: PRICESCOUT NOT WIRED
+              CHART: {hist.obs.status} · SOURCE: {hist.obs.source ?? '—'} ·{' '}
+              {hist.obs.chain.join(' → ')}
             </MonoLine>
           </Panel>
         </div>
@@ -370,32 +483,35 @@ export const CryptoMarketScreen: React.FC = () => {
         <div className="hidden 2xl:col-start-3 2xl:row-start-1 2xl:block">{bookPanel}</div>
         <div className="hidden 2xl:col-start-4 2xl:row-start-1 2xl:block">{positionsPanel}</div>
 
-        {/* Watchlist */}
+        {/* Watchlist — live prices, each with its provenance */}
         <div className="md:col-span-2 md:row-start-2 xl:col-span-1 xl:col-start-1 xl:row-start-1 2xl:col-start-1">
           <Panel title="Watchlist — 7 coins">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="font-mono text-[10px] text-[#B8B8B8]">
+                LIVE PRICES · CHAIN: COINGECKO → COINBASE → COINPAPRIKA
+              </span>
+              <button
+                type="button"
+                onClick={() => setRefreshSignal((n) => n + 1)}
+                className="flex items-center gap-1 rounded border border-white/15 bg-[#151515] px-2 py-1 font-mono text-[10px] text-white hover:border-[#00B7FF]/60"
+              >
+                <RefreshCw className="h-3 w-3" /> REFRESH
+              </button>
+            </div>
             <div className="space-y-1.5">
               {PRICE_COINS.map((sym) => (
-                <button
+                <CoinRow
                   key={sym}
-                  type="button"
-                  onClick={() => setCoin(sym)}
-                  aria-pressed={coin === sym}
-                  className={`flex w-full flex-wrap items-center justify-between gap-2 rounded-xl p-3 text-left transition ${
-                    coin === sym
-                      ? 'border border-[#8B5CFF]/60 bg-[#8B5CFF]/10'
-                      : 'bg-[#151515] hover:bg-[#1b1b1b]'
-                  }`}
-                >
-                  <span className="text-sm font-semibold">{sym}</span>
-                  <span className="flex items-center gap-2">
-                    <span className="text-xs font-bold">UNAVAILABLE</span>
-                    <span className="text-[10px] text-[#B8B8B8]">24h: NO_DATA</span>
-                    <StatusPill status="NOT_CONNECTED" />
-                  </span>
-                </button>
+                  sym={sym}
+                  selected={coin === sym}
+                  onSelect={() => setCoin(sym)}
+                  refreshSignal={refreshSignal}
+                />
               ))}
             </div>
-            <MonoLine>PRICES: NOT_CONNECTED · NO_DATA · SOURCE: PRICESCOUT NOT WIRED</MonoLine>
+            <MonoLine>
+              EVERY FIGURE CARRIES ITS PROVENANCE — TAP A CHIP TO AUDIT IT
+            </MonoLine>
           </Panel>
         </div>
 

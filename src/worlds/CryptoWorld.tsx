@@ -17,6 +17,72 @@ import {
   MEMBERSHIP_RULE,
   type CryptoGroup,
 } from '../worlds-data';
+import { fetchYields, fmtUsd, useObservation } from '../live-data';
+import { ProvenanceChip } from '../ProvenanceChip';
+
+/** LIVE DATA — yields (A1, 2026-11-23; the owner's CW-5 pattern:
+ *  capability → approved source → normalized observation → panel).
+ *  DefiLlama Yields is keyless and free; APY arrives in PERCENT and
+ *  is shown in percent, labelled source-reported — a variable rate
+ *  observed at fetch time, never a promise and never a platform
+ *  figure. EigenLayer and Babylon do not appear in this source, so
+ *  they remain NOT_CONNECTED and are not listed. */
+const LiveYieldsPanel: React.FC = () => {
+  const { obs, refresh, loading } = useObservation(() => fetchYields(), []);
+  const pools = obs.value;
+  return (
+    <div className="rounded-xl border border-[#00B7FF]/25 bg-[#101010] p-4 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs font-mono text-[#00B7FF]">
+          <BarChart3 className="h-4 w-4" />
+          <span>LIVE DATA — YIELDS · TOP WATCHED POOLS BY TVL</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <ProvenanceChip obs={obs} />
+          <button
+            type="button"
+            onClick={refresh}
+            className="rounded border border-white/15 bg-[#151515] px-2 py-1 font-mono text-[10px] text-white hover:border-[#00B7FF]/60"
+          >
+            REFRESH
+          </button>
+        </div>
+      </div>
+      {pools ? (
+        <div className="space-y-1.5">
+          {pools.map((p, i) => (
+            <div
+              key={`${p.project}-${p.symbol}-${p.chain}-${i}`}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[#151515] px-3 py-2"
+            >
+              <span className="font-mono text-xs">
+                <span className="font-semibold text-white">{p.project}</span>{' '}
+                <span className="text-[#B8B8B8]">
+                  {p.symbol} · {p.chain}
+                </span>
+              </span>
+              <span className="flex items-center gap-3 font-mono text-xs">
+                <span className="text-[#B8B8B8]">TVL {fmtUsd(p.tvlUsd)}</span>
+                <span className="font-bold text-white">{p.apy.toFixed(2)}%</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="font-mono text-[11px] text-[#B8B8B8]">
+          {loading
+            ? 'FETCHING — the DefiLlama pool index (one fetch, governor-cached)…'
+            : 'NO DATA — DefiLlama Yields could not be reached. No yield figure is invented.'}
+        </p>
+      )}
+      <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+        APY IS SOURCE-REPORTED IN PERCENT, VARIABLE, OBSERVED AT FETCH TIME —
+        NOT A PROMISE AND NOT A PLATFORM FIGURE. EIGENLAYER AND BABYLON DO NOT
+        APPEAR IN THIS SOURCE: THEY REMAIN NOT_CONNECTED.
+      </p>
+    </div>
+  );
+};
 
 export type CryptoSectionId =
   | 'Dashboard'
@@ -121,6 +187,8 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
           )}
         </div>
       </div>
+
+      <LiveYieldsPanel />
 
       {/* 3-Column Crypto Intel Command Layout */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
