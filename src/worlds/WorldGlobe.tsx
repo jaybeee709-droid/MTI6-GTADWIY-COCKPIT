@@ -15,6 +15,9 @@ export interface WorldGlobeProps {
 type GlobeViewId =
   | 'command'
   | 'realistic'
+  | 'transitland'
+  | 'macro'
+  | 'local'
   | 'earnings'
   | 'crypto'
   | 'opportunities'
@@ -30,11 +33,35 @@ interface GlobeViewMeta {
 const GLOBE_VIEWS: GlobeViewMeta[] = [
   { id: 'command', label: 'Command', subtitle: 'Master multi-domain view — no live feed connected' },
   { id: 'realistic', label: 'Realistic Earth', subtitle: 'Topographic & atmospheric surface mesh' },
+  { id: 'transitland', label: 'Transitland', subtitle: 'Transitland proxy standby — READY (Not Polled)' },
+  { id: 'macro', label: 'Macro', subtitle: 'Macro economic indicators — no live feed connected' },
+  { id: 'local', label: 'Local', subtitle: 'Local municipal & corridor layer — no live feed connected' },
   { id: 'earnings', label: 'Earnings', subtitle: 'Non-crypto income & local yield corridors — no live feed connected' },
   { id: 'crypto', label: 'Crypto', subtitle: 'On-chain liquidity & validator clusters — no live feed connected' },
   { id: 'opportunities', label: 'Opportunities', subtitle: 'High-signal arbitrage & local bounties — no live feed connected' },
   { id: 'asset', label: 'Asset', subtitle: 'Physical, real-world & equity custody nodes — no live feed connected' },
   { id: 'intelligence', label: 'Intelligence', subtitle: 'Geopolitical, macro & threat synthesis — no live feed connected' },
+];
+
+const LAYER_STATUS: Record<GlobeViewId, { label: string; statusText: string }> = {
+  command: { label: 'Command', statusText: 'STANDBY — Command layer active; awaiting live multi-domain telemetry.' },
+  realistic: { label: 'Realistic Earth', statusText: 'STANDBY — Realistic Earth base projection; satellite overlay not connected.' },
+  transitland: { label: 'Transitland', statusText: 'READY (Not Polled) — Transitland proxy ready; no live route query executed.' },
+  macro: { label: 'Macro', statusText: 'NO DATA — Macro indicator feed not connected in this build.' },
+  local: { label: 'Local', statusText: 'NO DATA — Local corridor & municipal layer awaiting regional feed.' },
+  crypto: { label: 'Crypto', statusText: 'NOT CONNECTED — Crypto RPC offline; no on-chain layer telemetry.' },
+  earnings: { label: 'Earnings', statusText: 'NO DATA — Earnings calendar & filings stream not connected.' },
+  opportunities: { label: 'Opportunities', statusText: 'NO DATA — Opportunity scanner in standby; no live signals.' },
+  asset: { label: 'Asset', statusText: 'NO DATA — Asset custody & valuation layer awaiting feed.' },
+  intelligence: { label: 'Intelligence', statusText: 'UNMEASURED — Intelligence layer awaiting STAR backend connection.' },
+};
+
+const DOMAIN_RADARS: { id: string; label: string; world: string; status: string }[] = [
+  { id: 'opportunity-radar', label: 'Opportunity Radar', world: 'opportunities', status: 'STANDBY · NO DATA' },
+  { id: 'earnings-radar', label: 'Earnings Radar', world: 'earnings', status: 'STANDBY · NO DATA' },
+  { id: 'crypto-radar', label: 'Crypto Radar', world: 'crypto', status: 'RPC NOT CONNECTED' },
+  { id: 'asset-radar', label: 'Asset Radar', world: 'asset', status: 'STANDBY · NO DATA' },
+  { id: 'security-radar', label: 'Security Radar', world: 'security', status: 'UNMEASURED · 2 ALERTS' },
 ];
 
 // Map markers only: name + region + position. No telemetry exists in
@@ -106,6 +133,13 @@ const COUNTRY_BORDERS = [
 
 export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   const [activeView, setActiveView] = useState<GlobeViewId>('command');
+  const [activeLayers, setActiveLayers] = useState<GlobeViewId[]>(['command']);
+  const toggleLayer = (id: GlobeViewId) => {
+    setActiveView(id);
+    setActiveLayers((prev) =>
+      prev.includes(id) ? (prev.length > 1 ? prev.filter((item) => item !== id) : prev) : [...prev, id],
+    );
+  };
   const [selectedNodeId, setSelectedNodeId] = useState<string>(EARTH_NODES[0].id);
   // Log lines are UI events only (the map initialized, the user clicked
   // a marker). No line claims a live feed, a latency, or an alert.
@@ -201,8 +235,47 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
             </div>
             <span className="text-[11px] font-mono text-[#B8B8B8]">CLICK REGION NODE TO INSPECT</span>
           </div>
+          <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-white/10 bg-[#0b0b0b] text-[11px] font-mono">
+            <span className="px-2 py-0.5 rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-300">
+              Transitland Proxy: READY (Not Polled)
+            </span>
+            <span className="px-2 py-0.5 rounded border border-[#00B7FF]/40 bg-[#00B7FF]/10 text-[#00B7FF]">
+              World Engine: 957 Nodes
+            </span>
+            <span className="px-2 py-0.5 rounded border border-amber-500/40 bg-amber-500/10 text-amber-300">
+              STAR Backend: NOT CONNECTED
+            </span>
+            <span className="px-2 py-0.5 rounded border border-rose-500/40 bg-rose-500/10 text-rose-300">
+              Crypto RPC: NOT CONNECTED
+            </span>
+          </div>
 
           <div className="relative w-full aspect-[2/1] bg-[#050505]">
+            <div className="absolute top-2 left-2 right-2 z-10 pointer-events-none flex flex-col gap-1.5">
+              <div className="pointer-events-auto flex flex-wrap gap-1">
+                {(Object.keys(LAYER_STATUS) as GlobeViewId[]).map((layerId) => {
+                  const isOn = activeLayers.includes(layerId);
+                  return (
+                    <button
+                      key={layerId}
+                      type="button"
+                      onClick={() => toggleLayer(layerId)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono border transition ${
+                        isOn
+                          ? 'bg-[#00B7FF]/20 border-[#00B7FF] text-white'
+                          : 'bg-[#0b0b0b]/85 border-white/15 text-[#B8B8B8] hover:border-[#00B7FF]/50'
+                      }`}
+                    >
+                      {LAYER_STATUS[layerId].label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="pointer-events-auto inline-flex items-center gap-2 self-start px-2.5 py-1 rounded bg-[#0b0b0b]/90 border border-[#00B7FF]/30 text-[11px] font-mono text-[#B8B8B8]">
+                <span className="text-[#00B7FF] font-semibold">{LAYER_STATUS[activeView].label}:</span>
+                <span>{LAYER_STATUS[activeView].statusText}</span>
+              </div>
+            </div>
             <svg viewBox="0 0 1000 500" className="w-full h-full select-none">
               <defs>
                 <radialGradient id="earthOcean" cx="50%" cy="50%" r="65%">
@@ -289,6 +362,28 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
           </div>
 
           <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-2">
+            <div className="text-xs font-mono text-[#00B7FF]">COVERAGE HERE</div>
+            <div className="text-xs text-[#B8B8B8] space-y-1 font-mono">
+              <div>Region: {selectedNode.region} ({selectedNode.name})</div>
+              <div>Active Layers: {activeLayers.map((id) => LAYER_STATUS[id].label).join(', ')}</div>
+              <div>Data Coverage: NO DATA / PARTIAL</div>
+              <div>Live Telemetry: UNMEASURED</div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-2">
+            <div className="text-xs font-mono text-[#00B7FF]">COCKPIT HEALTH</div>
+            <div className="text-xs text-[#B8B8B8] space-y-1 font-mono">
+              <div>System Health: PARTIAL</div>
+              <div>STAR Status: DISCONNECTED</div>
+              <div>Bot Status: PROPOSE-ONLY</div>
+              <div>Data Status: NO DATA</div>
+              <div>Security Status: UNMEASURED</div>
+              <div className="text-amber-300">Alerts: 2 Active</div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-2">
             <div className="flex items-center gap-2 text-xs font-mono text-[#00B7FF]">
               <Activity className="h-3.5 w-3.5" />
               <span>ACTIVITY LOG</span>
@@ -302,6 +397,20 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        {DOMAIN_RADARS.map((radar) => (
+          <button
+            key={radar.id}
+            type="button"
+            onClick={() => onSelectWorld?.(radar.world)}
+            className="text-left rounded-xl border border-white/10 bg-[#101010] hover:border-[#00B7FF]/60 p-3 transition space-y-1"
+          >
+            <div className="text-xs font-semibold text-white">{radar.label}</div>
+            <div className="text-[10px] font-mono text-[#B8B8B8]">{radar.status}</div>
+          </button>
+        ))}
       </div>
 
       <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-3">
