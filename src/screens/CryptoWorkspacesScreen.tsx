@@ -13,7 +13,14 @@
 import React, { useState } from 'react';
 import { Layers } from 'lucide-react';
 import { CRYPTO_WORKSPACES, CRYPTO_WORKSPACE_GROUPS, type WorkspaceGroupId } from '../crypto-workspaces-data';
+import { WORKSPACE_COVERAGE } from '../workspace-coverage-data';
+import { CANONICAL_60, ENCYCLOPEDIA_FAMILIES } from '../encyclopedia-data';
 import { MonoLine, Panel, ScreenHeader, StatusPill } from './shared';
+
+const majorTitle = (id: string): string =>
+  CANONICAL_60.find((m) => m.id === id)?.title ?? id;
+const familyTitle = (id: string): string =>
+  ENCYCLOPEDIA_FAMILIES.find((f) => f.id === id)?.title ?? id;
 
 function statusTone(status: string): 'neutral' | 'warn' | 'bad' | 'ok' {
   if (status === 'EXISTS') return 'ok';
@@ -32,6 +39,7 @@ function statusNote(status: string): string {
 
 export const CryptoWorkspacesScreen: React.FC = () => {
   const [groupFilter, setGroupFilter] = useState<WorkspaceGroupId | 'all'>('all');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const groups = CRYPTO_WORKSPACE_GROUPS.map((g) => ({
     ...g,
@@ -97,6 +105,79 @@ export const CryptoWorkspacesScreen: React.FC = () => {
                 <p className="mt-1 font-mono text-[11px] text-[#B8B8B8]">
                   id: {w.id} · frame: {w.frame} · ladder top: {w.ladderTop} · execution: DISABLED
                 </p>
+                {(() => {
+                  const cov = WORKSPACE_COVERAGE[w.id];
+                  if (!cov) return null;
+                  const isOpen = expandedId === w.id;
+                  const hasMajors = cov.majors.length + cov.secondaryMajors.length > 0;
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedId(isOpen ? null : w.id)}
+                        aria-expanded={isOpen}
+                        className="mt-2 flex min-h-[44px] w-full items-center justify-between rounded border border-[#00B7FF]/40 bg-[#050505] px-2 font-mono text-[10px] text-white"
+                      >
+                        <span>
+                          BACKBONE COVERAGE: {cov.majors.length} PRIMARY · {cov.secondaryMajors.length}{' '}
+                          SECONDARY MAJORS
+                        </span>
+                        <span className="text-[#00B7FF]">{isOpen ? 'HIDE' : 'VIEW'}</span>
+                      </button>
+                      {isOpen && (
+                        <div className="mt-2 space-y-2 rounded border border-white/10 bg-[#050505] p-2.5">
+                          {!hasMajors && (
+                            <p className="font-mono text-[10px] text-[#B8B8B8]">
+                              NO CANONICAL MAJOR ACTIVITY IS RECORDED FOR THIS WORKSPACE
+                              {w.gated
+                                ? ' — IT IS AN OWNER-GATED SEAT; NO ACTIVITY IS INVENTED TO FILL IT.'
+                                : ' — STRUCTURAL / PLATFORM SEAT IN THE REGISTRY.'}
+                            </p>
+                          )}
+                          {cov.majors.length > 0 && (
+                            <div>
+                              <p className="font-mono text-[9px] text-[#00B7FF]">PRIMARY MAJORS (RECORDED)</p>
+                              {cov.majors.map((id) => (
+                                <p key={id} className="font-mono text-[10px] text-white">
+                                  · {majorTitle(id)}
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                          {cov.secondaryMajors.length > 0 && (
+                            <div>
+                              <p className="font-mono text-[9px] text-[#00B7FF]">SECONDARY MAJORS (RECORDED)</p>
+                              {cov.secondaryMajors.map((id) => (
+                                <p key={id} className="font-mono text-[10px] text-[#B8B8B8]">
+                                  · {majorTitle(id)}
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                          {cov.families.length > 0 && (
+                            <p className="font-mono text-[10px] text-[#B8B8B8]">
+                              FAMILIES: {cov.families.map(familyTitle).join(' · ')}
+                            </p>
+                          )}
+                          {cov.entityKinds.length > 0 && (
+                            <p className="font-mono text-[10px] text-[#B8B8B8]">
+                              ENTITY KINDS: {cov.entityKinds.join(' · ').toUpperCase()}
+                            </p>
+                          )}
+                          {cov.botRoles.length > 0 && (
+                            <p className="font-mono text-[10px] text-[#B8B8B8]">
+                              BOT ROLE CODES (AS RECORDED): {cov.botRoles.join(' · ')}
+                            </p>
+                          )}
+                          <p className="font-mono text-[8px] text-[#B8B8B8]">
+                            COVERAGE IS THE REGISTRY&apos;S RECORDED MAPPING (CW-1 RESOLVER DATA) — IT
+                            DESCRIBES WHAT THE WORKSPACE IS OVER, NOT LIVE CONTENT. ALL RECORDS UNVERIFIED.
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             ))}
           </div>
