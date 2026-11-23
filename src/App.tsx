@@ -314,8 +314,21 @@ export function App() {
                     : 'border-white/10 bg-[#121212] text-[#B8B8B8] hover:border-white/25 hover:text-white'
                 }`}
               >
-                <span style={{ color: active ? w.accent : undefined }}>{w.icon}</span>
-                <span>{w.label}</span>
+                {/* Nav-overlap fix (Phase 1 follow-up, 2026-11-22): the icon
+                    lives in a fixed 16px flex box that can neither shrink nor
+                    overflow, and the SVG inside is forced to 16px, so the
+                    icon can never cover the label's first letters. The label
+                    is shrink-0 + nowrap so it never compresses under the
+                    icon. Previously both spans were unguarded flex items,
+                    and the live preview showed the icon clipping 1–3 letters
+                    of every label, worse as the width shrank. */}
+                <span
+                  className="flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4 [&>svg]:shrink-0"
+                  style={{ color: active ? w.accent : undefined }}
+                >
+                  {w.icon}
+                </span>
+                <span className="shrink-0 whitespace-nowrap">{w.label}</span>
               </button>
             );
           })}
