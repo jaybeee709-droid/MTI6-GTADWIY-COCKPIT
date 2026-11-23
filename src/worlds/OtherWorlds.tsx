@@ -213,6 +213,7 @@ export const EncyclopediaWorld: React.FC = () => {
   const [backboneQuery, setBackboneQuery] = useState('');
   const [indexQuery, setIndexQuery] = useState('');
   const [entityQuery, setEntityQuery] = useState('');
+  const [expandedMajor, setExpandedMajor] = useState<string | null>(null);
 
   const familyTitle = useMemo(() => {
     const map = new Map<string, string>();
@@ -249,6 +250,35 @@ export const EncyclopediaWorld: React.FC = () => {
     if (!q) return [];
     return ENCYCLOPEDIA_INDEX.filter((e) => e.title.toLowerCase().includes(q)).slice(0, 50);
   }, [indexQuery]);
+
+  // Drill-down (v139): Batch B records hang beneath the backbone by
+  // their recorded parentRef — Types under a major, Strategies under
+  // a Type or directly under a major. All links come from the frozen
+  // data (the generator asserted 0 unresolved parents).
+  const childrenOf = useMemo(() => {
+    const map = new Map<string, typeof ENCYCLOPEDIA_INDEX>();
+    for (const e of ENCYCLOPEDIA_INDEX) {
+      if (!e.parent) continue;
+      const list = map.get(e.parent) ?? [];
+      list.push(e);
+      map.set(e.parent, list);
+    }
+    return map;
+  }, []);
+  const majorChildren = useMemo(() => {
+    const map = new Map<string, { types: typeof ENCYCLOPEDIA_INDEX; directStrategies: typeof ENCYCLOPEDIA_INDEX; strategyTotal: number }>();
+    for (const m of CANONICAL_60) {
+      const kids = childrenOf.get(m.id) ?? [];
+      const types = kids.filter((k) => k.level === 'TYPE');
+      const directStrategies = kids.filter((k) => k.level === 'STRATEGY');
+      let strategyTotal = directStrategies.length;
+      for (const t of types) {
+        strategyTotal += (childrenOf.get(t.id) ?? []).filter((k) => k.level === 'STRATEGY').length;
+      }
+      map.set(m.id, { types, directStrategies, strategyTotal });
+    }
+    return map;
+  }, [childrenOf]);
 
   const entityGroups = useMemo(() => {
     const q = entityQuery.trim().toLowerCase();
@@ -337,6 +367,68 @@ export const EncyclopediaWorld: React.FC = () => {
                   </div>
                   <p className="text-[11px] leading-relaxed text-[#B8B8B8]">{m.definition}</p>
                   <p className="font-mono text-[9px] text-[#B8B8B8]">WORKSPACE (RECORDED): {m.workspace}</p>
+                  {(() => {
+                    const kids = majorChildren.get(m.id);
+                    if (!kids || (kids.types.length === 0 && kids.directStrategies.length === 0)) {
+                      return (
+                        <p className="font-mono text-[9px] text-[#B8B8B8]">
+                          TYPES: 0 · STRATEGIES: 0 — NO BATCH B RECORDS UNDER THIS ACTIVITY
+                        </p>
+                      );
+                    }
+                    const isOpen = expandedMajor === m.id;
+                    return (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setExpandedMajor(isOpen ? null : m.id)}
+                          aria-expanded={isOpen}
+                          className="flex min-h-[44px] w-full items-center justify-between rounded border border-[#00B7FF]/40 bg-[#050505] px-2 font-mono text-[9px] text-white"
+                        >
+                          <span>
+                            TYPES: {kids.types.length} · STRATEGIES: {kids.strategyTotal}
+                          </span>
+                          <span className="text-[#00B7FF]">{isOpen ? 'HIDE' : 'DRILL DOWN'}</span>
+                        </button>
+                        {isOpen && (
+                          <div className="max-h-64 space-y-2 overflow-y-auto rounded border border-white/10 bg-[#050505] p-2">
+                            {kids.types.map((t) => {
+                              const tStrategies = (childrenOf.get(t.id) ?? []).filter(
+                                (k) => k.level === 'STRATEGY',
+                              );
+                              return (
+                                <div key={t.id} className="space-y-1">
+                                  <p className="font-mono text-[10px] text-white">
+                                    <span className="text-[#00B7FF]">TYPE</span> · {t.title}
+                                  </p>
+                                  {tStrategies.map((s) => (
+                                    <p key={s.id} className="pl-3 font-mono text-[10px] text-[#B8B8B8]">
+                                      <span className="text-[#8B5CFF]">STRATEGY</span> · {s.title}
+                                    </p>
+                                  ))}
+                                </div>
+                              );
+                            })}
+                            {kids.directStrategies.length > 0 && (
+                              <div className="space-y-1">
+                                <p className="font-mono text-[10px] text-[#00B7FF]">
+                                  STRATEGIES RECORDED DIRECTLY UNDER THIS ACTIVITY
+                                </p>
+                                {kids.directStrategies.map((s) => (
+                                  <p key={s.id} className="pl-3 font-mono text-[10px] text-[#B8B8B8]">
+                                    <span className="text-[#8B5CFF]">STRATEGY</span> · {s.title}
+                                  </p>
+                                ))}
+                              </div>
+                            )}
+                            <p className="font-mono text-[8px] text-[#B8B8B8]">
+                              ALL RECORDS UNVERIFIED · ACTION LEVEL BELOW THIS: 0 RECORDS EXIST
+                            </p>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               ))}
             </div>
