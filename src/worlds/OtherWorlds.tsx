@@ -26,6 +26,7 @@ import {
   ENCYCLOPEDIA_FAMILIES,
   ENCYCLOPEDIA_INDEX,
 } from '../encyclopedia-data';
+import { ENTITY_COUNTS, ENTITY_UNIVERSE } from '../entity-data';
 
 /* ============================================================================
  * 1. OpportunitiesWorld — honest: the pipeline ends at PREPARED with
@@ -202,9 +203,16 @@ const LEVEL_LABEL: Record<string, string> = {
   STRATEGY: 'STRATEGY',
 };
 
+const ENTITY_REGISTRY_LABEL: Record<string, string> = {
+  chains: 'NETWORKS',
+  assets: 'ASSETS',
+  protocols: 'PROTOCOLS',
+};
+
 export const EncyclopediaWorld: React.FC = () => {
   const [backboneQuery, setBackboneQuery] = useState('');
   const [indexQuery, setIndexQuery] = useState('');
+  const [entityQuery, setEntityQuery] = useState('');
 
   const familyTitle = useMemo(() => {
     const map = new Map<string, string>();
@@ -241,6 +249,21 @@ export const EncyclopediaWorld: React.FC = () => {
     if (!q) return [];
     return ENCYCLOPEDIA_INDEX.filter((e) => e.title.toLowerCase().includes(q)).slice(0, 50);
   }, [indexQuery]);
+
+  const entityGroups = useMemo(() => {
+    const q = entityQuery.trim().toLowerCase();
+    const groups = new Map<string, typeof ENTITY_UNIVERSE>();
+    for (const e of ENTITY_UNIVERSE) {
+      if (q && !e.title.toLowerCase().includes(q) && !(e.symbol ?? '').toLowerCase().includes(q)) {
+        continue;
+      }
+      const list = groups.get(e.registry) ?? [];
+      list.push(e);
+      groups.set(e.registry, list);
+    }
+    return [...groups.entries()];
+  }, [entityQuery]);
+  const entitiesShown = entityGroups.reduce((n, [, list]) => n + list.length, 0);
 
   return (
     <div className="space-y-5 text-white">
@@ -367,6 +390,75 @@ export const EncyclopediaWorld: React.FC = () => {
             <p className="font-mono text-[9px] text-[#B8B8B8]">SHOWING UP TO 50 MATCHES.</p>
           </div>
         )}
+      </div>
+
+      {/* ENTITY UNIVERSE — the 48 canonical entities (owner-frozen
+          Batches 1 + 2), generated from the frozen entity files.
+          Identity fields are exactly what the frozen records carry;
+          every entity is UNVERIFIED. */}
+      <div className="space-y-4 rounded-2xl border border-white/10 bg-[#101010] p-5">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold">ENTITY UNIVERSE — {ENTITY_COUNTS.total} CANONICAL ENTITIES</h3>
+            <p className="mt-0.5 font-mono text-[10px] text-[#B8B8B8]">
+              {entitiesShown} OF {ENTITY_COUNTS.total} SHOWN · NETWORKS {ENTITY_COUNTS.chains} · ASSETS{' '}
+              {ENTITY_COUNTS.assets} · PROTOCOLS {ENTITY_COUNTS.protocols} · ALL UNVERIFIED
+            </p>
+          </div>
+          <div className="relative w-full md:w-72">
+            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-[#B8B8B8]" />
+            <input
+              type="text"
+              value={entityQuery}
+              onChange={(e) => setEntityQuery(e.target.value)}
+              placeholder="Filter entities..."
+              className="w-full rounded-lg border border-white/15 bg-[#050505] py-1.5 pl-8 pr-3 text-xs text-white placeholder-[#B8B8B8]/60 focus:border-[#00B7FF] focus:outline-none"
+            />
+          </div>
+        </div>
+        {entityGroups.length === 0 && (
+          <p className="font-mono text-[11px] text-[#B8B8B8]">NO ENTITY MATCHES THAT FILTER.</p>
+        )}
+        {entityGroups.map(([registry, entities]) => (
+          <div key={registry} className="space-y-2">
+            <div className="flex items-center gap-2 font-mono text-[11px] text-[#00B7FF]">
+              <span className="font-semibold">{ENTITY_REGISTRY_LABEL[registry] ?? registry.toUpperCase()}</span>
+              <span className="text-[#B8B8B8]">· {entities.length}</span>
+            </div>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              {entities.map((e) => (
+                <div key={e.id} className="space-y-1.5 rounded-lg border border-white/10 bg-[#151515] p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-xs font-semibold text-white">
+                      {e.title}
+                      {e.formerName && (
+                        <span className="ml-1.5 font-mono text-[9px] font-normal text-[#B8B8B8]">
+                          FORMERLY {e.formerName.toUpperCase()}
+                        </span>
+                      )}
+                    </span>
+                    <span className="shrink-0 rounded border border-white/15 bg-[#050505] px-1.5 py-0.5 font-mono text-[9px] text-[#B8B8B8]">
+                      UNVERIFIED
+                    </span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-[#B8B8B8]">{e.definition}</p>
+                  <p className="font-mono text-[9px] text-[#B8B8B8]">
+                    {e.symbol && <>SYMBOL (RECORDED): {e.symbol} · </>}
+                    {typeof e.chainId === 'number' && <>CHAIN ID (RECORDED): {e.chainId} · </>}
+                    {e.activityRefs && <>BACKBONE ACTIVITIES LINKED: {e.activityRefs.length} · </>}
+                    {e.networkRefs && <>NETWORKS LINKED: {e.networkRefs.length} · </>}
+                    SOURCE BATCH: {e.batch.toUpperCase()}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+          THE ENTITY UNIVERSE STAYS CONTINUOUSLY EXPANDABLE THROUGH THE GOVERNED PIPELINE
+          (CANDIDATE → OWNER FREEZE → IMPORT). DISCOVERY IS NOT VERIFICATION, AND NO ENTITY
+          RECORD AUTHORIZES ANY FINANCIAL ACTION.
+        </p>
       </div>
 
       {/* World Engine Relationships — recorded counts; the graph
