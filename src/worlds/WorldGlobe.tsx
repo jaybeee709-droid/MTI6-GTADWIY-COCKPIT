@@ -18,6 +18,7 @@ import {
   type MapViewReport,
 } from './WorldMapEngine';
 import { CryptoSphere } from './CryptoSphere';
+import { ALL_ADAPTERS } from '../provider-adapters';
 
 export interface WorldGlobeProps {
   onSelectWorld?: (world: WorldId) => void;
@@ -369,6 +370,34 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               Markers appear only for records with verified locations. Every
               layer's record set is currently empty or unconnected, so the map
               honestly places none.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-2">
+            <div className="text-xs font-mono text-[#00B7FF]">PROVIDER CONTRACTS</div>
+            <div className="space-y-1">
+              {ALL_ADAPTERS.map((a) => (
+                <div
+                  key={a.id}
+                  className="flex items-center justify-between gap-2 font-mono text-[10px]"
+                >
+                  <span className="truncate text-[#B8B8B8]">{a.provider}</span>
+                  <span
+                    className={`shrink-0 ${
+                      a.status === 'PLANNED' || a.status === 'NOT_CONNECTED'
+                        ? 'text-[#FFB020]'
+                        : 'text-white'
+                    }`}
+                  >
+                    {a.status}
+                    {a.status === 'PLANNED' ? ' · NOT WIRED' : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+              KEYED PROVIDERS: OWNER APPROVAL + NETLIFY PROXY ONLY (D1) —
+              PLANNED MEANS REGISTERED, NEVER CALLED.
             </p>
           </div>
 
