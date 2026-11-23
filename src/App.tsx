@@ -44,6 +44,7 @@ import {
 import { DISPLAY_CURRENCIES, currencyOf } from './currencies';
 import { fetchStarStatus, starChat, StarError } from './star-client';
 import { buildStarSystemPrompt } from './star-context';
+import { STAR_EXPRESSIONS, STAR_PORTRAIT } from './star-avatar-data';
 import { WorldGlobe } from './worlds/WorldGlobe';
 import { CryptoWorld } from './worlds/CryptoWorld';
 import { EarningsWorld } from './worlds/EarningsWorld';
@@ -1203,7 +1204,17 @@ export function App() {
           <div className="w-80 max-w-[calc(100vw-2.5rem)] rounded-2xl border border-[#00B7FF]/40 bg-[#101010] p-4 shadow-2xl text-xs">
             <div className="flex items-center justify-between border-b border-white/10 pb-2 mb-2">
               <span className="font-semibold text-[#00B7FF] flex items-center gap-1.5">
-                <Sparkles className="h-3.5 w-3.5" /> STAR Core Assistant
+                {/* STAR's face is the owner's designated portrait
+                    (2026-11-16 rulings). Expression mirrors real UI
+                    state only: thinking while a reply is in flight,
+                    smile while the panel is open and idle — never
+                    faked timing (Embodiment Build 1 honesty bound). */}
+                <img
+                  src={starBusy ? STAR_EXPRESSIONS.thinking : STAR_EXPRESSIONS.smile}
+                  alt="STAR"
+                  className="h-8 w-8 rounded-full border border-[#8B5CFF]/60 object-cover"
+                />{' '}
+                STAR Core Assistant
               </span>
               <button onClick={() => setStarOrbOpen(false)} className="text-[#B8B8B8] hover:text-white">
                 <X className="h-3.5 w-3.5" />
@@ -1274,9 +1285,9 @@ export function App() {
         <button
           onClick={() => setStarOrbOpen((v) => !v)}
           aria-label="STAR Orb"
-          className="flex h-14 w-14 items-center justify-center rounded-full border border-[#00B7FF]/60 bg-gradient-to-br from-[#00B7FF] to-[#8B5CFF] text-white shadow-[0_0_25px_rgba(0,183,255,0.45)] transition hover:scale-105"
+          className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-[#00B7FF]/60 bg-[#101010] shadow-[0_0_25px_rgba(0,183,255,0.45)] transition hover:scale-105"
         >
-          <Sparkles className="h-6 w-6" />
+          <img src={STAR_PORTRAIT} alt="STAR" className="h-full w-full object-cover" />
         </button>
       </div>
     </div>
