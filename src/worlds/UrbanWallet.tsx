@@ -303,6 +303,43 @@ export const UrbanWallet: React.FC = () => {
               </p>
             </div>
           ))}
+
+          {/* SETTLEMENT FAMILY GRID (Gemini family 17 adoption,
+              2026-11-23): the concept's desktop settlement blocks,
+              laid over the rails above. No settlement feed is
+              connected — every block is read-only with NO DATA. */}
+          <div className="rounded-2xl border border-white/10 bg-[#101010] p-5 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold">Settlement Family</h3>
+              <span className="font-mono text-[10px] text-[#B8B8B8]">
+                READ-ONLY · EXECUTION DISABLED
+              </span>
+            </div>
+            <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3">
+              {[
+                { name: 'FX NETTING', note: 'NETTING TOTALS: NO DATA' },
+                { name: 'USD CASH MANAGEMENT', note: 'BALANCE: UNAVAILABLE' },
+                { name: 'GBP CLEARING', note: 'CLEARING STATUS: NO DATA' },
+                { name: 'JPY PAYMENTS', note: 'PAYMENTS: NO DATA · 0 RECORDS' },
+                { name: 'SGD LIQUIDITY', note: 'LIQUIDITY: UNAVAILABLE' },
+                { name: 'STAR ACCOUNTANT', note: 'LEDGER VIEW ONLY · NO ENTRIES' },
+              ].map((b) => (
+                <div key={b.name} className="space-y-1.5 rounded-xl bg-[#151515] p-3.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-white">{b.name}</span>
+                    <span className="rounded border border-white/15 bg-[#050505] px-1.5 py-0.5 font-mono text-[9px] text-[#B8B8B8]">
+                      NOT CONNECTED
+                    </span>
+                  </div>
+                  <p className="font-mono text-[10px] text-[#B8B8B8]">{b.note}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-[#B8B8B8]">
+              Concept settlement totals are not carried over — a block
+              shows a figure only when a sourced feed reports it.
+            </p>
+          </div>
         </div>
       )}
 

@@ -9,6 +9,7 @@ import {
   Network,
   Search,
   ShieldCheck,
+  Sparkles,
 } from 'lucide-react';
 import {
   CRYPTO_WORLD_CONTENTS,
@@ -83,6 +84,90 @@ const LiveYieldsPanel: React.FC = () => {
     </div>
   );
 };
+
+/** GEMINI FAMILY ADOPTION (owner: "do all at once", 2026-11-23).
+ *  The concept set's mode strip, adopted under the owner's ladder:
+ *  AUTO means auto-MONITORING only — no mode executes anything. */
+const MODE_STRIP: { label: string; note: string; current?: boolean }[] = [
+  { label: 'MANUAL', note: 'OWNER DRIVES EVERY VIEW' },
+  { label: 'MANUAL + ASSISTANTS', note: 'STAR + PRINCIPALS PRESENT & EXPLAIN', current: true },
+  { label: 'AUTO', note: 'MONITORING ONLY · EXECUTION DISABLED' },
+];
+
+/** The per-family STAR presenter card (Gemini concept pattern),
+ *  bound to the real STAR: STAR's face is the owner's portrait, and
+ *  its replies live in the STAR panel — labelled DEMO until the owner
+ *  configures MTI6_STAR_API_KEY in Netlify. No mock analyst persona. */
+const StarPresenterCard: React.FC = () => (
+  <div className="rounded-xl border border-[#8B5CFF]/50 bg-[#101010] p-4 space-y-2">
+    <div className="flex items-center gap-2 text-xs font-mono text-[#8B5CFF]">
+      <Sparkles className="h-4 w-4" />
+      <span>STAR — PRESENTER OF THIS WORLD</span>
+    </div>
+    <p className="text-xs leading-relaxed text-[#B8B8B8]">
+      STAR presents Crypto World and answers for it in the STAR panel
+      (bottom-right). STAR sits above the 12 Tribe principals; the
+      principals are embodied Israelite elders in robes — never the
+      robot analysts or invented personas shown in concept art. Until
+      the owner adds the STAR key in Netlify, STAR's replies are
+      labelled DEMO.
+    </p>
+    <div className="flex flex-wrap gap-1.5 font-mono text-[10px]">
+      <span className="rounded border border-[#8B5CFF]/40 bg-[#8B5CFF]/10 px-2 py-0.5 text-[#8B5CFF]">
+        STAR · PURPLE #8B5CFF · NEVER A STATUS COLOUR
+      </span>
+      <span className="rounded border border-white/15 bg-[#151515] px-2 py-0.5 text-[#B8B8B8]">
+        EXECUTION: DISABLED
+      </span>
+    </div>
+  </div>
+);
+
+/** SPECIALIZED ECONOMIES — the Gemini families 14–16 surfaced as
+ *  cards (they already exist as workspaces in the registry; this is
+ *  their family view). Every figure is NO DATA until a sourced feed
+ *  exists. GameFi is a LOCKED tracking seat only — it is not the
+ *  GTADWIY game, which stays deferred by owner ruling. */
+const SPECIALIZED_FAMILY: {
+  name: string;
+  state: string;
+  note: string;
+}[] = [
+  { name: 'Prediction Markets', state: 'NOT CONNECTED', note: 'MARKET DATA UNAVAILABLE · NO DATA' },
+  { name: 'Oracles', state: 'NOT CONNECTED', note: 'DATA FEEDS: NO DATA' },
+  { name: 'Gauges / Incentive Markets', state: 'NOT IMPLEMENTED', note: 'GAUGE WEIGHTS: NO DATA · ANALYZE ONLY' },
+  { name: 'SocialFi', state: 'LOCKED · EXPANSION-GATED', note: 'OWNER-GATED SEAT · NO FEED' },
+  { name: 'GameFi', state: 'LOCKED · EXPANSION-GATED', note: 'TRACKING SEAT ONLY · NOT THE GTADWIY GAME BUILD' },
+];
+
+const SpecializedFamilyPanel: React.FC = () => (
+  <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-3">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex items-center gap-2 text-xs font-mono text-[#00B7FF]">
+        <Layers className="h-4 w-4" />
+        <span>SPECIALIZED ECONOMIES — FAMILY VIEW</span>
+      </div>
+      <span className="font-mono text-[10px] text-[#B8B8B8]">
+        ADOPTED FROM THE OWNER'S CONCEPT SET · 2026-11-23
+      </span>
+    </div>
+    <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-5">
+      {SPECIALIZED_FAMILY.map((f) => (
+        <div key={f.name} className="space-y-1.5 rounded-lg border border-white/10 bg-[#151515] p-3">
+          <div className="text-xs font-semibold text-white">{f.name}</div>
+          <span className="inline-block rounded border border-white/15 bg-[#050505] px-1.5 py-0.5 font-mono text-[9px] text-[#B8B8B8]">
+            {f.state}
+          </span>
+          <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">{f.note}</p>
+        </div>
+      ))}
+    </div>
+    <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+      CONCEPT FIGURES (TVL, APY, FEED COUNTS) ARE NOT CARRIED OVER — EACH
+      CARD SHOWS ITS REAL STATE UNTIL A SOURCED LIVE FEED EXISTS.
+    </p>
+  </div>
+);
 
 export type CryptoSectionId =
   | 'Dashboard'
@@ -188,7 +273,32 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
         </div>
       </div>
 
+      {/* Mode strip (Gemini family adoption) — AUTO is monitoring
+          only; the ladder still ends at OWNER APPROVAL and EXECUTE
+          stays disabled at every mode. */}
+      <div className="flex flex-wrap items-center gap-1.5 font-mono text-[10px]">
+        <span className="text-[#B8B8B8]">MODE:</span>
+        {MODE_STRIP.map((m) => (
+          <span
+            key={m.label}
+            title={m.note}
+            className={`rounded border px-2 py-1 ${
+              m.current
+                ? 'border-[#00B7FF]/60 bg-[#00B7FF]/10 text-white'
+                : 'border-white/15 bg-[#101010] text-[#B8B8B8]'
+            }`}
+          >
+            {m.label}
+            <span className="ml-1.5 text-[9px] text-[#B8B8B8]">{m.note}</span>
+          </span>
+        ))}
+      </div>
+
       <LiveYieldsPanel />
+
+      <StarPresenterCard />
+
+      <SpecializedFamilyPanel />
 
       {/* 3-Column Crypto Intel Command Layout */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">

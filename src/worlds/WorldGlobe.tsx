@@ -117,10 +117,10 @@ const DOMAIN_RADARS: { id: string; label: string; world: WorldId; status: string
   { id: 'security-radar', label: 'Security Radar', world: 'security', status: 'UNMEASURED · NO DATA' },
 ];
 
-// No transit feed is connected in this build. No departures, stops,
-// routes, or arrival times are shown — no stop IDs or minutes-away
-// figures are claimed. The real Transitland capability lives in the
-// vanilla app; wiring it into this map is Phase 2 work.
+// Transit (A2/A3, 2026-11-23): stops and departures come only from
+// the /api/mti6 proxy (Transitland), on the owner's explicit query —
+// never polled, never invented. Without a configured server key the
+// panel says NOT_CONFIGURED and places nothing.
 
 function fmtLon(lon: number): string {
   return `${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'}`;
@@ -156,8 +156,11 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     rows: { time: string; label: string }[];
     fetchedAt: number | null;
   }>({ state: 'idle', message: '', rows: [], fetchedAt: null });
+  // The concept sheet's TODAY / TOMORROW tabs — the proxy already
+  // accepts relative_date, so the tab is a real second query.
+  const [departuresDay, setDeparturesDay] = useState<'TODAY' | 'TOMORROW'>('TODAY');
 
-  const queryDepartures = async (stop: MapMarker) => {
+  const queryDepartures = async (stop: MapMarker, day: 'TODAY' | 'TOMORROW' = departuresDay) => {
     const key = stopKeys[stop.id];
     if (!key) {
       setDepartures({
@@ -179,7 +182,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'transit.departures',
-          payload: { stop_key: key, limit: 8, include_alerts: false },
+          payload: { stop_key: key, limit: 8, include_alerts: false, relative_date: day },
         }),
       });
       const env = (await res.json().catch(() => null)) as
@@ -237,7 +240,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
         message:
           rows.length > 0
             ? `${rows.length} UPCOMING DEPARTURE${rows.length === 1 ? '' : 'S'} (SCHEDULED FEED DATA).`
-            : 'NO DEPARTURES RETURNED FOR THIS STOP TODAY.',
+            : `NO DEPARTURES RETURNED FOR THIS STOP ${day}.`,
         rows,
         fetchedAt: Date.now(),
       });
@@ -478,6 +481,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               onMarkerSelect={(m) => {
                 setSelectedStop(m);
                 setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
+                setDeparturesDay('TODAY');
               }}
             />
             {/* Layer chips — 44px touch targets at every tier (the
@@ -572,7 +576,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                     {transitQuery.state === 'loading' ? 'QUERYING…' : 'QUERY STOPS NEAR CENTRE'}
                   </button>
                   {selectedStop && (
-                    <div className="mt-1 border-t border-white/10 pt-1">
+                    <div className="mt-1 hidden border-t border-white/10 pt-1 md:block">
                       STOP: <span className="text-white">{selectedStop.label}</span> ·{' '}
                       {selectedStop.lat.toFixed(5)}, {selectedStop.lon.toFixed(5)} · SOURCE:
                       TRANSITLAND
@@ -612,6 +616,83 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 </div>
               )}
             </div>
+            {/* Phone bottom sheet (Gemini transit concept adoption,
+                2026-11-23): on phone widths the selected stop's
+                departures present as a sheet over the map instead of
+                the overlay block (which is md+ only). Same state, same
+                query — presentation only. */}
+            {transitOn && selectedStop && (
+              <div className="absolute inset-x-2 bottom-2 z-20 rounded-xl border border-[#00B7FF]/50 bg-[#0b0b0b]/95 p-3 font-mono text-[11px] text-[#B8B8B8] md:hidden">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="font-semibold text-white">Stop Departures</div>
+                    <div className="truncate">{selectedStop.label}</div>
+                    <div>
+                      {selectedStop.lat.toFixed(5)}, {selectedStop.lon.toFixed(5)} · SOURCE:
+                      TRANSITLAND
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Close stop departures"
+                    onClick={() => setSelectedStop(null)}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-white/15 text-white"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="mt-2 flex gap-1.5">
+                  {(['TODAY', 'TOMORROW'] as const).map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => {
+                        setDeparturesDay(d);
+                        if (departures.state !== 'idle') void queryDepartures(selectedStop, d);
+                      }}
+                      className={`flex h-11 flex-1 items-center justify-center rounded-lg border ${
+                        departuresDay === d
+                          ? 'border-[#00B7FF]/60 bg-[#00B7FF]/10 text-white'
+                          : 'border-white/15 text-[#B8B8B8]'
+                      }`}
+                    >
+                      {d}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => void queryDepartures(selectedStop)}
+                    disabled={departures.state === 'loading'}
+                    className="flex h-11 flex-1 items-center justify-center rounded-lg border border-[#00B7FF]/60 font-semibold text-white disabled:opacity-50"
+                  >
+                    {departures.state === 'loading' ? 'QUERYING…' : 'DEPARTURES'}
+                  </button>
+                </div>
+                {departures.state !== 'idle' && (
+                  <div className="mt-2">
+                    <div>{departures.message}</div>
+                    {departures.rows.length > 0 && (
+                      <ul className="mt-1 space-y-0.5">
+                        {departures.rows.map((r, i) => (
+                          <li key={i} className="flex justify-between gap-3">
+                            <span className="truncate">{r.label}</span>
+                            <span className="shrink-0 text-white">{r.time}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {departures.fetchedAt !== null && (
+                      <div>
+                        DATA POWERED BY TRANSITLAND · SCHEDULED FEED DATA · FETCHED{' '}
+                        {new Date(departures.fetchedAt).toLocaleTimeString('en-US', {
+                          hour12: false,
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             {/* The Sphere lens overlays the map panel — the map stays
                 home underneath; closing the lens returns to it. */}
             {sphereOpen && cryptoOn && (

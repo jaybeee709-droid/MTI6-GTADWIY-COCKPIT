@@ -3,6 +3,8 @@ import {
   Activity,
   Bot,
   Compass,
+  Cpu,
+  Network,
   Send,
   Shield,
   Sliders,
@@ -106,6 +108,51 @@ export const BotOperations: React.FC = () => {
           ACTIVE: 0 · RUNTIME: NOT_CONNECTED · RECORD SYSTEM ONLY, NO
           WORKER RUNTIME EXISTS
         </span>
+      </div>
+
+      {/* NETWORK EARNING OPS (Gemini family 11 adoption, 2026-11-23):
+          the concept's Network Earnings columns — validators, nodes,
+          mining, DePIN — as an ops surface. No infrastructure is
+          connected: every count is NO DATA, never an invented fleet.
+          Mining is an ops column only; no miner is run from here. */}
+      <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs font-mono text-[#00B7FF]">
+            <Network className="h-4 w-4" />
+            <span>NETWORK EARNING OPS</span>
+          </div>
+          <span className="text-[10px] font-mono text-[#B8B8B8]">
+            VALIDATORS · NODES · MINING · DePIN — ALL NOT CONNECTED
+          </span>
+        </div>
+        <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-4">
+          {[
+            { name: 'VALIDATORS', icon: Shield, lines: ['ACTIVE: NO DATA', 'UPTIME: NO DATA'] },
+            { name: 'NODES', icon: Network, lines: ['RUNNING: NO DATA', 'SYNCED: NO DATA'] },
+            { name: 'MINING', icon: Cpu, lines: ['RIGS: NO DATA', 'HASHRATE: NO DATA'] },
+            { name: 'DePIN', icon: Activity, lines: ['NODES ONLINE: NO DATA', 'REWARDS: NO DATA'] },
+          ].map((c) => (
+            <div key={c.name} className="space-y-1.5 rounded-lg border border-white/10 bg-[#151515] p-3">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-white">
+                  <c.icon className="h-3.5 w-3.5 text-[#00B7FF]" />
+                  {c.name}
+                </span>
+                <span className="rounded border border-white/15 bg-[#050505] px-1.5 py-0.5 font-mono text-[9px] text-[#B8B8B8]">
+                  NOT CONNECTED
+                </span>
+              </div>
+              {c.lines.map((l) => (
+                <p key={l} className="font-mono text-[10px] text-[#B8B8B8]">{l}</p>
+              ))}
+            </div>
+          ))}
+        </div>
+        <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+          CONCEPT FLEET COUNTS (VALIDATORS, ANTMINERS, DePIN REWARDS) ARE
+          NOT CARRIED OVER — A COUNT APPEARS ONLY WHEN A CONNECTED SOURCE
+          REPORTS IT.
+        </p>
       </div>
 
       {/* 3-Pane Operational Hub */}
