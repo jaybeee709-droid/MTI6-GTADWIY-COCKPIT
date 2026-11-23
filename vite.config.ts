@@ -12,8 +12,8 @@ export default defineConfig({
         name: 'MTI6-GTADWIY Cockpit',
         short_name: 'MTI6 Cockpit',
         description: 'MTI6-GTADWIY World-OS Multi-Domain Telemetry & Command Cockpit',
-        theme_color: '#06070B',
-        background_color: '#06070B',
+        theme_color: '#050505',
+        background_color: '#050505',
         display: 'standalone',
         start_url: '/',
         icons: [
