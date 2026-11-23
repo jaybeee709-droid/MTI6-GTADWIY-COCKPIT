@@ -17,6 +17,7 @@ import {
   type MapEngineStatus,
   type MapViewReport,
 } from './WorldMapEngine';
+import { CryptoSphere } from './CryptoSphere';
 
 export interface WorldGlobeProps {
   onSelectWorld?: (world: WorldId) => void;
@@ -129,6 +130,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   const cockpitDb = useCockpitDb();
   const [activeLayers, setActiveLayers] = useState<LayerId[]>(['base']);
   const [focusedLayer, setFocusedLayer] = useState<LayerId>('base');
+  const [sphereOpen, setSphereOpen] = useState<boolean>(false);
   // Log lines are UI events only (the engine initialized, a layer was
   // toggled, the zoom level changed). No line claims a live feed, a
   // latency, or an alert.
@@ -316,9 +318,15 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               {cryptoOn && (
                 <div className="pointer-events-auto self-start rounded border border-[#8B5CFF]/50 bg-[#0b0b0b]/90 px-2.5 py-2 font-mono text-[11px] text-[#B8B8B8] 2xl:self-stretch">
                   <span className="font-semibold text-[#8B5CFF]">CRYPTO IS SPHERE-ONLY.</span>{' '}
-                  No crypto pins exist on the flat map. The Sphere lens lands in
-                  step 5 — until then, Crypto World holds the 24 contents and 56
-                  workspaces.
+                  No crypto pins exist on the flat map — crypto opens as a
+                  relationship lens over it.
+                  <button
+                    type="button"
+                    onClick={() => setSphereOpen(true)}
+                    className="ml-2 font-semibold text-white underline decoration-[#8B5CFF] underline-offset-2"
+                  >
+                    OPEN SPHERE
+                  </button>
                   {onSelectWorld && (
                     <button
                       type="button"
@@ -331,6 +339,11 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 </div>
               )}
             </div>
+            {/* The Sphere lens overlays the map panel — the map stays
+                home underneath; closing the lens returns to it. */}
+            {sphereOpen && cryptoOn && (
+              <CryptoSphere onClose={() => setSphereOpen(false)} />
+            )}
           </div>
         </div>
 
