@@ -37,28 +37,18 @@ const CONSOLE_TABS: ConsoleTab[] = [
   'History',
 ];
 
-const NON_CRYPTO_OPPORTUNITIES = [
-  { title: 'Micro-SaaS Billing Automation', sector: 'B2B SaaS', score: '94', status: 'EXPANSION-GATED' },
-  { title: 'Local Fleet Dispatch Portal', sector: 'Logistics', score: '89', status: 'READ-ONLY' },
-  { title: 'Creator Merch Fulfillment', sector: 'E-Commerce', score: '86', status: 'NOT CONNECTED' },
-  { title: 'Automated Lead Enrichment', sector: 'Agency Ops', score: '82', status: 'EXPANSION-GATED' },
-];
-
-const OPERATIONAL_EARNINGS_SERIES = [
-  { label: 'W1', val: 42 },
-  { label: 'W2', val: 58 },
-  { label: 'W3', val: 51 },
-  { label: 'W4', val: 74 },
-  { label: 'W5', val: 68 },
-  { label: 'W6', val: 88 },
-];
+// No scanner feed is connected: no opportunity names, sectors, or scores
+// are shown. The scanner panel renders an honest empty state.
+// No earnings feed is connected either: no weekly trend bars are shown.
 
 export const BotOperations: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ConsoleTab>('Overview');
   const [selectedTribe, setSelectedTribe] = useState<string>(TRIBE_PRINCIPALS[0]?.id ?? 'tribe-1');
   const [consoleInput, setConsoleInput] = useState('');
+  // Demo console only: no AI backend is connected. Entries are logged
+  // locally and nothing is executed.
   const [consoleHistory, setConsoleHistory] = useState<string[]>([
-    '[AI CONSOLE] Purple Command Kernel (#8B5CFF) online',
+    '[DEMO] Command console — no AI backend connected',
     '[POLICY] Strict Non-Crypto Operational Domain enforced',
     '[STATUS] Tribe Principals staged as UNASSIGNED · NOT CONNECTED',
   ]);
@@ -69,7 +59,7 @@ export const BotOperations: React.FC = () => {
     if (!cmd) return;
     setConsoleHistory((prev) => [
       `> ${cmd}`,
-      `[AI #8B5CFF] Staged "${cmd}" in READ-ONLY simulation (no external execution).`,
+      `[DEMO] Logged "${cmd}" locally only — no AI backend, nothing executed.`,
       ...prev.slice(0, 8),
     ]);
     setConsoleInput('');
@@ -89,7 +79,7 @@ export const BotOperations: React.FC = () => {
                 NON-CRYPTO DOMAIN
               </span>
             </div>
-            <p className="text-xs text-[#B8B8B8]">3-Pane Operational Hub · Scanner, Bot Management & AI Command Console</p>
+            <p className="text-xs text-[#B8B8B8]">3-Pane Operational Hub · Scanner, Bot Management & Command Console (Demo)</p>
           </div>
         </div>
 
@@ -113,21 +103,13 @@ export const BotOperations: React.FC = () => {
                 <Compass className="h-4 w-4" />
                 <span>NON-CRYPTO OPPORTUNITY SCANNER</span>
               </div>
-              <span className="text-[10px] font-mono text-[#B8B8B8]">LIVE RADAR</span>
+              <span className="text-[10px] font-mono text-[#B8B8B8]">NO_DATA</span>
             </div>
             <div className="space-y-2">
-              {NON_CRYPTO_OPPORTUNITIES.map((opp) => (
-                <div key={opp.title} className="p-2.5 rounded-lg bg-[#151515] border border-white/10 space-y-1">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-white">{opp.title}</span>
-                    <span className="font-mono text-[#00B7FF]">{opp.score} PTS</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[10px] font-mono text-[#B8B8B8]">
-                    <span>{opp.sector}</span>
-                    <span>{opp.status}</span>
-                  </div>
-                </div>
-              ))}
+              <div className="p-2.5 rounded-lg bg-[#151515] border border-white/10 space-y-1">
+                <p className="text-xs text-[#B8B8B8]">No scanner feed is connected — no opportunities are shown.</p>
+                <p className="text-[10px] font-mono text-white/40">OPPORTUNITIES: NO_DATA · FEED: NOT_CONNECTED</p>
+              </div>
             </div>
           </div>
 
@@ -137,24 +119,11 @@ export const BotOperations: React.FC = () => {
                 <TrendingUp className="h-4 w-4" />
                 <span>OPERATIONAL EARNINGS</span>
               </div>
-              <span className="text-[10px] font-mono text-[#B8B8B8]">$0.00 CONNECTED</span>
+              <span className="text-[10px] font-mono text-[#B8B8B8]">NO_DATA</span>
             </div>
-            <div className="rounded-lg bg-[#050505] border border-white/10 p-3">
-              <svg viewBox="0 0 300 110" className="w-full h-28">
-                {OPERATIONAL_EARNINGS_SERIES.map((pt, idx) => {
-                  const x = 18 + idx * 46;
-                  const h = pt.val * 0.85;
-                  const y = 90 - h;
-                  return (
-                    <g key={pt.label}>
-                      <rect x={x} y={y} width="26" height={h} rx="3" fill="#00B7FF" fillOpacity="0.85" />
-                      <text x={x + 6} y="104" fill="#B8B8B8" fontSize="9" fontFamily="monospace">
-                        {pt.label}
-                      </text>
-                    </g>
-                  );
-                })}
-              </svg>
+            <div className="rounded-lg bg-[#050505] border border-white/10 p-3 space-y-1">
+              <p className="text-xs text-[#B8B8B8]">No earnings feed is connected — no trend is shown.</p>
+              <p className="text-[11px] font-mono text-white/40">EARNINGS: NO_DATA · FEED: NOT_CONNECTED</p>
             </div>
           </div>
         </div>
@@ -221,13 +190,13 @@ export const BotOperations: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Pane: #8B5CFF Purple AI Assistant Command Console */}
+        {/* Right Pane: #8B5CFF Purple Command Console (Demo — no AI backend) */}
         <div className="xl:col-span-3 rounded-xl border border-[#8B5CFF]/50 bg-[#101010] p-4 flex flex-col justify-between space-y-4">
           <div className="space-y-3">
             <div className="flex items-center justify-between border-b border-[#8B5CFF]/25 pb-2.5">
               <div className="flex items-center gap-2 text-xs font-mono text-[#8B5CFF]">
                 <Sparkles className="h-4 w-4" />
-                <span>AI COMMAND CONSOLE</span>
+                <span>COMMAND CONSOLE — DEMO</span>
               </div>
               <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-[#8B5CFF]/15 border border-[#8B5CFF]/40 text-[#8B5CFF]">
                 #8B5CFF
@@ -255,13 +224,13 @@ export const BotOperations: React.FC = () => {
                 type="text"
                 value={consoleInput}
                 onChange={(e) => setConsoleInput(e.target.value)}
-                placeholder="Issue operational command..."
+                placeholder="Log a note — demo, local only..."
                 className="w-full px-2.5 py-1.5 rounded bg-[#050505] border border-[#8B5CFF]/40 text-xs text-white placeholder-[#B8B8B8]/50 focus:outline-none focus:border-[#8B5CFF]"
               />
               <button
                 type="submit"
                 className="p-1.5 rounded bg-[#8B5CFF] text-white hover:opacity-90 transition"
-                aria-label="Send command"
+                aria-label="Log note (demo)"
               >
                 <Send className="h-3.5 w-3.5" />
               </button>

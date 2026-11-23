@@ -62,10 +62,10 @@ const MIME = {
 
 // Nav label -> expected heading text (exact substring, checked inside <main>).
 const ROUTES = [
-  ['World Globe', 'WORLD GLOBE · MASTER COMMAND'],
-  ['Crypto World', 'CRYPTO WORLD · STRICTLY ON-CHAIN'],
-  ['Earnings World', 'EARNINGS WORLD · NON-CRYPTO INCOME'],
-  ['Bot Operations', 'STAR + 12 Tribes Command Operations'],
+  ['World Map', 'WORLD MAP · MASTER COMMAND'],
+  ['Crypto World', 'CRYPTO INTEL COMMAND'],
+  ['Earnings World', 'EARNINGS WORLD · OPERATIONAL HUB'],
+  ['Bot Operations', 'OPERATIONAL HUB · BOT OPERATIONS'],
   ['Urban Wallet', 'Urban Wallet & Treasury'],
   ['Opportunities', 'Opportunities World'],
   ['Positions & Assets', 'Positions & Assets Unified Ledger'],
@@ -86,7 +86,7 @@ const ROUTES = [
   ['Crypto Workspaces', 'Crypto Workspaces — All 56'],
 ];
 
-const FABRICATED = ['$2,842,610', 'EXECUTE READY', 'Harvested 1,240 USDC'];
+const FABRICATED = ['$2,842,610', 'EXECUTE READY', 'Harvested 1,240 USDC', '$95,240', '14 gwei', 'Subsea cable failover', 'Transit corridor congestion'];
 
 const results = [];
 let failures = 0;
@@ -170,11 +170,11 @@ try {
   const main = () => document.querySelector('main');
   const navButtons = () => [...document.querySelectorAll('header nav button')];
 
-  // Default route = World Globe.
+  // Default route = World Map.
   check(
-    'default route is World Globe',
-    main().textContent.includes('WORLD GLOBE · MASTER COMMAND'),
-    'main contains "WORLD GLOBE · MASTER COMMAND" on first paint',
+    'default route is World Map',
+    main().textContent.includes('WORLD MAP · MASTER COMMAND'),
+    'main contains "WORLD MAP · MASTER COMMAND" on first paint',
   );
 
   // Nav lists all 22 screens.
@@ -262,7 +262,7 @@ try {
   // check below runs on the full document, so instead collect rendered text
   // per route; simpler: re-check the two key screens now).
   const seenText = [];
-  for (const label of ['World Globe', 'Crypto Market', 'Crypto World']) {
+  for (const label of ['World Map', 'Crypto Market', 'Crypto World']) {
     navButtons().find((b) => b.textContent.trim() === label)?.click();
     seenText.push(await settledMainText());
   }

@@ -18,26 +18,18 @@ import {
 
 const TABS: string[] = ['All 20', ...EARNINGS_CATEGORIES];
 
-const SCANNER_ITEMS = [
-  { name: 'B2B SaaS Micro-Tools', channel: 'Direct Recurring', status: 'EXPANSION-GATED' },
-  { name: 'Local Service Dispatch', channel: 'Retainer Ops', status: 'READ-ONLY' },
-  { name: 'Digital Templates Store', channel: 'E-Commerce', status: 'NOT CONNECTED' },
-];
-
-const EARNINGS_TREND = [
-  { label: 'M1', val: 38 },
-  { label: 'M2', val: 52 },
-  { label: 'M3', val: 61 },
-  { label: 'M4', val: 79 },
-  { label: 'M5', val: 85 },
-];
+// No scanner feed is connected: no opportunity names, channels, or
+// scores are shown. The scanner panel renders an honest empty state.
+// No earnings feed is connected either: no trend bars are shown.
 
 export const EarningsWorld: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('All 20');
   const [query, setQuery] = useState('');
   const [aiInput, setAiInput] = useState('');
+  // Demo console only: no AI backend is connected. Entries are logged
+  // locally and nothing is executed.
   const [aiLogs, setAiLogs] = useState<string[]>([
-    '[AI #8B5CFF] Earnings & Operational Hub ready (NON-CRYPTO ONLY)',
+    '[DEMO] Earnings & Operational Hub ready (NON-CRYPTO ONLY)',
     '[STATUS] Payout & Stripe rails: NOT CONNECTED · READ-ONLY',
   ]);
 
@@ -57,7 +49,7 @@ export const EarningsWorld: React.FC = () => {
     if (!cmd) return;
     setAiLogs((prev) => [
       `> ${cmd}`,
-      `[AI #8B5CFF] Logged "${cmd}" in READ-ONLY mode.`,
+      `[DEMO] Logged "${cmd}" locally only — no AI backend, nothing executed.`,
       ...prev.slice(0, 6),
     ]);
     setAiInput('');
@@ -77,7 +69,7 @@ export const EarningsWorld: React.FC = () => {
                 STRICT NON-CRYPTO
               </span>
             </div>
-            <p className="text-xs text-[#B8B8B8]">{SIMPLE_RULE} · {MEMBERSHIP_RULE}</p>
+            <p className="text-xs text-[#B8B8B8]">{SIMPLE_RULE.earnings} · {MEMBERSHIP_RULE.earnings}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -100,15 +92,10 @@ export const EarningsWorld: React.FC = () => {
               <span>NON-CRYPTO OPPORTUNITY SCANNER</span>
             </div>
             <div className="space-y-2">
-              {SCANNER_ITEMS.map((item) => (
-                <div key={item.name} className="p-2.5 rounded-lg bg-[#151515] border border-white/10 space-y-1">
-                  <div className="text-xs font-semibold text-white">{item.name}</div>
-                  <div className="flex items-center justify-between text-[10px] font-mono text-[#B8B8B8]">
-                    <span>{item.channel}</span>
-                    <span className="text-[#00B7FF]">{item.status}</span>
-                  </div>
-                </div>
-              ))}
+              <div className="p-2.5 rounded-lg bg-[#151515] border border-white/10 space-y-1">
+                <p className="text-xs text-[#B8B8B8]">No scanner feed is connected — no opportunities are shown.</p>
+                <p className="text-[10px] font-mono text-white/40">OPPORTUNITIES: NO_DATA · FEED: NOT_CONNECTED</p>
+              </div>
             </div>
           </div>
 
@@ -118,23 +105,11 @@ export const EarningsWorld: React.FC = () => {
                 <TrendingUp className="h-4 w-4" />
                 <span>OPERATIONAL EARNINGS</span>
               </div>
-              <span className="text-[10px] font-mono text-[#B8B8B8]">$0.00 LIVE</span>
+              <span className="text-[10px] font-mono text-[#B8B8B8]">NO_DATA</span>
             </div>
-            <div className="rounded-lg bg-[#050505] border border-white/10 p-3">
-              <svg viewBox="0 0 260 100" className="w-full h-24">
-                {EARNINGS_TREND.map((pt, i) => {
-                  const x = 16 + i * 48;
-                  const h = pt.val * 0.75;
-                  return (
-                    <g key={pt.label}>
-                      <rect x={x} y={82 - h} width="26" height={h} rx="3" fill="#00B7FF" fillOpacity="0.85" />
-                      <text x={x + 6} y="96" fill="#B8B8B8" fontSize="9" fontFamily="monospace">
-                        {pt.label}
-                      </text>
-                    </g>
-                  );
-                })}
-              </svg>
+            <div className="rounded-lg bg-[#050505] border border-white/10 p-3 space-y-1">
+              <p className="text-xs text-[#B8B8B8]">No earnings feed is connected — no trend is shown.</p>
+              <p className="text-[11px] font-mono text-white/40">EARNINGS: NO_DATA · FEED: NOT_CONNECTED</p>
             </div>
           </div>
         </div>
@@ -185,13 +160,13 @@ export const EarningsWorld: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Pane: #8B5CFF Purple AI Assistant Command Console */}
+        {/* Right Pane: #8B5CFF Purple Command Console (Demo — no AI backend) */}
         <div className="xl:col-span-3 rounded-xl border border-[#8B5CFF]/50 bg-[#101010] p-4 flex flex-col justify-between space-y-4">
           <div className="space-y-3">
             <div className="flex items-center justify-between border-b border-[#8B5CFF]/25 pb-2">
               <div className="flex items-center gap-2 text-xs font-mono text-[#8B5CFF]">
                 <Sparkles className="h-4 w-4" />
-                <span>AI COMMAND CONSOLE</span>
+                <span>COMMAND CONSOLE — DEMO</span>
               </div>
               <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-[#8B5CFF]/15 border border-[#8B5CFF]/40 text-[#8B5CFF]">
                 #8B5CFF
@@ -217,13 +192,13 @@ export const EarningsWorld: React.FC = () => {
               type="text"
               value={aiInput}
               onChange={(e) => setAiInput(e.target.value)}
-              placeholder="Ask AI Console..."
+              placeholder="Log a note — demo, local only..."
               className="w-full px-2.5 py-1.5 rounded bg-[#050505] border border-[#8B5CFF]/40 text-xs text-white focus:outline-none focus:border-[#8B5CFF]"
             />
             <button
               type="submit"
               className="p-1.5 rounded bg-[#8B5CFF] text-white hover:opacity-90 transition"
-              aria-label="Submit AI command"
+              aria-label="Log note (demo)"
             >
               <Send className="h-3.5 w-3.5" />
             </button>

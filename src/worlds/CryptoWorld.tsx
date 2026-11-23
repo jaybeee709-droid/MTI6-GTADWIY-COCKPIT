@@ -35,58 +35,51 @@ export interface CryptoWorldProps {
 }
 
 const VALIDATOR_METRICS = [
-  { chain: 'Ethereum Beacon', uptime: '99.98%', apr: '3.42%', latency: '18ms', status: 'READ-ONLY' },
-  { chain: 'Solana Mainnet', uptime: '99.91%', apr: '6.85%', latency: '11ms', status: 'NOT CONNECTED' },
-  { chain: 'Cosmos Hub', uptime: '99.95%', apr: '14.20%', latency: '24ms', status: 'READ-ONLY' },
-  { chain: 'Arbitrum One', uptime: '99.99%', apr: '1.80%', latency: '9ms', status: 'EXPANSION-GATED' },
+  // No live feed is connected: chain names are real, every metric is
+  // honestly NO_DATA. Nothing here is a measured uptime, APR, or latency.
+  { chain: 'Ethereum Beacon', uptime: 'NO_DATA', apr: 'NO_DATA', latency: 'NO_DATA', status: 'READ-ONLY' },
+  { chain: 'Solana Mainnet', uptime: 'NO_DATA', apr: 'NO_DATA', latency: 'NO_DATA', status: 'NOT CONNECTED' },
+  { chain: 'Cosmos Hub', uptime: 'NO_DATA', apr: 'NO_DATA', latency: 'NO_DATA', status: 'READ-ONLY' },
+  { chain: 'Arbitrum One', uptime: 'NO_DATA', apr: 'NO_DATA', latency: 'NO_DATA', status: 'EXPANSION-GATED' },
 ];
 
 const STAKING_PROTOCOLS = [
-  { protocol: 'Lido stETH', apy: '3.4%', tvl: '$31.2B', pill: 'NOT CONNECTED' },
-  { protocol: 'JitoSOL', apy: '7.1%', tvl: '$2.4B', pill: 'READ-ONLY' },
-  { protocol: 'EigenLayer', apy: '4.8%', tvl: '$14.9B', pill: 'EXPANSION-GATED' },
-  { protocol: 'Celestia TIA', apy: '11.4%', tvl: '$1.8B', pill: 'NOT CONNECTED' },
-];
-
-const BTC_CANDLES = [
-  { t: '08:00', o: 91200, h: 92400, l: 90800, c: 92100 },
-  { t: '10:00', o: 92100, h: 92950, l: 91600, c: 91850 },
-  { t: '12:00', o: 91850, h: 93400, l: 91700, c: 93150 },
-  { t: '14:00', o: 93150, h: 94100, l: 92800, c: 93900 },
-  { t: '16:00', o: 93900, h: 94350, l: 92900, c: 93100 },
-  { t: '18:00', o: 93100, h: 94800, l: 93050, c: 94620 },
-  { t: '20:00', o: 94620, h: 95200, l: 94100, c: 94980 },
-  { t: '22:00', o: 94980, h: 95500, l: 94400, c: 95240 },
+  // No live feed is connected: protocol names are real, every APY and
+  // TVL figure is honestly NO_DATA. Nothing here is a measured rate.
+  { protocol: 'Lido stETH', apy: 'NO_DATA', tvl: 'NO_DATA', pill: 'NOT CONNECTED' },
+  { protocol: 'JitoSOL', apy: 'NO_DATA', tvl: 'NO_DATA', pill: 'READ-ONLY' },
+  { protocol: 'EigenLayer', apy: 'NO_DATA', tvl: 'NO_DATA', pill: 'EXPANSION-GATED' },
+  { protocol: 'Celestia TIA', apy: 'NO_DATA', tvl: 'NO_DATA', pill: 'NOT CONNECTED' },
 ];
 
 const CRYPTO_EVENT_LOG = [
   '[SYNC] BTC/USD spot feed staged (READ-ONLY · NO EXECUTION)',
-  '[VALIDATOR] Ethereum Beacon epoch finalized · 99.98% uptime',
-  '[MEMPOOL] Priority fee 14 gwei · L2 blob fee nominal',
   '[GATE] Wallet & Exchange APIs locked (NOT CONNECTED)',
 ];
+
+// UI-only group filter for the 24 contents. The grouping is NOT a
+// canonical classification — it only filters the grid.
+const GROUPS: CryptoGroup[] = ['Markets', 'Yield & Credit', 'Infrastructure', 'Assets & Sectors'];
 
 export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) => {
   const [selectedGroup, setSelectedGroup] = useState<CryptoGroup | 'All'>('All');
   const [searchQuery, setSearchQuery] = useState('');
-  const [timeframe, setTimeframe] = useState<'1H' | '4H' | '1D'>('4H');
 
+  // CRYPTO_WORLD_CONTENTS is string[] (the canonical 24). The group of
+  // each content comes from the CRYPTO_CONTENT_GROUPS lookup, not from
+  // the item itself.
   const filteredActivities = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return CRYPTO_WORLD_CONTENTS.filter((item) => {
-      const matchesGroup = selectedGroup === 'All' || item.group === selectedGroup;
+      const group = CRYPTO_CONTENT_GROUPS[item] ?? 'All';
+      const matchesGroup = selectedGroup === 'All' || group === selectedGroup;
       const matchesQuery =
         !q ||
-        item.title.toLowerCase().includes(q) ||
-        item.group.toLowerCase().includes(q) ||
-        item.summary.toLowerCase().includes(q);
+        item.toLowerCase().includes(q) ||
+        group.toLowerCase().includes(q);
       return matchesGroup && matchesQuery;
     });
   }, [selectedGroup, searchQuery]);
-
-  const minPrice = 90500;
-  const maxPrice = 95800;
-  const priceToY = (p: number) => 170 - ((p - minPrice) / (maxPrice - minPrice)) * 150;
 
   return (
     <div className="min-h-screen bg-[#050505] text-white p-4 md:p-6 space-y-5">
@@ -103,7 +96,7 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
                 CRYPTO-ONLY DOMAIN
               </span>
             </div>
-            <p className="text-xs text-[#B8B8B8]">{RULE_NOTE} · {MEMBERSHIP_RULE}</p>
+            <p className="text-xs text-[#B8B8B8]">{RULE_NOTE} · {MEMBERSHIP_RULE.cryptoWorld}</p>
           </div>
         </div>
 
@@ -145,7 +138,7 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
               <div key={v.chain} className="p-3 rounded-lg bg-[#151515] border border-white/10 space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-semibold text-white">{v.chain}</span>
-                  <span className="text-[#32D74B] font-mono">{v.uptime}</span>
+                  <span className="text-[#B8B8B8] font-mono">{v.uptime}</span>
                 </div>
                 <div className="flex items-center justify-between text-[11px] font-mono text-[#B8B8B8]">
                   <span>APR {v.apr}</span>
@@ -161,61 +154,24 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
           </div>
         </div>
 
-        {/* Center Column: BTC/USD Candlestick + Event Log */}
+        {/* Center Column: BTC/USD (no live feed) + Event Log */}
         <div className="xl:col-span-6 space-y-4">
           <div className="rounded-xl border border-[#00B7FF]/25 bg-[#101010] p-4 space-y-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
                 <BarChart3 className="h-4 w-4 text-[#00B7FF]" />
                 <span className="text-sm font-semibold">BTC / USD</span>
-                <span className="text-xs font-mono text-[#32D74B]">$95,240.00 (+2.41%)</span>
-              </div>
-              <div className="flex items-center gap-1">
-                {(['1H', '4H', '1D'] as const).map((tf) => (
-                  <button
-                    key={tf}
-                    type="button"
-                    onClick={() => setTimeframe(tf)}
-                    className={`px-2 py-0.5 rounded text-[11px] font-mono ${
-                      timeframe === tf
-                        ? 'bg-[#00B7FF] text-[#050505] font-semibold'
-                        : 'bg-[#151515] text-[#B8B8B8] border border-white/10'
-                    }`}
-                  >
-                    {tf}
-                  </button>
-                ))}
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-[#151515] border border-white/20 text-[#B8B8B8]">
+                  NOT CONNECTED
+                </span>
               </div>
             </div>
 
-            <div className="rounded-lg bg-[#050505] border border-white/10 p-2">
-              <svg viewBox="0 0 480 185" className="w-full h-44">
-                {[91000, 92500, 94000, 95500].map((lvl) => (
-                  <g key={lvl}>
-                    <line x1="0" y1={priceToY(lvl)} x2="480" y2={priceToY(lvl)} stroke="#ffffff" strokeOpacity="0.08" strokeDasharray="3 3" />
-                    <text x="6" y={priceToY(lvl) - 3} fill="#B8B8B8" fontSize="9" fontFamily="monospace">
-                      ${lvl.toLocaleString()}
-                    </text>
-                  </g>
-                ))}
-                {BTC_CANDLES.map((c, idx) => {
-                  const x = 68 + idx * 52;
-                  const isUp = c.c >= c.o;
-                  const color = isUp ? '#32D74B' : '#FF3B30';
-                  const top = priceToY(Math.max(c.o, c.c));
-                  const bottom = priceToY(Math.min(c.o, c.c));
-                  const height = Math.max(4, bottom - top);
-                  return (
-                    <g key={c.t}>
-                      <line x1={x} y1={priceToY(c.h)} x2={x} y2={priceToY(c.l)} stroke={color} strokeWidth="1.5" />
-                      <rect x={x - 9} y={top} width="18" height={height} fill={color} rx="2" />
-                      <text x={x - 13} y="180" fill="#B8B8B8" fontSize="9" fontFamily="monospace">
-                        {c.t}
-                      </text>
-                    </g>
-                  );
-                })}
-              </svg>
+            <div className="rounded-lg bg-[#050505] border border-white/10 p-3 space-y-1">
+              <p className="text-xs text-[#B8B8B8]">
+                No price feed is connected — no BTC/USD price, candles, or change figure is shown.
+              </p>
+              <p className="text-[11px] font-mono text-white/40">PRICE: NO_DATA · FEED: NOT_CONNECTED</p>
             </div>
           </div>
 
@@ -246,7 +202,7 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
 
           <div className="p-3 rounded-lg bg-[#050505] border border-[#00B7FF]/30 space-y-1">
             <div className="text-[11px] font-mono text-[#B8B8B8]">CONNECTED STAKED VALUE</div>
-            <div className="text-xl font-bold font-mono text-white">$0.00</div>
+            <div className="text-xl font-bold font-mono text-white">UNAVAILABLE</div>
             <div className="text-[10px] font-mono text-[#00B7FF]">NOT CONNECTED · READ-ONLY</div>
           </div>
 
@@ -255,7 +211,7 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
               <div key={item.protocol} className="p-2.5 rounded-lg bg-[#151515] border border-white/10 space-y-1">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-semibold text-white">{item.protocol}</span>
-                  <span className="font-mono text-[#32D74B]">{item.apy} APY</span>
+                  <span className="font-mono text-[#B8B8B8]">{item.apy} APY</span>
                 </div>
                 <div className="flex items-center justify-between text-[10px] font-mono text-[#B8B8B8]">
                   <span>TVL {item.tvl}</span>
@@ -267,7 +223,7 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
         </div>
       </div>
 
-      {/* All 28 Crypto Activities Directory */}
+      {/* All 24 Crypto Activities Directory — the canonical 24, verbatim */}
       <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-4">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -284,7 +240,7 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Filter 28 crypto activities..."
+              placeholder="Filter 24 crypto activities..."
               className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-[#050505] border border-white/15 text-xs text-white placeholder-[#B8B8B8]/60 focus:outline-none focus:border-[#00B7FF]"
             />
           </div>
@@ -302,7 +258,7 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
           >
             All ({CRYPTO_WORLD_CONTENTS.length})
           </button>
-          {CRYPTO_CONTENT_GROUPS.map((group) => (
+          {GROUPS.map((group) => (
             <button
               key={group}
               type="button"
@@ -320,19 +276,18 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
           {filteredActivities.map((item) => (
-            <div key={item.id} className="p-3 rounded-lg bg-[#151515] border border-white/10 flex flex-col justify-between gap-2">
+            <div key={item} className="p-3 rounded-lg bg-[#151515] border border-white/10 flex flex-col justify-between gap-2">
               <div className="space-y-1">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[10px] font-mono text-[#00B7FF] flex items-center gap-1">
                     <Layers className="h-3 w-3" />
-                    {item.group}
+                    {CRYPTO_CONTENT_GROUPS[item]}
                   </span>
                   <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-[#050505] border border-white/15 text-[#B8B8B8]">
                     READ-ONLY
                   </span>
                 </div>
-                <h3 className="text-xs font-semibold text-white">{item.title}</h3>
-                <p className="text-[11px] text-[#B8B8B8] line-clamp-2">{item.summary}</p>
+                <h3 className="text-xs font-semibold text-white">{item}</h3>
               </div>
               <div className="flex items-center justify-between pt-1 border-t border-white/10 text-[10px] font-mono">
                 <span className="text-[#B8B8B8]">NOT CONNECTED</span>

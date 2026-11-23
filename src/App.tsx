@@ -100,7 +100,7 @@ interface FloatingWin {
 }
 
 const WORLDS: WorldDef[] = [
-  { id: 'globe', label: 'World Globe', tier: 'Standard', accent: '#00B7FF', icon: <Globe className="h-4 w-4" /> },
+  { id: 'globe', label: 'World Map', tier: 'Standard', accent: '#00B7FF', icon: <Globe className="h-4 w-4" /> },
   { id: 'crypto', label: 'Crypto World', tier: 'Standard', accent: '#8B5CFF', icon: <Coins className="h-4 w-4" /> },
   { id: 'earnings', label: 'Earnings World', tier: 'Standard', accent: '#32D74B', icon: <DollarSign className="h-4 w-4" /> },
   { id: 'bots', label: 'Bot Operations', tier: 'Advanced', accent: '#00B7FF', icon: <Bot className="h-4 w-4" /> },
