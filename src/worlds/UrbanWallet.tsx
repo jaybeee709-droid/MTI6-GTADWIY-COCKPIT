@@ -146,7 +146,7 @@ export const UrbanWallet: React.FC = () => {
           <div className="rounded-2xl border border-white/10 bg-[#101010] p-4">
             <div className="flex items-center justify-between text-xs text-[#B8B8B8]">
               <span>Cash Reserves</span>
-              <DollarSign className="h-4 w-4 text-[#32D74B]" />
+              <DollarSign className="h-4 w-4 text-[#B8B8B8]" />
             </div>
             <div className="mt-2 text-xl font-bold">UNAVAILABLE</div>
             <div className="mt-1 text-[11px] text-[#B8B8B8]">NOT_CONNECTED · NO_DATA · no APY claimed</div>
@@ -226,7 +226,7 @@ export const UrbanWallet: React.FC = () => {
           </div>
           <div className="rounded-xl bg-[#151515] p-4">
             <div className="text-xs text-[#B8B8B8]">Cashback Accrued</div>
-            <div className="mt-1 text-2xl font-bold text-[#32D74B]">UNAVAILABLE</div>
+            <div className="mt-1 text-2xl font-bold text-[#B8B8B8]">UNAVAILABLE</div>
             <div className="mt-1 text-xs text-[#B8B8B8]">NOT_CONNECTED · NO_DATA</div>
           </div>
           <div className="rounded-xl bg-[#151515] p-4">
@@ -329,7 +329,7 @@ export const UrbanWallet: React.FC = () => {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div className="rounded-xl bg-[#151515] p-4">
               <div className="flex items-center gap-1.5 text-xs text-[#B8B8B8]">
-                <TrendingUp className="h-3.5 w-3.5 text-[#32D74B]" /> 90-Day Net Cashflow
+                <TrendingUp className="h-3.5 w-3.5 text-[#B8B8B8]" /> 90-Day Net Cashflow
               </div>
               <div className="mt-1 text-xl font-bold text-white">NO_DATA</div>
             </div>

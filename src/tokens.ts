@@ -48,7 +48,10 @@ export const MTI6_WORLD_OS = {
 /* structural accent + focus ring; violet = STAR, AI console, bot      */
 /* workers (never a status colour); red = ACTIVE CRITICAL ALERT ONLY;  */
 /* green = VERIFIED data stream / executed transaction / optimal       */
-/* health; #FFB020 = WARNING / WATCH only, never a trend colour.       */
+/* health / PROFITS (owner ruling 2026-11-23: green stands for profits  */
+/* too) — and therefore never for an absence state: UNAVAILABLE and    */
+/* NO_DATA never render green. #FFB020 = WARNING / WATCH only, never   */
+/* a trend colour.                                                     */
 /* ------------------------------------------------------------------ */
 
 export const MTI6_TOPBAR = {

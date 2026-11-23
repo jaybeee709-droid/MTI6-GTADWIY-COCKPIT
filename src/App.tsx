@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   BookOpen,
@@ -7,30 +7,37 @@ import {
   Coins,
   Compass,
   Cpu,
+  CreditCard,
   DollarSign,
   FolderKanban,
   Gauge,
   Globe,
   Landmark,
-  Layers,
   LayoutGrid,
   Library,
   ListChecks,
   Maximize2,
+  Menu,
   Minimize2,
   Monitor,
   PieChart,
+  Search,
   Settings,
   Shield,
   Sparkles,
   TrendingUp,
   User,
-  UserCheck,
   Wallet,
   Wrench,
   X,
 } from 'lucide-react';
-import { MTI6_COLORS, MTI6_WORLD_OS } from './tokens';
+import {
+  MTI6_AMOUNT,
+  MTI6_COLORS,
+  MTI6_RAIL,
+  MTI6_TOPBAR,
+  MTI6_WORLD_OS,
+} from './tokens';
 import { WorldGlobe } from './worlds/WorldGlobe';
 import { CryptoWorld } from './worlds/CryptoWorld';
 import { EarningsWorld } from './worlds/EarningsWorld';
@@ -134,12 +141,43 @@ export function App() {
   const [floatingWindows, setFloatingWindows] = useState<FloatingWin[]>([]);
   const [accountsOpen, setAccountsOpen] = useState<boolean>(false);
   const [starOrbOpen, setStarOrbOpen] = useState<boolean>(false);
+  // Phase 2 top bar state: the ☰ menu panel, and the screen search
+  // (scope: the 22 cockpit screens — named in the UI, see renderSearchField).
+  const [menuOpen, setMenuOpen] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchFocus, setSearchFocus] = useState<boolean>(false);
+  const [phoneSearchOpen, setPhoneSearchOpen] = useState<boolean>(false);
+  const activeRailBtnRef = useRef<HTMLButtonElement | null>(null);
 
   const visibleWorlds = useMemo(() => {
     if (viewMode === 'Standard') return WORLDS.filter((w) => w.tier === 'Standard');
     if (viewMode === 'Advanced') return WORLDS.filter((w) => w.tier === 'Advanced' || w.id === 'globe');
     return WORLDS;
   }, [viewMode]);
+
+  // Keep the active screen centred in the rail whenever it changes.
+  // Guarded: some environments (jsdom, older engines) have no
+  // scrollIntoView — centring is an enhancement, never a requirement.
+  useEffect(() => {
+    const el = activeRailBtnRef.current;
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+    }
+  }, [activeWorld, viewMode]);
+
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return WORLDS.filter((w) => w.label.toLowerCase().includes(q)).slice(0, 8);
+  }, [searchQuery]);
+
+  const selectSearchResult = (id: WorldId) => {
+    if (!visibleWorlds.some((w) => w.id === id)) setViewMode('All');
+    setActiveWorld(id);
+    setSearchQuery('');
+    setSearchFocus(false);
+    setPhoneSearchOpen(false);
+  };
 
   const handleSelectWorld = (worldId: string) => {
     const match = WORLDS.find((w) => w.id === worldId);
@@ -222,28 +260,168 @@ export function App() {
     );
   };
 
+  // The top-bar search field. Its scope is named in the UI — SCREENS —
+  // because that is the scope this build can actually honour: global
+  // search phases 2–4 are gated and are not presented as searchable.
+  const renderSearchField = () => (
+    <div className="relative w-full">
+      <div
+        className="flex h-10 items-center gap-2 rounded-xl border px-3"
+        style={{ backgroundColor: MTI6_TOPBAR.raised, borderColor: MTI6_TOPBAR.border }}
+      >
+        <Search className="h-4 w-4 shrink-0 text-[#B8B8B8]" />
+        <input
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          onFocus={() => setSearchFocus(true)}
+          onBlur={() => setTimeout(() => setSearchFocus(false), 120)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && searchResults.length > 0) {
+              selectSearchResult(searchResults[0].id);
+            }
+            if (e.key === 'Escape') {
+              setSearchQuery('');
+              setSearchFocus(false);
+            }
+          }}
+          placeholder="Search screens…"
+          aria-label="Search screens — scope: the 22 cockpit screens"
+          className="w-full min-w-0 bg-transparent text-sm text-white placeholder:text-[#B8B8B8] focus:outline-none"
+        />
+        <span className="shrink-0 rounded border border-white/15 px-1.5 py-0.5 font-mono text-[9px] tracking-widest text-[#B8B8B8]">
+          SCREENS
+        </span>
+      </div>
+      {searchFocus && searchQuery.trim() && (
+        <div className="absolute left-0 right-0 top-full z-40 mt-2 overflow-hidden rounded-xl border border-white/15 bg-[#101010] shadow-2xl">
+          {searchResults.length > 0 ? (
+            searchResults.map((w) => (
+              <button
+                key={w.id}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  selectSearchResult(w.id);
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-white hover:bg-[#202020]"
+              >
+                <span
+                  className="flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4"
+                  style={{ color: w.accent }}
+                >
+                  {w.icon}
+                </span>
+                <span className="whitespace-nowrap">{w.label}</span>
+              </button>
+            ))
+          ) : (
+            <div className="px-3 py-2 text-xs text-[#B8B8B8]">
+              No matching screens in this scope.
+            </div>
+          )}
+          <div className="border-t border-white/10 px-3 py-1.5 text-[10px] text-[#B8B8B8]">
+            Scope: Screens only — global search phases 2–4 are not connected.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div
       className="min-h-screen text-white flex flex-col"
       style={{ backgroundColor: MTI6_COLORS.bgVoid }}
     >
-      {/* Persistent Top OS Bar */}
-      <header className="sticky top-0 z-30 border-b border-white/10 bg-[#0A0A0A]/95 backdrop-blur px-4 py-3">
-        <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3">
-          {/* Brand */}
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#00B7FF]/15 text-[#00B7FF] border border-[#00B7FF]/35">
-              <Layers className="h-5 w-5" />
-            </div>
-            <div>
-              <div className="text-sm font-bold tracking-wide">
-                {MTI6_WORLD_OS?.name ?? 'MTI6 GTADWIY COCKPIT'}
-              </div>
-              <div className="text-[11px] text-[#B8B8B8]">
-                22-Screen Sovereign Operating Shell · STAR demo / NOT_CONNECTED
-              </div>
-            </div>
+      {/* Phase 2 Top Bar — REPLACES the Phase 1 dock (owner directive
+          2026-11-23). One row, left to right: ☰ (the logo AND the menu
+          control — one control, two jobs), the search bar (scope named
+          in the UI: Screens), the black card glyph (opens Accounts
+          Center), the asset amount (NO DATA — never $0.00; hidden on
+          phone, never shrunk to fit), and the screens rail below the
+          bar: horizontally scrollable, never wrapping, active screen
+          centred. The rail keeps its own row at every tier — the
+          directive moves it inline on ultra-wide only if all 22 screens
+          fit, and 22 do not fit a 1600px bar, so that condition is
+          never met. */}
+      <header
+        className="sticky top-0 z-30 border-b"
+        style={{ backgroundColor: MTI6_TOPBAR.surface, borderColor: MTI6_TOPBAR.border }}
+      >
+        <div className="mx-auto flex min-h-[56px] w-full max-w-[1600px] items-center gap-3 px-4 md:min-h-[64px]">
+          {/* 1 — ☰ logo + menu control */}
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-label="MTI6 menu"
+            aria-expanded={menuOpen}
+            className="flex h-8 w-8 shrink-0 items-center justify-center gap-2 rounded-xl border border-[#00B7FF]/35 bg-[#00B7FF]/10 md:h-10 md:w-10 xl:h-11 xl:w-auto xl:px-3"
+          >
+            <Menu
+              className="h-4 w-4 md:h-5 md:w-5"
+              style={{ color: MTI6_TOPBAR.logoAccent }}
+            />
+            <span className="hidden text-sm font-bold tracking-wide text-white xl:block">
+              MTI6
+            </span>
+          </button>
+
+          {/* 2 — search: inline from tablet up; icon + sheet on phone */}
+          <div className="hidden min-w-0 max-w-md flex-1 md:block">{renderSearchField()}</div>
+          <button
+            onClick={() => setPhoneSearchOpen((v) => !v)}
+            aria-label="Search screens"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-[#151515] text-[#B8B8B8] md:hidden"
+          >
+            <Search className="h-4 w-4" />
+          </button>
+
+          <div className="flex-1" />
+
+          {/* 3 — black card glyph → Accounts Center */}
+          <button
+            onClick={() => setAccountsOpen(true)}
+            aria-label="Accounts Center"
+            className="flex h-9 w-11 shrink-0 items-center justify-center rounded-lg border md:h-10 md:w-12"
+            style={{
+              backgroundColor: MTI6_TOPBAR.cardGlyph,
+              borderColor: MTI6_TOPBAR.cardGlyphEdge,
+            }}
+          >
+            <CreditCard className="h-5 w-5 text-[#B8B8B8]" />
+          </button>
+
+          {/* 4 — asset amount: NO DATA with nothing connected, never
+              $0.00. Hidden on phone — it does not shrink. */}
+          <div className="hidden shrink-0 flex-col items-end leading-tight md:flex">
+            <span className="font-mono text-[9px] tracking-widest text-[#B8B8B8]">ASSETS</span>
+            <span className="text-sm font-semibold" style={{ color: MTI6_AMOUNT.noData }}>
+              NO DATA
+            </span>
           </div>
+        </div>
+
+        {/* Phone search sheet — full width under the bar */}
+        {phoneSearchOpen && (
+          <div className="border-t border-white/10 px-4 py-2 md:hidden">
+            {renderSearchField()}
+          </div>
+        )}
+
+        {/* ☰ menu panel: brand, view modes, execution strip, pop-out.
+            Always mounted (hidden while closed) so the shell controls —
+            and the "Execution disabled by design" notice — stay part of
+            the header. */}
+        <div hidden={!menuOpen} className="border-t border-white/10">
+          <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center gap-3 px-4 py-3">
+            {/* Brand */}
+            <div className="flex items-center gap-3">
+              <div>
+                <div className="text-sm font-bold tracking-wide">
+                  {MTI6_WORLD_OS?.name ?? 'MTI6 GTADWIY COCKPIT'}
+                </div>
+                <div className="text-[11px] text-[#B8B8B8]">
+                  22-Screen Sovereign Operating Shell · STAR demo / NOT_CONNECTED
+                </div>
+              </div>
+            </div>
 
           {/* View Modes (Standard | Advanced | All) */}
           <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-[#151515] p-1">
@@ -291,40 +469,44 @@ export function App() {
               Pop Out World
             </button>
 
-            <button
-              onClick={() => setAccountsOpen(true)}
-              className="flex items-center gap-1.5 rounded-xl border border-[#00B7FF]/40 bg-[#00B7FF]/15 px-3 py-1.5 text-xs font-semibold text-[#00B7FF] hover:bg-[#00B7FF]/25"
-            >
-              <UserCheck className="h-3.5 w-3.5" /> Accounts Center
-            </button>
+            {/* Accounts Center opens from the top bar's card glyph
+                (Phase 2) — no second trigger lives in the menu. */}
           </div>
         </div>
+        </div>
 
-        {/* 22-Screen Navigation Dock */}
-        <nav className="mx-auto mt-3 flex max-w-[1600px] gap-1.5 overflow-x-auto pb-1">
+        {/* 5 — screens rail: scrollable, never wraps, active centred */}
+        <nav
+          className="mx-auto flex w-full max-w-[1600px] overflow-x-auto px-4 pb-2 pt-1"
+          style={{ gap: MTI6_RAIL.gapPx }}
+        >
           {visibleWorlds.map((w) => {
             const active = activeWorld === w.id;
             return (
               <button
                 key={w.id}
+                ref={active ? activeRailBtnRef : undefined}
                 onClick={() => setActiveWorld(w.id)}
-                className={`flex shrink-0 items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-medium transition ${
-                  active
-                    ? 'border-[#00B7FF] bg-[#00B7FF]/15 text-white'
-                    : 'border-white/10 bg-[#121212] text-[#B8B8B8] hover:border-white/25 hover:text-white'
-                }`}
+                className="flex shrink-0 items-center gap-2 rounded-xl border py-1.5 text-xs font-medium transition"
+                style={{
+                  paddingInline: MTI6_RAIL.itemPadXPx,
+                  backgroundColor: active ? MTI6_RAIL.activeBg : MTI6_RAIL.idleBg,
+                  borderColor: active ? MTI6_RAIL.activeBorder : MTI6_RAIL.idleBorder,
+                  color: active ? '#FFFFFF' : '#B8B8B8',
+                }}
               >
-                {/* Nav-overlap fix (Phase 1 follow-up, 2026-11-22): the icon
-                    lives in a fixed 16px flex box that can neither shrink nor
-                    overflow, and the SVG inside is forced to 16px, so the
-                    icon can never cover the label's first letters. The label
-                    is shrink-0 + nowrap so it never compresses under the
-                    icon. Previously both spans were unguarded flex items,
-                    and the live preview showed the icon clipping 1–3 letters
-                    of every label, worse as the width shrank. */}
+                {/* Nav-overlap fix (Phase 1 follow-up, 2026-11-22) kept:
+                    the icon lives in a fixed MTI6_RAIL.iconBoxPx (16px)
+                    flex box that can neither shrink nor overflow, and the
+                    label is shrink-0 + nowrap, so the icon can never cover
+                    the label's first letters. */}
                 <span
-                  className="flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4 [&>svg]:shrink-0"
-                  style={{ color: active ? w.accent : undefined }}
+                  className="flex shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4 [&>svg]:shrink-0"
+                  style={{
+                    width: MTI6_RAIL.iconBoxPx,
+                    height: MTI6_RAIL.iconBoxPx,
+                    color: active ? w.accent : undefined,
+                  }}
                 >
                   {w.icon}
                 </span>
