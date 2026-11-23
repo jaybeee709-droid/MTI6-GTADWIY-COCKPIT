@@ -10,7 +10,7 @@
 // 1, OWNER-GATED SEAT 5. Execution is DISABLED on every registry row
 // and EXECUTE appears in no row's ladderTop.
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Layers } from 'lucide-react';
 import { CRYPTO_WORKSPACES, CRYPTO_WORKSPACE_GROUPS, type WorkspaceGroupId } from '../crypto-workspaces-data';
 import { WORKSPACE_COVERAGE } from '../workspace-coverage-data';
@@ -39,9 +39,30 @@ function statusNote(status: string): string {
 
 type FrameMode = 'STANDARD' | 'ADVANCED' | 'ALL';
 
-export const CryptoWorkspacesScreen: React.FC = () => {
+export const CryptoWorkspacesScreen: React.FC<{
+  focusId?: string | null;
+  onFocusHandled?: () => void;
+}> = ({ focusId, onFocusHandled }) => {
   const [groupFilter, setGroupFilter] = useState<WorkspaceGroupId | 'all'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Search tap-through (v149): when the top bar sends a workspace id,
+  // show all groups, expand that row, and scroll it into view.
+  useEffect(() => {
+    if (!focusId) return;
+    if (!CRYPTO_WORKSPACES.some((w) => w.id === focusId)) return;
+    setGroupFilter('all');
+    setExpandedId(focusId);
+    const t = setTimeout(() => {
+      const el = document.getElementById(`ws-row-${focusId}`);
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ block: 'center' });
+      }
+    }, 60);
+    onFocusHandled?.();
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusId]);
   // The shared workspace frame (CW-2): STANDARD is the registry's
   // recorded default view; ADVANCED adds the recorded mapping detail;
   // ALL adds the recorded cost/risk vocabulary and frame notes.
@@ -126,7 +147,7 @@ export const CryptoWorkspacesScreen: React.FC = () => {
         <Panel key={g.id} title={`${g.label} — ${g.rows.length} workspaces`}>
           <div className="space-y-2">
             {g.rows.map((w) => (
-              <div key={w.id} className="rounded-xl bg-[#151515] p-3.5">
+              <div key={w.id} id={`ws-row-${w.id}`} className="rounded-xl bg-[#151515] p-3.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm font-semibold">{w.title}</span>
                   <div className="flex flex-wrap items-center gap-2">

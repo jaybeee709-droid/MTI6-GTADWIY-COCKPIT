@@ -45,6 +45,7 @@ import { DISPLAY_CURRENCIES, currencyOf } from './currencies';
 import { fetchStarStatus, starChat, StarError } from './star-client';
 import { buildStarSystemPrompt } from './star-context';
 import { answerLocally } from './star-local';
+import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
 import { STAR_EXPRESSIONS, STAR_PORTRAIT } from './star-avatar-data';
 import { SPACE_BG } from './worlds/CryptoWorld';
 import { WorldGlobe } from './worlds/WorldGlobe';
@@ -367,6 +368,25 @@ export function App() {
     setPhoneSearchOpen(false);
   };
 
+  // Workspace tap-through (v149, CW-0 Gap 12): the screens scope also
+  // searches the 56 registry workspaces by title; choosing one lands
+  // on the Crypto Workspaces screen with that row expanded.
+  const [workspaceFocus, setWorkspaceFocus] = useState<string | null>(null);
+  const workspaceResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return CRYPTO_WORKSPACES.filter((w) => w.title.toLowerCase().includes(q)).slice(0, 5);
+  }, [searchQuery]);
+
+  const selectWorkspaceResult = (workspaceId: string) => {
+    if (!visibleWorlds.some((w) => w.id === 'crypto-workspaces')) setViewMode('All');
+    setActiveWorld('crypto-workspaces');
+    setWorkspaceFocus(workspaceId);
+    setSearchQuery('');
+    setSearchFocus(false);
+    setPhoneSearchOpen(false);
+  };
+
   /** Web scope: a query becomes a DuckDuckGo search (keyless), a typed
    *  address becomes the page itself. Either way the page opens in a
    *  real browser tab and the cockpit keeps a tab for it below the
@@ -509,7 +529,12 @@ export function App() {
       case 'data-analytics':
         return <DataAnalyticsScreen />;
       case 'crypto-workspaces':
-        return <CryptoWorkspacesScreen />;
+        return (
+          <CryptoWorkspacesScreen
+            focusId={workspaceFocus}
+            onFocusHandled={() => setWorkspaceFocus(null)}
+          />
+        );
       default:
         return <WorldGlobe onSelectWorld={handleSelectWorld} />;
     }
@@ -606,28 +631,44 @@ export function App() {
       )}
       {searchFocus && searchQuery.trim() && searchScope === 'screens' && (
         <div className="absolute left-0 right-0 top-full z-40 mt-2 overflow-hidden rounded-xl border border-white/15 bg-[#101010] shadow-2xl">
-          {searchResults.length > 0 ? (
-            searchResults.map((w) => (
-              <button
-                key={w.id}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  selectSearchResult(w.id);
-                }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-white hover:bg-[#202020]"
-              >
-                <span
-                  className="flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4"
-                  style={{ color: w.accent }}
+          {searchResults.length > 0 || workspaceResults.length > 0 ? (
+            <>
+              {searchResults.map((w) => (
+                <button
+                  key={w.id}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    selectSearchResult(w.id);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-white hover:bg-[#202020]"
                 >
-                  {w.icon}
-                </span>
-                <span className="whitespace-nowrap">{w.label}</span>
-              </button>
-            ))
+                  <span
+                    className="flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4"
+                    style={{ color: w.accent }}
+                  >
+                    {w.icon}
+                  </span>
+                  <span className="whitespace-nowrap">{w.label}</span>
+                </button>
+              ))}
+              {workspaceResults.map((w) => (
+                <button
+                  key={`ws-${w.id}`}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    selectWorkspaceResult(w.id);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-white hover:bg-[#202020]"
+                >
+                  <LayoutGrid className="h-4 w-4 shrink-0 text-[#8B5CFF]" />
+                  <span className="whitespace-nowrap">{w.title}</span>
+                  <span className="ml-auto font-mono text-[9px] text-[#B8B8B8]">WORKSPACE</span>
+                </button>
+              ))}
+            </>
           ) : (
             <div className="px-3 py-2 text-xs text-[#B8B8B8]">
-              No matching screens in this scope.
+              No matching screens or workspaces in this scope.
             </div>
           )}
           <div className="border-t border-white/10 px-3 py-1.5 text-[10px] text-[#B8B8B8]">
