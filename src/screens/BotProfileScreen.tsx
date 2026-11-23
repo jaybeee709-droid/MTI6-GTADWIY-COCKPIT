@@ -13,13 +13,17 @@
 //
 // The 12-tribe roster is reused from src/worlds-data.ts
 // (TRIBE_PRINCIPALS, verbatim from js/tribe-principals.js) — not
-// re-listed here. All 12 start UNASSIGNED with no role/task: there
-// is no worker runtime in this build, so no principal is ever
-// displayed as live. STAR is shown only as demo / NOT_CONNECTED.
+// re-listed here. Assignments are read from the canonical store
+// (src/principal-assignments.ts, wired v150): principals start
+// UNASSIGNED and show whatever the owner has recorded in Bot
+// Operations. There is no worker runtime in this build, so no
+// principal is ever displayed as live. STAR is shown only as
+// demo / NOT_CONNECTED and is never assignable.
 
 import React, { useState } from 'react';
 import { Bot, Star } from 'lucide-react';
 import { TRIBE_PRINCIPALS } from '../worlds-data';
+import { loadAssignments } from '../principal-assignments';
 import { EmptyState, MonoLine, Panel, ScreenHeader, StatusPill } from './shared';
 
 type SelectedRef = 'star' | string;
@@ -29,10 +33,18 @@ const CONVERGENCE_LINE =
 
 export const BotProfileScreen: React.FC = () => {
   const [selected, setSelected] = useState<SelectedRef>('star');
+  // Real assignments (v150): read from the canonical assignment
+  // store the owner writes in Bot Operations. Identity still comes
+  // from the roster only; an assignment is a record, not activity.
+  const [assignments] = useState(() => loadAssignments());
+  const assignedCount = TRIBE_PRINCIPALS.filter(
+    (p) => assignments[p.id]?.currentRole || assignments[p.id]?.currentTask,
+  ).length;
 
   const selectedPrincipal =
     selected === 'star' ? null : TRIBE_PRINCIPALS.find((p) => p.id === selected) ?? null;
   const selectedName = selected === 'star' ? 'STAR' : selectedPrincipal?.displayName ?? 'Unknown bot';
+  const selectedAssignment = selected === 'star' ? undefined : assignments[selected];
 
   return (
     <div className="space-y-5 text-white">
@@ -45,8 +57,9 @@ export const BotProfileScreen: React.FC = () => {
 
       <Panel title="Bot index">
         <p className="mb-3 text-xs text-[#B8B8B8]">
-          Pick one for its full profile. Every principal below is UNASSIGNED with no role or task; STAR is demo
-          / NOT_CONNECTED.
+          Pick one for its full profile. {assignedCount} of {TRIBE_PRINCIPALS.length} principals carry a
+          recorded assignment (set by the owner in Bot Operations); the rest are UNASSIGNED. STAR is demo /
+          NOT_CONNECTED and is never assignable.
         </p>
         <div className="flex flex-wrap gap-2">
           <button
@@ -69,7 +82,9 @@ export const BotProfileScreen: React.FC = () => {
                   : 'bg-[#151515] text-[#B8B8B8] hover:bg-[#202020] hover:text-white'
               }`}
             >
-              {p.order}. {p.displayName} — UNASSIGNED
+              {p.order}. {p.displayName} —{' '}
+              {assignments[p.id]?.currentRole ??
+                (assignments[p.id]?.currentTask ? 'TASK SET' : 'UNASSIGNED')}
             </button>
           ))}
         </div>
@@ -87,31 +102,62 @@ export const BotProfileScreen: React.FC = () => {
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#151515] p-3.5">
             <span className="text-[#B8B8B8]">Role / task assignment</span>
-            <span className="font-semibold">UNASSIGNED — no role or task recorded</span>
+            <span className="font-semibold">
+              {selected === 'star'
+                ? 'STAR sits above the principals — never assigned'
+                : selectedAssignment?.currentRole ?? 'UNASSIGNED — no role recorded'}
+            </span>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#151515] p-3.5">
             <span className="text-[#B8B8B8]">Current task</span>
-            <span className="font-semibold">NO_DATA — no worker runtime</span>
+            <span className="font-semibold">
+              {selected === 'star'
+                ? 'NO_DATA — no worker runtime'
+                : selectedAssignment?.currentTask ?? 'NONE RECORDED — no task assigned'}
+            </span>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#151515] p-3.5">
             <span className="text-[#B8B8B8]">Status</span>
-            <StatusPill status={selected === 'star' ? 'NOT_CONNECTED' : 'UNASSIGNED'} />
+            <StatusPill
+              status={
+                selected === 'star'
+                  ? 'NOT_CONNECTED'
+                  : selectedAssignment?.currentRole || selectedAssignment?.currentTask
+                    ? 'ASSIGNED'
+                    : 'UNASSIGNED'
+              }
+            />
           </div>
         </div>
         <p className="mt-3 text-xs text-[#B8B8B8]">
-          <strong className="text-white">Why?</strong> No provenance recorded for this block — the
-          BotProfiles data layer (TribePrincipals / WorkerEngine / BotOpsModel) is not wired in this build, so
-          nothing can be shown about where these values came from. Provenance chain: result → source →
-          derivation → freshness — all UNRECORDED here.
+          <strong className="text-white">Why?</strong>{' '}
+          {selected === 'star'
+            ? 'STAR\u2019s state comes from the gateway status check, not the assignment store. Provenance chain: result \u2192 source \u2192 derivation \u2192 freshness.'
+            : 'Identity comes from the canonical roster (js/tribe-principals.js); role, task and history come from the owner\u2019s assignment records in the canonical store (mti6_principal_assignments_v1), written in Bot Operations. An assignment is a record of the owner\u2019s intent — it is not bot activity, and no runtime acts on it yet.'}
         </p>
       </Panel>
 
       <Panel title={`What ${selectedName} is doing`}>
         <p className="mb-3 text-xs text-[#B8B8B8]">{CONVERGENCE_LINE}</p>
-        <EmptyState>
-          No recorded activity yet — no assignment, task, or history line is recorded for {selectedName} in this
-          build. Nothing is invented to fill the gap.
-        </EmptyState>
+        {selected !== 'star' && selectedAssignment && selectedAssignment.history.length > 0 ? (
+          <div className="space-y-1.5">
+            {[...selectedAssignment.history].slice(-6).reverse().map((h, i) => (
+              <p key={i} className="font-mono text-[11px] text-[#B8B8B8]">
+                <span className="text-white">{h.change}</span> — {h.at.slice(0, 10)} · by {h.by}
+                {h.note ? ` · ${h.note}` : ''}
+              </p>
+            ))}
+            <p className="pt-1 text-xs text-[#B8B8B8]">
+              Recorded assignment history only — the owner&apos;s assignment record, not live bot activity.
+              No worker runtime acts on these assignments yet.
+            </p>
+          </div>
+        ) : (
+          <EmptyState>
+            No recorded activity yet — no assignment, task, or history line is recorded for {selectedName}.
+            Nothing is invented to fill the gap.
+          </EmptyState>
+        )}
         {selected === 'star' ? (
           <p className="mt-3 text-xs text-[#B8B8B8]">
             Cockpit status (World Engine): NOT_CONNECTED — the World Engine status lines are not wired in this

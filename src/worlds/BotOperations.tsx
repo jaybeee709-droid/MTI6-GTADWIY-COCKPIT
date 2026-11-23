@@ -14,6 +14,14 @@ import {
 } from 'lucide-react';
 import { TRIBE_PRINCIPALS } from '../worlds-data';
 import { SPACE_BG } from './CryptoWorld';
+import {
+  ROLE_LABELS,
+  assignRole,
+  assignTask,
+  loadAssignments,
+  unassign,
+  type AssignmentMap,
+} from '../principal-assignments';
 
 type ConsoleTab =
   | 'Overview'
@@ -48,6 +56,16 @@ export const BotOperations: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ConsoleTab>('Overview');
   const [selectedTribe, setSelectedTribe] = useState<string>(TRIBE_PRINCIPALS[0]?.id ?? 'tribe-1');
   const [consoleInput, setConsoleInput] = useState('');
+  // Principal assignments (v150) — the canonical assignment store
+  // (mti6_principal_assignments_v1, same shape as js/tribe-principals.js).
+  // Assignments are owner records: they change role/task only, never
+  // identity, and they do not make a principal "live".
+  const [assignments, setAssignments] = useState<AssignmentMap>(() => loadAssignments());
+  const [rolePick, setRolePick] = useState<string>(ROLE_LABELS[0]);
+  const [taskText, setTaskText] = useState('');
+  const [assignNote, setAssignNote] = useState('');
+  const assignedCount = TRIBE_PRINCIPALS.filter((t) => assignments[t.id]?.currentRole || assignments[t.id]?.currentTask).length;
+  const selectedAssignment = assignments[selectedTribe];
   // Demo console only: no AI backend is connected. Entries are logged
   // locally and nothing is executed.
   const [consoleHistory, setConsoleHistory] = useState<string[]>([
@@ -199,7 +217,7 @@ export const BotOperations: React.FC = () => {
               <span>BOT OPERATIONS MANAGEMENT</span>
             </div>
             <span className="text-[10px] font-mono text-[#B8B8B8]">
-              {TRIBE_PRINCIPALS.length} PRINCIPALS · UNASSIGNED
+              {TRIBE_PRINCIPALS.length} PRINCIPALS · {assignedCount} ASSIGNED · {TRIBE_PRINCIPALS.length - assignedCount} UNASSIGNED
             </span>
           </div>
 
@@ -240,11 +258,87 @@ export const BotOperations: React.FC = () => {
                   </div>
                   <div className="flex items-center justify-between text-[10px] font-mono text-[#B8B8B8]">
                     <span>TAB: {activeTab.toUpperCase()}</span>
-                    <span>UNASSIGNED</span>
+                    <span>
+                      {assignments[tribe.id]?.currentRole ??
+                        (assignments[tribe.id]?.currentTask ? 'TASK SET' : 'UNASSIGNED')}
+                    </span>
                   </div>
                 </button>
               );
             })}
+          </div>
+
+          {/* OWNER ASSIGNMENT — selected principal (v150) */}
+          <div className="p-3 rounded-lg bg-[#050505] border border-white/10 space-y-2.5">
+            <p className="font-mono text-[10px] text-[#8B5CFF]">
+              ASSIGNMENT — {TRIBE_PRINCIPALS.find((t) => t.id === selectedTribe)?.displayName ?? selectedTribe}
+            </p>
+            <p className="font-mono text-[10px] text-[#B8B8B8]">
+              ROLE: {selectedAssignment?.currentRole ?? 'UNASSIGNED'} · TASK:{' '}
+              {selectedAssignment?.currentTask ?? 'NONE RECORDED'} · HISTORY:{' '}
+              {selectedAssignment?.history.length ?? 0} ENTRIES
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <select
+                value={rolePick}
+                onChange={(e) => setRolePick(e.target.value)}
+                aria-label="Assignment role"
+                className="h-9 rounded-lg border border-white/15 bg-[#101010] px-2 text-xs text-white outline-none focus:border-[#8B5CFF]"
+              >
+                {ROLE_LABELS.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setAssignments((m) => assignRole(m, selectedTribe, rolePick, assignNote))}
+                className="flex min-h-[44px] items-center rounded-lg bg-[#8B5CFF] px-3 text-xs font-semibold text-white"
+              >
+                ASSIGN ROLE
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <input
+                value={taskText}
+                onChange={(e) => setTaskText(e.target.value)}
+                placeholder="Task — e.g. Watch Aave markets on Ethereum"
+                aria-label="Assignment task"
+                className="h-9 min-w-[180px] flex-1 rounded-lg border border-white/15 bg-[#101010] px-2.5 text-xs text-white outline-none placeholder:text-[#B8B8B8]/60 focus:border-[#8B5CFF]"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (taskText.trim()) {
+                    setAssignments((m) => assignTask(m, selectedTribe, taskText, assignNote));
+                    setTaskText('');
+                  }
+                }}
+                className="flex min-h-[44px] items-center rounded-lg border border-[#8B5CFF]/60 px-3 text-xs font-semibold text-white"
+              >
+                ASSIGN TASK
+              </button>
+              <button
+                type="button"
+                onClick={() => setAssignments((m) => unassign(m, selectedTribe, assignNote))}
+                className="flex min-h-[44px] items-center rounded-lg border border-white/15 px-3 font-mono text-[10px] text-[#B8B8B8]"
+              >
+                UNASSIGN
+              </button>
+            </div>
+            <input
+              value={assignNote}
+              onChange={(e) => setAssignNote(e.target.value)}
+              placeholder="Note for the history entry (optional)"
+              aria-label="Assignment note"
+              className="h-9 w-full rounded-lg border border-white/15 bg-[#101010] px-2.5 text-xs text-white outline-none placeholder:text-[#B8B8B8]/60 focus:border-[#8B5CFF]"
+            />
+            <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+              ASSIGNMENTS ARE OWNER RECORDS IN THE CANONICAL STORE — THEY SET ROLE AND TASK ONLY,
+              NEVER IDENTITY, AND THEY DO NOT MAKE A PRINCIPAL LIVE: WORKERS STAY 0 ACTIVE /
+              NOT_CONNECTED UNTIL A REAL RUNTIME EXISTS.
+            </p>
           </div>
 
           <div className="p-3 rounded-lg bg-[#050505] border border-white/10 text-xs font-mono text-[#B8B8B8] flex items-center gap-2">
