@@ -12,6 +12,7 @@ import type { ViewMode, WorldId } from '../App';
 import { useCockpitDb } from '../hooks/useCockpitDb';
 import { MTI6_LAYER } from '../tokens';
 import { EARNINGS_LOCATION_RULES } from '../world-data';
+import { fmtTime, useProvenanceLog } from '../live-data';
 import {
   WorldMapEngine,
   type MapEngineStatus,
@@ -133,6 +134,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   const [activeLayers, setActiveLayers] = useState<LayerId[]>(['base']);
   const [focusedLayer, setFocusedLayer] = useState<LayerId>('base');
   const [sphereOpen, setSphereOpen] = useState<boolean>(false);
+  const provenance = useProvenanceLog();
   // Live transit (A2): stops fetched through the /api/mti6 proxy
   // (Transitland) for the map centre, on the owner's explicit query —
   // never auto-polled. These are the map's first real markers: each
@@ -442,7 +444,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               <Radio className="h-3.5 w-3.5" />
               <span>FLAT WORLD MAP · WEBGL PLANE — {mapView.level.toUpperCase()}</span>
             </div>
-            <span className="text-[11px] font-mono text-[#B8B8B8]">DRAG TO PAN · SCROLL TO ZOOM · FETCH ON SETTLE</span>
+            <span className="hidden text-[11px] font-mono text-[#B8B8B8] md:inline">DRAG TO PAN · SCROLL TO ZOOM · FETCH ON SETTLE</span>
           </div>
           <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-white/10 bg-[#0b0b0b] text-[11px] font-mono">
             <span className="px-2 py-0.5 rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-300">
@@ -675,6 +677,54 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               KEYED PROVIDERS: OWNER APPROVAL + NETLIFY PROXY ONLY (D1) —
               PLANNED MEANS REGISTERED, NEVER CALLED.
             </p>
+          </div>
+
+          <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-mono text-[#00B7FF]">DATA PROVENANCE — THIS SESSION</div>
+              <span className="font-mono text-[10px] text-[#B8B8B8]">{provenance.length}</span>
+            </div>
+            {provenance.length === 0 ? (
+              <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                NO OBSERVATIONS YET — visit Crypto Market or Crypto World and
+                every live figure the app serves registers here with its
+                source, status, and fetch time. Failures register too.
+              </p>
+            ) : (
+              <div className="space-y-1">
+                {provenance.slice(0, 12).map((r) => (
+                  <div
+                    key={r.key}
+                    className="flex items-center justify-between gap-2 font-mono text-[10px]"
+                  >
+                    <span className="truncate text-[#B8B8B8]">{r.label}</span>
+                    <span className="shrink-0 text-white">
+                      {r.source ?? '—'} ·{' '}
+                      <span
+                        style={{
+                          color:
+                            r.status === 'LIVE'
+                              ? '#32D74B'
+                              : r.status === 'CACHED'
+                                ? '#00B7FF'
+                                : r.status === 'STALE'
+                                  ? '#FFB020'
+                                  : '#B8B8B8',
+                        }}
+                      >
+                        {r.status}
+                      </span>
+                      {r.fetchedAt !== null && <> · {fmtTime(r.fetchedAt)}</>}
+                    </span>
+                  </div>
+                ))}
+                {provenance.length > 12 && (
+                  <p className="font-mono text-[9px] text-[#B8B8B8]">
+                    + {provenance.length - 12} MORE — the newest 12 are shown.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-2">

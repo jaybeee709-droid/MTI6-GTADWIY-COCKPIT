@@ -37,6 +37,66 @@ function noData<T>(chain: string[], note: string): Observation<T> {
   return { value: null, status: 'NO_DATA', source: null, fetchedAt: null, chain, note };
 }
 
+/* ---------------- session provenance registry ----------------
+ * Every observation the governor serves is recorded here, so the
+ * provenance explorer can show the whole session in one place: what
+ * was fetched, from where, when, and with what status — failures
+ * included. Session-only, newest first, one entry per key. */
+
+export interface ProvenanceRecord {
+  key: string;
+  label: string;
+  source: string | null;
+  status: ObsStatus;
+  fetchedAt: number | null;
+  chain: string[];
+  recordedAt: number;
+}
+
+const provenanceLog: ProvenanceRecord[] = [];
+const provenanceListeners = new Set<() => void>();
+
+function labelForKey(key: string): string {
+  const [kind, a, b] = key.split(':');
+  if (kind === 'price') return `Price · ${a}`;
+  if (kind === 'history') return `History · ${a} · ${b}`;
+  if (kind === 'yields') return 'Yields · watched pools';
+  return key;
+}
+
+function recordProvenance<T>(key: string, obs: Observation<T>): void {
+  const rec: ProvenanceRecord = {
+    key,
+    label: labelForKey(key),
+    source: obs.source,
+    status: obs.status,
+    fetchedAt: obs.fetchedAt,
+    chain: obs.chain,
+    recordedAt: Date.now(),
+  };
+  const existing = provenanceLog.findIndex((r) => r.key === key);
+  if (existing >= 0) provenanceLog.splice(existing, 1);
+  provenanceLog.unshift(rec);
+  if (provenanceLog.length > 100) provenanceLog.length = 100;
+  provenanceListeners.forEach((fn) => fn());
+}
+
+export function getProvenanceLog(): ProvenanceRecord[] {
+  return [...provenanceLog];
+}
+
+export function useProvenanceLog(): ProvenanceRecord[] {
+  const [log, setLog] = useState<ProvenanceRecord[]>(() => getProvenanceLog());
+  useEffect(() => {
+    const fn = () => setLog(getProvenanceLog());
+    provenanceListeners.add(fn);
+    return () => {
+      provenanceListeners.delete(fn);
+    };
+  }, []);
+  return log;
+}
+
 /* ---------------- governor ---------------- */
 
 interface CacheEntry {
@@ -56,7 +116,7 @@ async function governed<T>(
 ): Promise<Observation<T>> {
   const hit = cache.get(key) as CacheEntry | undefined;
   if (hit && Date.now() - hit.fetchedAt < ttlMs) {
-    return {
+    const obs: Observation<T> = {
       value: hit.value as T,
       status: 'CACHED',
       source: hit.source,
@@ -64,6 +124,8 @@ async function governed<T>(
       chain,
       note: 'Served from the governor cache inside its TTL.',
     };
+    recordProvenance(key, obs);
+    return obs;
   }
   let flight = inflight.get(key) as Promise<CacheEntry | null> | undefined;
   if (!flight) {
@@ -89,7 +151,7 @@ async function governed<T>(
   }
   const entry = await flight;
   if (entry) {
-    return {
+    const obs: Observation<T> = {
       value: entry.value as T,
       status: 'LIVE',
       source: entry.source,
@@ -97,9 +159,11 @@ async function governed<T>(
       chain,
       note: 'Fetched just now from the named source.',
     };
+    recordProvenance(key, obs);
+    return obs;
   }
   if (hit) {
-    return {
+    const obs: Observation<T> = {
       value: hit.value as T,
       status: 'STALE',
       source: hit.source,
@@ -107,8 +171,12 @@ async function governed<T>(
       chain,
       note: 'Refetch failed — showing the last known value, labelled STALE, never as current.',
     };
+    recordProvenance(key, obs);
+    return obs;
   }
-  return noData(chain, 'Every source in the chain failed or is unreachable. Nothing is invented.');
+  const obs = noData<T>(chain, 'Every source in the chain failed or is unreachable. Nothing is invented.');
+  recordProvenance(key, obs);
+  return obs;
 }
 
 /* ---------------- fetch helper ---------------- */
