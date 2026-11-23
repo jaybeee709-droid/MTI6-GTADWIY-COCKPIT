@@ -31,6 +31,7 @@ import {
   type TaskState,
   type WorkerTask,
 } from '../worker-tasks';
+import { RESOURCE_COUNTS, RESOURCE_GAPS, RESOURCE_PROVIDERS } from '../resource-catalog-data';
 
 type ConsoleTab =
   | 'Overview'
@@ -78,6 +79,21 @@ export const BotOperations: React.FC = () => {
   // Bot work queue (v151) — canonical worker-task store
   // (mti6_worker_tasks_v1). Owner-recorded workflow states only.
   const [tasks, setTasks] = useState<WorkerTask[]>(() => loadTasks());
+  // Source catalog (v152) — read-only view over the generated
+  // governed catalog; search + stage filter are local UI state.
+  const [catalogQuery, setCatalogQuery] = useState('');
+  const [catalogStage, setCatalogStage] = useState('');
+  const catalogMatches = RESOURCE_PROVIDERS.filter((p) => {
+    if (catalogStage && p.stage !== catalogStage) return false;
+    const q = catalogQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      p.name.toLowerCase().includes(q) ||
+      p.provider.toLowerCase().includes(q) ||
+      p.domain.toLowerCase().includes(q) ||
+      p.capabilities.some((c) => c.toLowerCase().includes(q))
+    );
+  });
   const [taskTitle, setTaskTitle] = useState('');
   const [taskRole, setTaskRole] = useState<string>(ROLE_LABELS[0]);
   const [taskPrincipal, setTaskPrincipal] = useState<string>('');
@@ -545,6 +561,82 @@ export const BotOperations: React.FC = () => {
           STATES ARE OWNER-RECORDED WORKFLOW STATES UNDER THE CANONICAL TRANSITION ALLOWLIST —
           A TASK MARKED ACTIVE IS A RECORD, NOT A LIVE WORKER. COMPLETING REQUIRES EVIDENCE.
           EXECUTION IS NOT A TASK STATE AND DOES NOT EXIST HERE.
+        </p>
+      </div>
+
+      {/* SOURCE CATALOG (v152) — the governed provider catalog the
+          bots draw from, generated mechanically from the frozen
+          Resource Engine seeds (js/data/resource-seeds.js).
+          Governance records only: this panel wires nothing, holds
+          no credential values, and approves nothing — OWNER_APPROVED
+          is an owner action in the canonical pipeline. */}
+      <div className="rounded-xl border border-white/10 p-4 space-y-3" style={SPACE_BG}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-mono text-xs text-[#8B5CFF]">SOURCE CATALOG — WHAT THE BOTS DRAW FROM</span>
+          <span className="font-mono text-[10px] text-[#B8B8B8]">
+            {RESOURCE_COUNTS.total} GOVERNED SOURCES · CONNECTED {RESOURCE_COUNTS.byStage.CONNECTED ?? 0} ·
+            TESTED {RESOURCE_COUNTS.byStage.TESTED ?? 0} · RESEARCHING {RESOURCE_COUNTS.byStage.RESEARCHING ?? 0} ·
+            PREPARED {RESOURCE_COUNTS.byStage.PREPARED ?? 0} · DISCOVERED {RESOURCE_COUNTS.byStage.DISCOVERED ?? 0}
+          </span>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={catalogQuery}
+            onChange={(e) => setCatalogQuery(e.target.value)}
+            placeholder="Search sources — name, capability, domain…"
+            aria-label="Search the source catalog"
+            className="h-9 min-w-[220px] flex-1 rounded-lg border border-white/15 bg-[#050505] px-2.5 text-xs text-white outline-none placeholder:text-[#B8B8B8]/60 focus:border-[#8B5CFF]"
+          />
+          <select
+            value={catalogStage}
+            onChange={(e) => setCatalogStage(e.target.value)}
+            aria-label="Filter by pipeline stage"
+            className="h-9 rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white outline-none focus:border-[#8B5CFF]"
+          >
+            <option value="">All stages</option>
+            {Object.keys(RESOURCE_COUNTS.byStage).map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {catalogMatches.length === 0 ? (
+          <p className="font-mono text-[10px] text-[#B8B8B8]">NO SOURCES MATCH — THE CATALOG IS NOT EXTENDED TO FILL A SEARCH.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {catalogMatches.slice(0, 15).map((p) => (
+              <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-[#050505] px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-semibold text-white">{p.name}</p>
+                  <p className="font-mono text-[9px] text-[#B8B8B8]">
+                    {p.domain} · {p.capabilities.join(', ') || 'no capability recorded'} · COST {p.costState} · KEY {p.credentialState}
+                  </p>
+                </div>
+                <span className="rounded border border-white/15 px-2 py-0.5 font-mono text-[9px] text-white">{p.stage}</span>
+              </div>
+            ))}
+            {catalogMatches.length > 15 && (
+              <p className="font-mono text-[9px] text-[#B8B8B8]">+ {catalogMatches.length - 15} MORE — REFINE THE SEARCH.</p>
+            )}
+          </div>
+        )}
+
+        <div className="space-y-1">
+          <p className="font-mono text-[10px] text-[#B8B8B8]">RECORDED CAPABILITY GAPS ({RESOURCE_GAPS.length})</p>
+          {RESOURCE_GAPS.map((g) => (
+            <p key={g.id} className="font-mono text-[9px] text-[#B8B8B8]">
+              {g.capability} — {g.title} · {g.status}
+            </p>
+          ))}
+        </div>
+        <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+          CATALOG SNAPSHOT: THE FROZEN 2026-11-16 GOVERNED CATALOG, SHOWN AS RECORDED. STAGES ARE
+          GOVERNANCE STATES, NOT LIVE HEALTH — A SOURCE MARKED CONNECTED IS WIRED PER THE CONNECTION
+          EVIDENCE IN THE CANONICAL STORE, AND LIVE FIGURES IN THIS APP CARRY THEIR OWN PROVENANCE
+          CHIPS. NO CREDENTIAL VALUE EXISTS IN ANY CATALOG RECORD — EXISTENCE AND CUSTODY ONLY.
         </p>
       </div>
     </div>
