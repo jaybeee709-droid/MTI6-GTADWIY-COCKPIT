@@ -15,6 +15,7 @@ import { EARNINGS_LOCATION_RULES } from '../world-data';
 import {
   WorldMapEngine,
   type MapEngineStatus,
+  type MapMarker,
   type MapViewReport,
 } from './WorldMapEngine';
 import { CryptoSphere } from './CryptoSphere';
@@ -132,6 +133,95 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   const [activeLayers, setActiveLayers] = useState<LayerId[]>(['base']);
   const [focusedLayer, setFocusedLayer] = useState<LayerId>('base');
   const [sphereOpen, setSphereOpen] = useState<boolean>(false);
+  // Live transit (A2): stops fetched through the /api/mti6 proxy
+  // (Transitland) for the map centre, on the owner's explicit query —
+  // never auto-polled. These are the map's first real markers: each
+  // carries a location the source itself published.
+  const [transitStops, setTransitStops] = useState<MapMarker[]>([]);
+  const [transitQuery, setTransitQuery] = useState<{
+    state: 'idle' | 'loading' | 'ok' | 'error';
+    message: string;
+    fetchedAt: number | null;
+  }>({ state: 'idle', message: 'NOT QUERIED — the proxy is ready; nothing has been polled.', fetchedAt: null });
+  const [selectedStop, setSelectedStop] = useState<MapMarker | null>(null);
+
+  const queryTransitStops = async () => {
+    if (typeof fetch !== 'function') {
+      setTransitQuery({ state: 'error', message: 'NO FETCH IN THIS ENVIRONMENT.', fetchedAt: null });
+      return;
+    }
+    setTransitQuery({ state: 'loading', message: 'QUERYING TRANSITLAND VIA THE PROXY…', fetchedAt: null });
+    try {
+      const res = await fetch('/api/mti6', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'transit.stopsNear',
+          payload: { lat: mapView.lat, lon: mapView.lon, radius: 1500, limit: 25 },
+        }),
+      });
+      const env = (await res.json().catch(() => null)) as
+        | { ok?: boolean; data?: unknown; error?: { code?: string; message?: string } }
+        | null;
+      if (!env || !env.ok) {
+        const code = env?.error?.code ?? 'UPSTREAM_ERROR';
+        setTransitQuery({
+          state: 'error',
+          message:
+            code === 'AUTH_REQUIRED'
+              ? 'NOT_CONFIGURED — no Transitland key is set on the server (Netlify TRANSITLAND_API_KEY). No stops are shown.'
+              : `QUERY FAILED (${code}) — no stops are shown.`,
+          fetchedAt: null,
+        });
+        setTransitStops([]);
+        return;
+      }
+      const data = env.data as { stops?: unknown[] } | null;
+      const stops: MapMarker[] = [];
+      if (data && Array.isArray(data.stops)) {
+        data.stops.forEach((raw, i) => {
+          if (!raw || typeof raw !== 'object') return;
+          const s = raw as Record<string, unknown>;
+          let lat: number | null = null;
+          let lon: number | null = null;
+          const geom = s.geometry as { coordinates?: unknown } | undefined;
+          if (geom && Array.isArray(geom.coordinates)) {
+            lon = typeof geom.coordinates[0] === 'number' ? geom.coordinates[0] : null;
+            lat = typeof geom.coordinates[1] === 'number' ? geom.coordinates[1] : null;
+          }
+          if (lat === null || lon === null) {
+            const la = s.stop_lat ?? s.lat ?? s.latitude;
+            const lo = s.stop_lon ?? s.lon ?? s.longitude;
+            lat = typeof la === 'number' ? la : null;
+            lon = typeof lo === 'number' ? lo : null;
+          }
+          if (lat === null || lon === null) return;
+          const name =
+            typeof s.stop_name === 'string'
+              ? s.stop_name
+              : typeof s.name === 'string'
+                ? s.name
+                : 'Transit stop';
+          const id =
+            typeof s.onestop_id === 'string'
+              ? s.onestop_id
+              : typeof s.id === 'string' || typeof s.id === 'number'
+                ? String(s.id)
+                : `stop-${i}`;
+          stops.push({ id, lat, lon, label: name, color: MTI6_LAYER.all });
+        });
+      }
+      setTransitStops(stops);
+      setTransitQuery({
+        state: 'ok',
+        message: `${stops.length} STOP${stops.length === 1 ? '' : 'S'} WITHIN 1.5 KM OF THE MAP CENTRE.`,
+        fetchedAt: Date.now(),
+      });
+    } catch {
+      setTransitQuery({ state: 'error', message: 'QUERY FAILED (NETWORK) — no stops are shown.', fetchedAt: null });
+      setTransitStops([]);
+    }
+  };
   // Log lines are UI events only (the engine initialized, a layer was
   // toggled, the zoom level changed). No line claims a live feed, a
   // latency, or an alert.
@@ -183,6 +273,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
 
   const focusedMeta = LAYERS.find((l) => l.id === focusedLayer) ?? LAYERS[0];
   const cryptoOn = activeLayers.includes('crypto');
+  const transitOn = activeLayers.includes('transit');
   const baseLabel =
     engineStatus.base === 'RASTER'
       ? 'OSM RASTER'
@@ -246,7 +337,12 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
           </div>
           <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-white/10 bg-[#0b0b0b] text-[11px] font-mono">
             <span className="px-2 py-0.5 rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-300">
-              Transitland Proxy: READY (Not Polled)
+              Transitland Proxy:{' '}
+              {transitQuery.state === 'ok'
+                ? `LIVE · ${transitStops.length} STOPS`
+                : transitQuery.state === 'error'
+                  ? 'QUERY FAILED'
+                  : 'READY (Not Polled)'}
             </span>
             <span className="px-2 py-0.5 rounded border border-[#00B7FF]/40 bg-[#00B7FF]/10 text-[#00B7FF]">
               World Engine: 957 Nodes
@@ -265,9 +361,10 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
 
           <div className="relative w-full h-[58dvh] min-h-[340px] md:aspect-[2/1] md:h-auto xl:aspect-none xl:flex-1 xl:min-h-[460px] bg-[#050505]">
             <WorldMapEngine
-              markers={[]}
+              markers={transitOn ? transitStops : []}
               onViewChange={handleViewChange}
               onStatusChange={setEngineStatus}
+              onMarkerSelect={setSelectedStop}
             />
             {/* Layer chips — 44px touch targets at every tier (the
                 Phase 1 chips were ~18px and failed the rule). Phone:
@@ -339,6 +436,36 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   )}
                 </div>
               )}
+              {/* Live transit: an explicit query (never a poll) places
+                  real stops — the map's first sourced markers. */}
+              {transitOn && (
+                <div className="pointer-events-auto self-start rounded border border-[#00B7FF]/50 bg-[#0b0b0b]/90 px-2.5 py-2 font-mono text-[11px] text-[#B8B8B8] 2xl:self-stretch">
+                  <span className="font-semibold text-[#00B7FF]">TRANSIT — LIVE QUERY.</span>{' '}
+                  {transitQuery.message}
+                  {transitQuery.fetchedAt !== null && (
+                    <>
+                      {' '}
+                      SOURCE: TRANSITLAND · FETCHED{' '}
+                      {new Date(transitQuery.fetchedAt).toLocaleTimeString('en-US', { hour12: false })}
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={queryTransitStops}
+                    disabled={transitQuery.state === 'loading'}
+                    className="ml-2 font-semibold text-white underline decoration-[#00B7FF] underline-offset-2 disabled:opacity-50"
+                  >
+                    {transitQuery.state === 'loading' ? 'QUERYING…' : 'QUERY STOPS NEAR CENTRE'}
+                  </button>
+                  {selectedStop && (
+                    <div className="mt-1 border-t border-white/10 pt-1">
+                      STOP: <span className="text-white">{selectedStop.label}</span> ·{' '}
+                      {selectedStop.lat.toFixed(5)}, {selectedStop.lon.toFixed(5)} · SOURCE:
+                      TRANSITLAND
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             {/* The Sphere lens overlays the map panel — the map stays
                 home underneath; closing the lens returns to it. */}
@@ -364,12 +491,18 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               <div>LEVEL: {mapView.level} · z{mapView.zoom.toFixed(1)}</div>
               <div>TILES: {engineStatus.tilesLoaded} loaded · {engineStatus.tilesFailed} failed (floor beneath)</div>
               <div>TERRAIN: CANDIDATE — hillshade not rendered</div>
-              <div>MARKERS PLACED: 0 — no verified locations</div>
+              <div>
+                MARKERS PLACED: {transitOn ? transitStops.length : 0}
+                {transitOn && transitStops.length > 0
+                  ? ' — Transitland stops (sourced locations)'
+                  : ' — no verified locations'}
+              </div>
             </div>
             <p className="text-xs text-[#B8B8B8]">
-              Markers appear only for records with verified locations. Every
-              layer's record set is currently empty or unconnected, so the map
-              honestly places none.
+              Markers appear only for records with verified locations. Today
+              that means the Transitland stops you query for; every other
+              layer's record set is empty or unconnected, so the map honestly
+              places none of theirs.
             </p>
           </div>
 
