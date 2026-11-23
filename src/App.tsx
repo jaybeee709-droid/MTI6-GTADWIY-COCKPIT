@@ -18,9 +18,11 @@ import {
   ListChecks,
   Maximize2,
   Menu,
+  Mic,
   Minimize2,
   Monitor,
   PieChart,
+  Pin,
   Search,
   Settings,
   Shield,
@@ -38,6 +40,7 @@ import {
   MTI6_TOPBAR,
   MTI6_WORLD_OS,
 } from './tokens';
+import { DISPLAY_CURRENCIES, currencyOf } from './currencies';
 import { WorldGlobe } from './worlds/WorldGlobe';
 import { CryptoWorld } from './worlds/CryptoWorld';
 import { EarningsWorld } from './worlds/EarningsWorld';
@@ -106,6 +109,41 @@ interface FloatingWin {
   minimized: boolean;
 }
 
+/** A web tab kept by the cockpit (owner revision, 2026-11-23). The
+ *  page itself opens in a real browser tab — most sites refuse to be
+ *  embedded inside another app — while the cockpit keeps the tab
+ *  strip: open, re-open, pin. Pinned tabs persist across sessions. */
+interface WebTab {
+  id: string;
+  title: string;
+  url: string;
+  pinned: boolean;
+}
+
+type AmountPanel =
+  | { mode: 'list' }
+  | { mode: 'actions' | 'info' | 'earns'; code: string }
+  | null;
+
+function loadWebTabs(): WebTab[] {
+  try {
+    const raw = localStorage.getItem('mti6-web-tabs-v1');
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as WebTab[];
+    return Array.isArray(parsed) ? parsed.filter((t) => t && t.url && t.title) : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadDisplayCurrency(): string {
+  try {
+    return localStorage.getItem('mti6-display-currency-v1') ?? 'USD';
+  } catch {
+    return 'USD';
+  }
+}
+
 const WORLDS: WorldDef[] = [
   { id: 'globe', label: 'World Map', tier: 'Standard', accent: '#00B7FF', icon: <Globe className="h-4 w-4" /> },
   { id: 'crypto', label: 'Crypto World', tier: 'Standard', accent: '#8B5CFF', icon: <Coins className="h-4 w-4" /> },
@@ -148,6 +186,31 @@ export function App() {
   const [searchFocus, setSearchFocus] = useState<boolean>(false);
   const [phoneSearchOpen, setPhoneSearchOpen] = useState<boolean>(false);
   const activeRailBtnRef = useRef<HTMLButtonElement | null>(null);
+  // Owner revision (2026-11-23): the search bar is also a web browser
+  // (scope toggle SCREENS / WEB, kept tabs with pinning), the mic talks
+  // to STAR, and the amount is a currency selector with pinning.
+  const [searchScope, setSearchScope] = useState<'screens' | 'web'>('screens');
+  const [webTabs, setWebTabs] = useState<WebTab[]>(loadWebTabs);
+  const [pinnedCurrency, setPinnedCurrency] = useState<string>(loadDisplayCurrency);
+  const [amountPanel, setAmountPanel] = useState<AmountPanel>(null);
+  const [starHeard, setStarHeard] = useState<string>('');
+  const [voiceState, setVoiceState] = useState<'idle' | 'listening' | 'unavailable'>('idle');
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('mti6-web-tabs-v1', JSON.stringify(webTabs));
+    } catch {
+      /* storage unavailable — tabs simply do not persist */
+    }
+  }, [webTabs]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('mti6-display-currency-v1', pinnedCurrency);
+    } catch {
+      /* storage unavailable — the pin simply does not persist */
+    }
+  }, [pinnedCurrency]);
 
   const visibleWorlds = useMemo(() => {
     if (viewMode === 'Standard') return WORLDS.filter((w) => w.tier === 'Standard');
@@ -177,6 +240,83 @@ export function App() {
     setSearchQuery('');
     setSearchFocus(false);
     setPhoneSearchOpen(false);
+  };
+
+  /** Web scope: a query becomes a DuckDuckGo search (keyless), a typed
+   *  address becomes the page itself. Either way the page opens in a
+   *  real browser tab and the cockpit keeps a tab for it below the
+   *  bar, ready to pin. */
+  const openWebTab = (raw: string) => {
+    const q = raw.trim();
+    if (!q) return;
+    const looksLikeUrl =
+      /^https?:\/\//i.test(q) || (!q.includes(' ') && /^[^\s]+\.[a-z]{2,}/i.test(q));
+    const url = looksLikeUrl
+      ? q.startsWith('http')
+        ? q
+        : `https://${q}`
+      : `https://duckduckgo.com/?q=${encodeURIComponent(q)}`;
+    const title = looksLikeUrl ? q.replace(/^https?:\/\//, '') : q;
+    setWebTabs((prev) => [
+      ...prev,
+      { id: `${Date.now()}-${prev.length}`, title, url, pinned: false },
+    ]);
+    window.open(url, '_blank', 'noopener,noreferrer');
+    setSearchQuery('');
+    setSearchFocus(false);
+    setPhoneSearchOpen(false);
+  };
+
+  const togglePinTab = (id: string) =>
+    setWebTabs((prev) => prev.map((t) => (t.id === id ? { ...t, pinned: !t.pinned } : t)));
+
+  const closeWebTab = (id: string) =>
+    setWebTabs((prev) => prev.filter((t) => t.id !== id));
+
+  /** Mic: tap and talk to STAR. Uses the browser's speech recognition
+   *  where it exists; where it does not, the bar says so honestly
+   *  instead of pretending to listen. The transcript opens the STAR
+   *  panel — STAR itself is demo / NOT_CONNECTED, and says so there. */
+  const startVoice = () => {
+    const w = window as unknown as {
+      SpeechRecognition?: new () => {
+        lang: string;
+        interimResults: boolean;
+        maxAlternatives: number;
+        onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+        onerror: (() => void) | null;
+        onend: (() => void) | null;
+        start: () => void;
+      };
+      webkitSpeechRecognition?: unknown;
+    };
+    const Ctor =
+      w.SpeechRecognition ??
+      (w.webkitSpeechRecognition as typeof w.SpeechRecognition | undefined);
+    if (!Ctor) {
+      setVoiceState('unavailable');
+      return;
+    }
+    try {
+      const rec = new Ctor();
+      rec.lang = 'en-US';
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+      setVoiceState('listening');
+      rec.onresult = (e) => {
+        const text = e.results?.[0]?.[0]?.transcript ?? '';
+        setVoiceState('idle');
+        if (text) {
+          setStarHeard(text);
+          setStarOrbOpen(true);
+        }
+      };
+      rec.onerror = () => setVoiceState('idle');
+      rec.onend = () => setVoiceState('idle');
+      rec.start();
+    } catch {
+      setVoiceState('unavailable');
+    }
   };
 
   const handleSelectWorld = (worldId: string) => {
@@ -260,9 +400,11 @@ export function App() {
     );
   };
 
-  // The top-bar search field. Its scope is named in the UI — SCREENS —
-  // because that is the scope this build can actually honour: global
-  // search phases 2–4 are gated and are not presented as searchable.
+  // The top-bar search field (owner revision, 2026-11-23). Two scopes,
+  //  named on the toggle: SCREENS searches the 22 cockpit screens; WEB
+  //  searches the web / opens an address — the page opens in a real
+  //  browser tab and the cockpit keeps a pinnable tab for it. The mic
+  //  talks to STAR.
   const renderSearchField = () => (
     <div className="relative w-full">
       <div
@@ -276,23 +418,59 @@ export function App() {
           onFocus={() => setSearchFocus(true)}
           onBlur={() => setTimeout(() => setSearchFocus(false), 120)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && searchResults.length > 0) {
-              selectSearchResult(searchResults[0].id);
+            if (e.key === 'Enter') {
+              if (searchScope === 'web') openWebTab(searchQuery);
+              else if (searchResults.length > 0) selectSearchResult(searchResults[0].id);
             }
             if (e.key === 'Escape') {
               setSearchQuery('');
               setSearchFocus(false);
             }
           }}
-          placeholder="Search screens…"
-          aria-label="Search screens — scope: the 22 cockpit screens"
+          placeholder={searchScope === 'web' ? 'Search the web or type an address…' : 'Search screens…'}
+          aria-label={
+            searchScope === 'web'
+              ? 'Search the web — opens in a new browser tab'
+              : 'Search screens — scope: the 22 cockpit screens'
+          }
           className="w-full min-w-0 bg-transparent text-sm text-white placeholder:text-[#B8B8B8] focus:outline-none"
         />
-        <span className="shrink-0 rounded border border-white/15 px-1.5 py-0.5 font-mono text-[9px] tracking-widest text-[#B8B8B8]">
-          SCREENS
-        </span>
+        <button
+          type="button"
+          onClick={startVoice}
+          aria-label="Talk to STAR"
+          title="Talk to STAR"
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition ${
+            voiceState === 'listening'
+              ? 'border-[#8B5CFF] bg-[#8B5CFF]/25 text-[#8B5CFF]'
+              : 'border-white/15 text-[#B8B8B8] hover:border-[#8B5CFF]/60 hover:text-[#8B5CFF]'
+          }`}
+        >
+          <Mic className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setSearchScope((s) => (s === 'screens' ? 'web' : 'screens'))}
+          aria-label={`Search scope: ${searchScope}. Tap to switch.`}
+          title="Tap to switch search scope"
+          className="shrink-0 rounded border border-white/15 px-1.5 py-0.5 font-mono text-[9px] tracking-widest text-[#B8B8B8] hover:border-[#00B7FF]/60 hover:text-white"
+        >
+          {searchScope === 'web' ? 'WEB' : 'SCREENS'}
+        </button>
       </div>
-      {searchFocus && searchQuery.trim() && (
+      {voiceState === 'unavailable' && (
+        <div className="absolute left-0 right-0 top-full z-40 mt-2 rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-[11px] text-[#B8B8B8] shadow-2xl">
+          Voice input is not available in this browser — STAR cannot hear you here.
+          <button
+            type="button"
+            onClick={() => setVoiceState('idle')}
+            className="ml-2 font-semibold text-white"
+          >
+            OK
+          </button>
+        </div>
+      )}
+      {searchFocus && searchQuery.trim() && searchScope === 'screens' && (
         <div className="absolute left-0 right-0 top-full z-40 mt-2 overflow-hidden rounded-xl border border-white/15 bg-[#101010] shadow-2xl">
           {searchResults.length > 0 ? (
             searchResults.map((w) => (
@@ -319,8 +497,15 @@ export function App() {
             </div>
           )}
           <div className="border-t border-white/10 px-3 py-1.5 text-[10px] text-[#B8B8B8]">
-            Scope: Screens only — global search phases 2–4 are not connected.
+            Scope: Screens. Tap the scope chip to search the web instead.
           </div>
+        </div>
+      )}
+      {searchFocus && searchScope === 'web' && (
+        <div className="absolute left-0 right-0 top-full z-40 mt-2 rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-[11px] text-[#B8B8B8] shadow-2xl">
+          Press Enter — the page opens in a new browser tab (search runs through
+          DuckDuckGo, no key, no account). The cockpit keeps a tab for it below the
+          bar, so you can pin it like a browser.
         </div>
       )}
     </div>
@@ -375,10 +560,11 @@ export function App() {
 
           <div className="flex-1" />
 
-          {/* 3 — black card glyph → Accounts Center */}
+          {/* 3 — black card glyph → the Wallet (currencies held +
+              transactions; Accounts Center rails below them) */}
           <button
             onClick={() => setAccountsOpen(true)}
-            aria-label="Accounts Center"
+            aria-label="Wallet"
             className="flex h-9 w-11 shrink-0 items-center justify-center rounded-lg border md:h-10 md:w-12"
             style={{
               backgroundColor: MTI6_TOPBAR.cardGlyph,
@@ -389,12 +575,152 @@ export function App() {
           </button>
 
           {/* 4 — asset amount: NO DATA with nothing connected, never
-              $0.00. Hidden on phone — it does not shrink. */}
-          <div className="hidden shrink-0 flex-col items-end leading-tight md:flex">
-            <span className="font-mono text-[9px] tracking-widest text-[#B8B8B8]">ASSETS</span>
-            <span className="text-sm font-semibold" style={{ color: MTI6_AMOUNT.noData }}>
-              NO DATA
-            </span>
+              $0.00. Hidden on phone — it does not shrink. Tappable
+              (owner revision, 2026-11-23): opens the currency selector;
+              choosing a currency offers Pin / Info / How it earns. */}
+          <div className="relative hidden shrink-0 md:block">
+            <button
+              type="button"
+              onClick={() => setAmountPanel((p) => (p ? null : { mode: 'list' }))}
+              aria-label={`Display currency: ${pinnedCurrency}. Tap to select a currency.`}
+              className="flex flex-col items-end leading-tight"
+            >
+              <span className="font-mono text-[9px] tracking-widest text-[#B8B8B8]">
+                ASSETS · {pinnedCurrency}
+              </span>
+              <span className="text-sm font-semibold" style={{ color: MTI6_AMOUNT.noData }}>
+                NO DATA
+              </span>
+            </button>
+            {amountPanel && (
+              <div className="absolute right-0 top-full z-40 mt-2 w-72 rounded-xl border border-white/15 bg-[#101010] p-3 text-xs shadow-2xl">
+                {amountPanel.mode === 'list' && (
+                  <>
+                    <div className="mb-2 font-mono text-[10px] tracking-widest text-[#B8B8B8]">
+                      DISPLAY CURRENCY — SELECT
+                    </div>
+                    <div className="max-h-64 space-y-1 overflow-y-auto">
+                      {DISPLAY_CURRENCIES.map((c) => (
+                        <button
+                          key={c.code}
+                          type="button"
+                          onClick={() => setAmountPanel({ mode: 'actions', code: c.code })}
+                          className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left hover:bg-[#202020]"
+                        >
+                          <span className="font-semibold text-white">
+                            {c.code}
+                            <span className="ml-2 font-normal text-[#B8B8B8]">{c.name}</span>
+                          </span>
+                          <span className="flex items-center gap-1.5">
+                            {c.code === pinnedCurrency && (
+                              <Pin className="h-3 w-3 text-[#00B7FF]" />
+                            )}
+                            <span className="rounded border border-white/15 px-1 py-0.5 font-mono text-[9px] uppercase text-[#B8B8B8]">
+                              {c.kind}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {amountPanel.mode === 'actions' && (
+                  <>
+                    <div className="mb-1 font-semibold text-white">
+                      {amountPanel.code} · {currencyOf(amountPanel.code).name}
+                    </div>
+                    <div className="mb-2 text-[11px] text-[#B8B8B8]">
+                      What do you want to do with this currency?
+                    </div>
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPinnedCurrency(amountPanel.code);
+                          setAmountPanel(null);
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-white hover:bg-[#202020]"
+                      >
+                        <Pin className="h-3.5 w-3.5 text-[#00B7FF]" /> Pin as the display currency
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAmountPanel({ mode: 'info', code: amountPanel.code })}
+                        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-white hover:bg-[#202020]"
+                      >
+                        <BookOpen className="h-3.5 w-3.5 text-[#00B7FF]" /> Currency info
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAmountPanel({ mode: 'earns', code: amountPanel.code })}
+                        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-white hover:bg-[#202020]"
+                      >
+                        <TrendingUp className="h-3.5 w-3.5 text-[#00B7FF]" /> How {amountPanel.code} earns on MTI6
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAmountPanel({ mode: 'list' })}
+                        className="w-full rounded-lg px-2 py-1.5 text-left text-[#B8B8B8] hover:bg-[#202020]"
+                      >
+                        ← All currencies
+                      </button>
+                    </div>
+                  </>
+                )}
+                {amountPanel.mode === 'info' && (
+                  <>
+                    <div className="mb-1 font-semibold text-white">
+                      {amountPanel.code} · {currencyOf(amountPanel.code).name}
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-[#B8B8B8]">
+                      {currencyOf(amountPanel.code).info}
+                    </p>
+                    <p className="mt-2 font-mono text-[10px] text-[#B8B8B8]">
+                      HOLDINGS: UNAVAILABLE — no wallet connected
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setAmountPanel({ mode: 'actions', code: amountPanel.code })}
+                      className="mt-2 w-full rounded-lg px-2 py-1.5 text-left text-[#B8B8B8] hover:bg-[#202020]"
+                    >
+                      ← Back
+                    </button>
+                  </>
+                )}
+                {amountPanel.mode === 'earns' && (
+                  <>
+                    <div className="mb-1 font-semibold text-white">
+                      How {amountPanel.code} earns on MTI6
+                    </div>
+                    <div className="mb-2 text-[11px] text-[#B8B8B8]">
+                      Catalogue routes in {currencyOf(amountPanel.code).earnWorld}:
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {currencyOf(amountPanel.code).earnRoutes.map((r) => (
+                        <span
+                          key={r}
+                          className="rounded border border-white/15 bg-[#151515] px-1.5 py-0.5 text-[10px] text-white"
+                        >
+                          {r}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-[10px] leading-relaxed text-[#B8B8B8]">
+                      Routes are catalogue entries — nothing is live. Feeds are
+                      NOT_CONNECTED and execution is DISABLED, so no earnings are
+                      claimed for {amountPanel.code} yet.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setAmountPanel({ mode: 'actions', code: amountPanel.code })}
+                      className="mt-1 w-full rounded-lg px-2 py-1.5 text-left text-[#B8B8B8] hover:bg-[#202020]"
+                    >
+                      ← Back
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -517,6 +843,56 @@ export function App() {
         </nav>
       </header>
 
+      {/* Web tab strip — the cockpit's kept browser tabs (owner
+          revision, 2026-11-23). Shown only when web tabs exist.
+          Clicking a tab re-opens its page in a real browser tab;
+          pinning keeps it across sessions. */}
+      {webTabs.length > 0 && (
+        <div className="border-b border-white/10 bg-[#0b0b0b]">
+          <div className="mx-auto flex w-full max-w-[1600px] items-center gap-1.5 overflow-x-auto px-4 py-1.5">
+            <span className="shrink-0 font-mono text-[9px] tracking-widest text-[#B8B8B8]">
+              WEB TABS
+            </span>
+            {webTabs.map((tab) => (
+              <div
+                key={tab.id}
+                className={`flex shrink-0 items-center gap-1 rounded-lg border px-1.5 py-1 text-[11px] ${
+                  tab.pinned
+                    ? 'border-[#8B5CFF]/60 bg-[#8B5CFF]/10 text-white'
+                    : 'border-white/10 bg-[#121212] text-[#B8B8B8]'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => togglePinTab(tab.id)}
+                  aria-label={tab.pinned ? `Unpin tab ${tab.title}` : `Pin tab ${tab.title}`}
+                  title={tab.pinned ? 'Pinned — tap to unpin' : 'Pin this tab'}
+                  className={tab.pinned ? 'text-[#8B5CFF]' : 'text-[#B8B8B8] hover:text-white'}
+                >
+                  <Pin className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.open(tab.url, '_blank', 'noopener,noreferrer')}
+                  className="max-w-[160px] truncate hover:text-white"
+                  title={tab.url}
+                >
+                  {tab.title}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => closeWebTab(tab.id)}
+                  aria-label={`Close tab ${tab.title}`}
+                  className="text-[#B8B8B8] hover:text-white"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Main World Viewport */}
       <main className="mx-auto w-full max-w-[1600px] flex-1 p-4 md:p-6">
         {renderWorldContent(activeWorld)}
@@ -561,12 +937,17 @@ export function App() {
         </div>
       )}
 
-      {/* Accounts Center Slide-Over */}
+      {/* Wallet Slide-Over (the black card's panel) */}
       {accountsOpen && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm">
           <div className="h-full w-full max-w-md border-l border-white/15 bg-[#101010] p-6 overflow-y-auto">
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <h3 className="text-base font-semibold">Accounts Center</h3>
+              <div>
+                <h3 className="text-base font-semibold">Wallet</h3>
+                <div className="text-[11px] text-[#B8B8B8]">
+                  Currencies held · transactions · accounts rails
+                </div>
+              </div>
               <button
                 onClick={() => setAccountsOpen(false)}
                 className="rounded-lg p-1.5 text-[#B8B8B8] hover:bg-white/10 hover:text-white"
@@ -575,6 +956,30 @@ export function App() {
               </button>
             </div>
             <div className="mt-5 space-y-3 text-xs">
+              <div className="rounded-xl bg-[#151515] p-3.5">
+                <div className="font-semibold text-white">Currencies Held</div>
+                <div className="mt-1 text-[#B8B8B8]">
+                  No wallet is connected — holdings are UNAVAILABLE for every
+                  currency, never $0.00.
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-1.5">
+                  {DISPLAY_CURRENCIES.map((c) => (
+                    <div
+                      key={c.code}
+                      className="flex items-center justify-between rounded-lg bg-[#101010] px-2 py-1.5"
+                    >
+                      <span className="font-semibold text-white">{c.code}</span>
+                      <span className="font-mono text-[9px] text-[#B8B8B8]">UNAVAILABLE</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-xl bg-[#151515] p-3.5">
+                <div className="font-semibold text-white">Transactions</div>
+                <div className="mt-1 font-mono text-[11px] text-[#B8B8B8]">
+                  NO DATA — no wallet connected; no transactions are recorded.
+                </div>
+              </div>
               <div className="rounded-xl bg-[#151515] p-3.5">
                 <div className="font-semibold text-white">Sovereign Treasury Profile</div>
                 <div className="mt-1 text-[#B8B8B8]">Execution Mode: {executionMode}</div>
@@ -608,6 +1013,13 @@ export function App() {
               Active World: <strong className="text-white">{activeWorld}</strong> · Mode:{' '}
               <strong className="text-[#8B5CFF]">{executionMode}</strong>. STAR demo / NOT_CONNECTED — no live tribal status. Execution disabled by design.
             </p>
+            {starHeard && (
+              <p className="mt-2 border-t border-white/10 pt-2 text-[#B8B8B8]">
+                You said: <strong className="text-white">&ldquo;{starHeard}&rdquo;</strong>
+                <br />
+                Your words were heard — STAR is in demo mode, so nothing was acted on.
+              </p>
+            )}
           </div>
         )}
         <button
