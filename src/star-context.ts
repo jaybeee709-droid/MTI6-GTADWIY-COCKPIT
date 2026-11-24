@@ -5,6 +5,7 @@ import { CANONICAL_60, ENCYCLOPEDIA_COUNTS, ENCYCLOPEDIA_FAMILIES, ENCYCLOPEDIA_
 import { ENTITY_COUNTS } from './entity-data';
 import { WORKSPACE_COVERAGE } from './workspace-coverage-data';
 import { WORLD_ENGINE_STATS } from './world-engine-data';
+import { memorySummary } from './bot-memory';
 
 /* STAR's grounding context — the platform snapshot STAR answers
  * from. Everything here is derived from the app's own data modules
@@ -59,6 +60,8 @@ export function buildStarSystemPrompt(): string {
     `- Recorded knowledge gaps: ${zeroStrategy.join(' and ')} have types but zero strategies; ${emptyFams} families hold no backbone major; the Action/Sub-Action levels are empty because Batch C is the owner's separate freeze decision and has not been taken. Gaps are surfaced, never filled.`,
     `- Crypto World: ${CRYPTO_WORLD_CONTENTS.length} canonical contents (${CRYPTO_WORLD_CONTENTS.join(', ')}).`,
     `- Crypto workspaces: ${CRYPTO_WORKSPACES.length} in the registry — ${statusLine}. Their recorded backbone coverage is ${primaryLinks} primary + ${secondaryLinks} secondary major-activity links, every one resolving against the frozen canonical data. Workspace frame modes are STANDARD (the registry default), ADVANCED and ALL; ALL shows the recorded cost-class and risk-dimension codes — cost amounts are UNKNOWN (never zero) and risk is profiled by dimension, never a single score. Execution capability is EXECUTION DISABLED on every registry row.`,
+    `- Every workspace opens a dedicated view composed from its recorded frame, backbone coverage, entities in scope, cost/risk codes, simulator template, and the owner's own records against its majors; workspaces can be compared side by side over their recorded coverage, related workspaces are those sharing a recorded major, and each view states WHY it shows what it shows (registry record \u2192 resolver coverage \u2192 backbone).`,
+    `- Bot Memory is the bots' controlled memory layer: records carry provenance and a truth state for life, VERIFIED cannot be written by the layer at all, corrections supersede with the original preserved, and deletion is an owner act leaving a tombstone. It currently holds ${memorySummary().total} active record(s) of ${memorySummary().totalRetained} retained — it shipped empty and fills only through governed writes; no producer is wired yet.`,
     `- Earnings World: ${EARNINGS_CATEGORIES.length} categories (${EARNINGS_CATEGORIES.join(', ')}). The owner has ${ownerOpportunityCount()} opportunity record(s) entered locally; the discovery feed is NOT_CONNECTED. The opportunity pipeline runs DISCOVERED through PREPARED and never EXECUTED; numeric return fields and risk scores are forbidden in opportunity records.`,
     `- Display currencies in the catalogue: ${DISPLAY_CURRENCIES.map((c) => c.code).join(', ')}. No wallet is connected: holdings are UNAVAILABLE, never zero.`,
     '- Live data now flows for crypto prices (CoinGecko → Coinbase → CoinPaprika), price history, and DefiLlama yields; every figure carries provenance (source, fetch time, LIVE/CACHED/STALE). Transit stops and departures can be queried through the platform proxy.',
