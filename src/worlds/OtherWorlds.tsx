@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Accessibility,
   AlertOctagon,
@@ -1253,6 +1253,41 @@ export const SecurityWorld: React.FC = () => {
   const [alertSeverity, setAlertSeverity] = useState<string>('UNKNOWN');
   const [alertMsg, setAlertMsg] = useState('');
   const counts = alertCounts(angelStore.alerts);
+  // API connections (v170) — live configured state read from the
+  // gateway itself (gateway.status reports env PRESENCE only,
+  // never a value). When the gateway can't be reached from here
+  // (e.g. a local preview with no functions), the panel says so
+  // instead of guessing a state.
+  const [gatewayState, setGatewayState] = useState<{
+    state: 'checking' | 'ok' | 'unreachable';
+    configured: Record<string, boolean>;
+  }>({ state: 'checking', configured: {} });
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const res = await fetch('/api/mti6', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'gateway.status' }),
+        });
+        const env = (await res.json().catch(() => null)) as
+          | { ok?: boolean; data?: { providersConfigured?: Record<string, boolean> } }
+          | null;
+        if (!live) return;
+        if (env?.ok && env.data?.providersConfigured) {
+          setGatewayState({ state: 'ok', configured: env.data.providersConfigured });
+        } else {
+          setGatewayState({ state: 'unreachable', configured: {} });
+        }
+      } catch {
+        if (live) setGatewayState({ state: 'unreachable', configured: {} });
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, []);
   const doCreateAlert = () => {
     const res = createAlert(angelStore, {
       domain: alertDomain,
@@ -1508,6 +1543,60 @@ export const SecurityWorld: React.FC = () => {
           ALERTS ARE OWNER RECORDS WITH PROVENANCE (SOURCE + DETECTED-AT). THERE IS NO DISMISSED
           STATE AND NO SHORTCUT PAST VERIFYING AND CONFIRMED. THE MAP TURNS RED ONLY FOR A
           CONFIRMED, ACTIVE ALERT — AN EMPTY REGISTER CLAIMS NOTHING.
+        </p>
+      </div>
+
+      {/* API CONNECTIONS — THE PIPELINES (v170). Every provider
+          the platform can use, what it unlocks, the NAME of the
+          server variable that holds its key, and its LIVE
+          configured state from the gateway. Values are never
+          shown, never typed here, and never stored in the app —
+          the owner adds them in Netlify; the gateway reports
+          presence only. */}
+      <div className="rounded-2xl border border-white/10 bg-[#101010] p-5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-mono text-xs text-[#00B7FF]">API CONNECTIONS — THE PIPELINES</span>
+          <span className="font-mono text-[10px] text-[#B8B8B8]">
+            {gatewayState.state === 'checking'
+              ? 'CHECKING THE GATEWAY…'
+              : gatewayState.state === 'ok'
+                ? 'LIVE FROM GATEWAY.STATUS'
+                : 'GATEWAY UNREACHABLE FROM HERE — STATE NOT GUESSED'}
+          </span>
+        </div>
+        {[
+          { id: 'star', name: 'STAR BRAIN (OPENROUTER)', unlocks: "STAR's live model answers, grounded in the platform's records", env: 'MTI6_STAR_API_KEY', cost: 'FREE_WITH_LIMITS' },
+          { id: 'transitland', name: 'TRANSITLAND', unlocks: 'Transit stops + departures on the World Map', env: 'TRANSITLAND_API_KEY', cost: 'FREE_WITH_LIMITS' },
+          { id: 'coingecko', name: 'COINGECKO (DEMO KEY)', unlocks: 'Keyed price pipeline through the gateway — higher limits; prices also flow keyless at public limits', env: 'MTI6_COINGECKO_API_KEY', cost: 'FREE_WITH_LIMITS' },
+          { id: 'geoapify', name: 'GEOAPIFY', unlocks: 'Geocoding primary — GO TO PLACE on the World Map', env: 'MTI6_GEOAPIFY_KEY', cost: 'FREE_WITH_LIMITS' },
+          { id: 'locationiq', name: 'LOCATIONIQ', unlocks: 'Geocoding fallback in the same chain', env: 'MTI6_LOCATIONIQ_KEY', cost: 'FREE_WITH_LIMITS' },
+        ].map((p) => {
+          const configured = gatewayState.configured[p.id];
+          return (
+            <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-white/10 bg-[#050505] px-3 py-2">
+              <div>
+                <p className="font-mono text-[11px] text-white">{p.name}</p>
+                <p className="font-mono text-[9px] text-[#B8B8B8]">
+                  {p.unlocks} · ENV: {p.env} · {p.cost}
+                </p>
+              </div>
+              <span
+                className="rounded border px-2 py-0.5 font-mono text-[9px]"
+                style={{
+                  color: gatewayState.state !== 'ok' ? '#C8CFD8' : configured ? '#32D74B' : '#FFB020',
+                  borderColor: 'rgba(255,255,255,0.15)',
+                }}
+              >
+                {gatewayState.state !== 'ok' ? 'STATE UNKNOWN HERE' : configured ? 'KEY PRESENT ON SERVER' : 'NOT SET — OWNER ADDS IN NETLIFY'}
+              </span>
+            </div>
+          );
+        })}
+        <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+          HELD, NOT WIRED: MOBILITY DATABASE (REFRESH TOKEN IN THE OWNER'S ACCOUNT), HUGGING FACE
+          (A FRESH TOKEN IS AN OWNER STEP), OPENAI (BILLING DECISION PENDING). PLANNED ONLY:
+          MAPBOX / MAPTILER / CESIUM ION — REGISTERED AS CANDIDATES, NEVER CALLED. NOTHING
+          AUTO-CONNECTS AND NOTHING IS PURCHASED.
         </p>
       </div>
 

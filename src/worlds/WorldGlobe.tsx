@@ -160,6 +160,72 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // The concept sheet's TODAY / TOMORROW tabs — the proxy already
   // accepts relative_date, so the tab is a real second query.
   const [departuresDay, setDeparturesDay] = useState<'TODAY' | 'TOMORROW'>('TODAY');
+  // Geocoding pipeline (v170): GO TO PLACE runs geo.geocode
+  // through the proxy (Geoapify → LocationIQ chain). Results are
+  // provider-published coordinates — choosing one places a real
+  // marker and centres the map on it. With no key configured the
+  // pipeline answers NOT_CONFIGURED and places nothing.
+  const [placeText, setPlaceText] = useState('');
+  const [placeSearch, setPlaceSearch] = useState<{
+    state: 'idle' | 'loading' | 'ok' | 'error';
+    message: string;
+    results: { label: string; lat: number; lon: number }[];
+    provider: string | null;
+    fetchedAt: number | null;
+  }>({ state: 'idle', message: 'NOT SEARCHED — the geocoding pipeline is ready; nothing has been polled.', results: [], provider: null, fetchedAt: null });
+  const [placeMarker, setPlaceMarker] = useState<MapMarker | null>(null);
+  const [mapFocus, setMapFocus] = useState<{ lon: number; lat: number; nonce: number } | null>(null);
+
+  const searchPlace = async () => {
+    const q = placeText.trim();
+    if (!q) return;
+    if (typeof fetch !== 'function') {
+      setPlaceSearch({ state: 'error', message: 'NO FETCH IN THIS ENVIRONMENT.', results: [], provider: null, fetchedAt: null });
+      return;
+    }
+    setPlaceSearch({ state: 'loading', message: 'SEARCHING…', results: [], provider: null, fetchedAt: null });
+    try {
+      const res = await fetch('/api/mti6', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'geo.geocode', payload: { q } }),
+      });
+      const env = (await res.json().catch(() => null)) as
+        | { ok?: boolean; data?: { results?: { label: string; lat: number; lon: number }[]; provider?: string }; error?: { code?: string } }
+        | null;
+      if (!env || !env.ok) {
+        const code = env?.error?.code ?? 'UPSTREAM_ERROR';
+        setPlaceSearch({
+          state: 'error',
+          message:
+            code === 'NOT_CONFIGURED'
+              ? 'NOT_CONFIGURED — no geocoding key is set on the server (MTI6_GEOAPIFY_KEY / MTI6_LOCATIONIQ_KEY). Nothing was placed.'
+              : code === 'NOT_FOUND'
+                ? 'NOT_FOUND — no geocoding provider found that place.'
+                : `PLACE SEARCH FAILED (${code}).`,
+          results: [],
+          provider: null,
+          fetchedAt: null,
+        });
+        return;
+      }
+      const results = Array.isArray(env.data?.results) ? env.data.results : [];
+      setPlaceSearch({
+        state: 'ok',
+        message: `${results.length} RESULT${results.length === 1 ? '' : 'S'} — pick one to place it on the map.`,
+        results,
+        provider: env.data?.provider ?? null,
+        fetchedAt: Date.now(),
+      });
+    } catch {
+      setPlaceSearch({ state: 'error', message: 'PLACE SEARCH FAILED (NETWORK).', results: [], provider: null, fetchedAt: null });
+    }
+  };
+
+  const choosePlace = (r: { label: string; lat: number; lon: number }) => {
+    setPlaceMarker({ id: 'place-1', lon: r.lon, lat: r.lat, label: r.label });
+    setMapFocus((f) => ({ lon: r.lon, lat: r.lat, nonce: (f?.nonce ?? 0) + 1 }));
+  };
 
   const queryDepartures = async (stop: MapMarker, day: 'TODAY' | 'TOMORROW' = departuresDay) => {
     const key = stopKeys[stop.id];
@@ -476,10 +542,15 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
 
           <div className="relative w-full h-[58dvh] min-h-[340px] md:aspect-[2/1] md:h-auto xl:aspect-none xl:flex-1 xl:min-h-[460px] bg-[#050505]">
             <WorldMapEngine
-              markers={transitOn ? transitStops : []}
+              markers={[...(transitOn ? transitStops : []), ...(placeMarker ? [placeMarker] : [])]}
+              focusPoint={mapFocus}
               onViewChange={handleViewChange}
               onStatusChange={setEngineStatus}
               onMarkerSelect={(m) => {
+                if (m.id.startsWith('place-')) {
+                  setSelectedStop(null);
+                  return;
+                }
                 setSelectedStop(m);
                 setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                 setDeparturesDay('TODAY');
@@ -719,7 +790,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               <div>TILES: {engineStatus.tilesLoaded} loaded · {engineStatus.tilesFailed} failed (floor beneath)</div>
               <div>TERRAIN: CANDIDATE — hillshade not rendered</div>
               <div>
-                MARKERS PLACED: {transitOn ? transitStops.length : 0}
+                MARKERS PLACED: {(transitOn ? transitStops.length : 0) + (placeMarker ? 1 : 0)}
                 {transitOn && transitStops.length > 0
                   ? ' — Transitland stops (sourced locations)'
                   : ' — no verified locations'}
@@ -758,6 +829,66 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
             <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
               KEYED PROVIDERS: OWNER APPROVAL + NETLIFY PROXY ONLY (D1) —
               PLANNED MEANS REGISTERED, NEVER CALLED.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-2">
+            <div className="text-xs font-mono text-[#00B7FF]">GO TO PLACE — GEOCODING PIPELINE</div>
+            <div className="flex gap-2">
+              <input
+                value={placeText}
+                onChange={(e) => setPlaceText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void searchPlace();
+                }}
+                placeholder="Search a place…"
+                className="min-h-[44px] w-full rounded border border-white/15 bg-[#050505] px-2 font-mono text-[11px] text-white outline-none placeholder:text-[#666]"
+              />
+              <button
+                type="button"
+                onClick={() => void searchPlace()}
+                disabled={placeSearch.state === 'loading' || !placeText.trim()}
+                className="min-h-[44px] shrink-0 rounded border border-[#00B7FF]/50 px-3 font-mono text-[11px] text-white disabled:opacity-50"
+              >
+                {placeSearch.state === 'loading' ? 'SEARCHING…' : 'SEARCH'}
+              </button>
+            </div>
+            <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+              {placeSearch.message}
+              {placeSearch.state === 'ok' && placeSearch.provider && placeSearch.fetchedAt && (
+                <>
+                  {' '}
+                  SOURCE: {placeSearch.provider.toUpperCase()} · FETCHED{' '}
+                  {new Date(placeSearch.fetchedAt).toLocaleTimeString('en-US', { hour12: false })}
+                </>
+              )}
+            </p>
+            {placeSearch.results.length > 0 && (
+              <div className="space-y-1">
+                {placeSearch.results.map((r, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => choosePlace(r)}
+                    className="block min-h-[44px] w-full rounded border border-white/10 bg-[#050505] px-2 py-1.5 text-left font-mono text-[10px] text-white"
+                  >
+                    {r.label}
+                    <span className="block text-[9px] text-[#B8B8B8]">
+                      {r.lat.toFixed(5)}, {r.lon.toFixed(5)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {placeMarker && (
+              <p className="font-mono text-[10px] text-[#B8B8B8]">
+                PLACED: <span className="text-white">{placeMarker.label}</span> — coordinates published
+                by the geocoding provider, never guessed.
+              </p>
+            )}
+            <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+              CHAIN: GEOAPIFY → LOCATIONIQ, THROUGH THE GATEWAY. KEYS LIVE ONLY IN THE SERVER
+              ENVIRONMENT; WITH NONE SET, THIS READS NOT_CONFIGURED AND PLACES NOTHING.
             </p>
           </div>
 

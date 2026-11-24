@@ -59,6 +59,10 @@ interface WorldMapEngineProps {
   onViewChange?: (view: MapViewReport) => void;
   onStatusChange?: (status: MapEngineStatus) => void;
   onMarkerSelect?: (marker: MapMarker) => void;
+  // Geocode focus (v170): when nonce changes, centre the view on
+  // the point at City zoom (D5: z10–12). Points only ever come
+  // from a real provider result — never from a guess.
+  focusPoint?: { lon: number; lat: number; nonce: number } | null;
 }
 
 interface ViewState {
@@ -166,12 +170,25 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
   onViewChange,
   onStatusChange,
   onMarkerSelect,
+  focusPoint = null,
 }) => {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const glRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [view, setView] = useState<ViewState>(INITIAL_VIEW);
   const [engineDown, setEngineDown] = useState(false);
+
+  // Geocode focus: a new nonce recentres on the provider-returned
+  // point at City zoom. Guarded for jsdom (no layout) like the
+  // rest of the engine.
+  const lastFocusNonce = useRef(0);
+  useEffect(() => {
+    if (!focusPoint) return;
+    if (focusPoint.nonce === lastFocusNonce.current) return;
+    lastFocusNonce.current = focusPoint.nonce;
+    applyView({ cx: focusPoint.lon, cy: projectLat(focusPoint.lat), zoom: 11 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusPoint]);
 
   const viewRef = useRef(view);
   const sizeRef = useRef(size);
