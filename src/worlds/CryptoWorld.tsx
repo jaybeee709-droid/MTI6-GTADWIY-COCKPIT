@@ -22,6 +22,15 @@ import { fetchYields, fmtUsd, useObservation, useProvenanceLog } from '../live-d
 import { ProvenanceChip } from '../ProvenanceChip';
 import { CANONICAL_60, ENCYCLOPEDIA_FAMILIES } from '../encyclopedia-data';
 import { ENTITY_COUNTS, ENTITY_UNIVERSE } from '../entity-data';
+import {
+  COST_KINDS,
+  COST_STATES,
+  DIMENSION_STATES,
+  PENDING_DIMENSIONS,
+  RISK_DIMENSIONS,
+  RISK_RECONCILIATION,
+  RISK_SUBJECT_TYPES,
+} from '../cost-risk-data';
 
 /** Gemini-adopted background treatment (owner, 2026-11-23): the
  *  concept set's deep-space tint, rendered ONLY in the platform's
@@ -96,6 +105,78 @@ const LiveYieldsPanel: React.FC = () => {
     </div>
   );
 };
+
+/** COST & RISK INTELLIGENCE (v157; CW-0 Gap 9 full surface) — the
+ *  recorded frameworks of js/cost-intelligence.js and
+ *  js/risk-intelligence.js, generated mechanically into
+ *  cost-risk-data.ts. Framework only: the engines hold NO amounts
+ *  and NO profiles in this surface — an UNKNOWN cost is null,
+ *  never zero, and no risk dimension ever carries a score. */
+const CostRiskPanel: React.FC = () => (
+  <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex items-center gap-2 text-xs font-mono text-[#00B7FF]">
+        <ShieldCheck className="h-4 w-4" />
+        <span>COST &amp; RISK INTELLIGENCE — THE RECORDED FRAMEWORKS</span>
+      </div>
+      <span className="font-mono text-[10px] text-[#B8B8B8]">
+        {COST_KINDS.length} COST KINDS · {RISK_DIMENSIONS.length} RISK DIMENSIONS · NO AMOUNTS · NO SCORES
+      </span>
+    </div>
+
+    <div className="space-y-1.5">
+      <p className="font-mono text-[10px] text-[#B8B8B8]">
+        COST KINDS (STATES: {COST_STATES.join(' · ')}) — A COST IS KNOWN ONLY WITH A SOURCED VALUE;
+        UNKNOWN MEANS VALUE NULL, NEVER ZERO, AND NEVER COUNTED AS ZERO IN A TOTAL.
+      </p>
+      <div className="grid gap-1.5 md:grid-cols-2">
+        {COST_KINDS.map((k) => (
+          <div key={k.kind} className="rounded-lg bg-[#151515] px-3 py-2">
+            <p className="text-xs font-semibold text-white">{k.label}</p>
+            <p className="text-[11px] leading-relaxed text-[#B8B8B8]">{k.description}</p>
+          </div>
+        ))}
+      </div>
+      <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+        EXPECTED NET = EXPECTED GROSS − KNOWN COSTS, COMPUTED ONLY WHEN THE GROSS AND EVERY
+        REQUIRED COST ARE KNOWN IN ONE CURRENCY; OTHERWISE THE NET IS NULL — INSUFFICIENT_DATA.
+        CURRENCIES ARE NEVER MIXED IN A TOTAL BECAUSE NO CONVERSION RATES ARE HELD.
+      </p>
+    </div>
+
+    <div className="space-y-1.5">
+      <p className="font-mono text-[10px] text-[#B8B8B8]">
+        RISK DIMENSIONS (SUBJECTS: {RISK_SUBJECT_TYPES.join(' · ').toUpperCase()}; STATES:{' '}
+        {DIMENSION_STATES.join(' · ')}) — A DIMENSION IS PRESENT ONLY WITH EVIDENCE (A DETAIL AND A
+        CHECKED-AT TIME); WITHOUT BOTH IT IS RECORDED UNKNOWN, NEVER GUESSED.
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {RISK_DIMENSIONS.map((d) => (
+          <span key={d} className="rounded border border-white/15 px-2 py-1 font-mono text-[9px] text-white">
+            {d}
+          </span>
+        ))}
+      </div>
+      <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+        PENDING (D6-APPROVED, BATCH D ONLY — NOT USABLE DIMENSION KEYS YET):{' '}
+        {PENDING_DIMENSIONS.map((p) => p.code).join(' · ')}. SPEC RECONCILIATION:{' '}
+        {RISK_RECONCILIATION.filter((r) => r.status === 'MAPPED').length} OF{' '}
+        {RISK_RECONCILIATION.length} SPEC DIMENSIONS MAP TO THE CANONICAL VOCABULARY; THE{' '}
+        {RISK_RECONCILIATION.filter((r) => r.status === 'UNMAPPED').length} UNMAPPED (
+        {RISK_RECONCILIATION.filter((r) => r.status === 'UNMAPPED')
+          .map((r) => r.specDimension)
+          .join(', ')}
+        ) ARE RECORDED AS NOTES ONLY AND NEVER BECOME DIMENSIONS.
+      </p>
+    </div>
+
+    <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+      NO COST RECORDS OR RISK PROFILES EXIST IN THIS SURFACE — THE FRAMEWORKS ARE WHAT THE
+      WORKSPACES' COST AND RISK LINES ARE READ AGAINST. RECORDING A RISK IS INFORMATIONAL ONLY:
+      IT AUTHORIZES NOTHING AND EXECUTES NOTHING.
+    </p>
+  </div>
+);
 
 /** GEMINI FAMILY ADOPTION (owner: "do all at once", 2026-11-23).
  *  The concept set's mode strip, adopted under the owner's ladder:
@@ -387,6 +468,8 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
       </div>
 
       <LiveYieldsPanel />
+
+      <CostRiskPanel />
 
       {/* 60 MAPPED ACTIVITIES — the owner's Copilot-built backbone,
           counted from the generated canonical data (v136). The full
