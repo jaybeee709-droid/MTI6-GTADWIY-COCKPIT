@@ -27,7 +27,8 @@ import { CANONICAL_60, ENCYCLOPEDIA_COUNTS, ENCYCLOPEDIA_FAMILIES, ENCYCLOPEDIA_
 import { ENTITY_UNIVERSE } from './entity-data';
 import { WORKSPACE_COVERAGE } from './workspace-coverage-data';
 import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
-import { recordMemory } from './bot-memory';
+import { memorySummary, recordMemory } from './bot-memory';
+import { PROXY_ACTIONS, PROXY_ENV_NAMES, PROXY_PROVIDERS } from './security-posture-data';
 import { createTask, loadTasks, transitionTask, type WorkerTask } from './worker-tasks';
 
 export interface RuntimeExecutor {
@@ -225,6 +226,32 @@ EXECUTORS.push(
   },
 );
 
+/* Phase 3 executors (v180) — the runtime reports on the
+ * family's own governed stores: Bot Memory and the gateway
+ * posture record. Both are pure reads over real in-app data. */
+EXECUTORS.push(
+  {
+    id: 'memory-report',
+    label: 'MEMORY REPORT',
+    does: 'Summarizes Bot Memory from its own governed summary: active and retained counts, truth states, and stale records.',
+    run: async () => {
+      const s = memorySummary();
+      const kinds = Object.entries(s.byKind)
+        .filter(([, n]) => n > 0)
+        .map(([k, n]) => `${k} ${n}`)
+        .join(' · ');
+      return `Bot Memory: ${s.total} active of ${s.totalRetained} retained · UNVERIFIED ${s.byTruthState.UNVERIFIED ?? 0} · REJECTED ${s.byTruthState.REJECTED ?? 0} · ${s.staleCount} stale · kinds: ${kinds || 'none yet'} · VERIFIED is never writable by this layer`;
+    },
+  },
+  {
+    id: 'posture-check',
+    label: 'POSTURE CHECK',
+    does: 'Reports the gateway posture from the generated posture record: the action allowlist, the providers, and the env names the proxy reads (names only, never values).',
+    run: async () =>
+      `Gateway posture (from the generated record): ${PROXY_ACTIONS.length} actions allowlisted (${PROXY_ACTIONS.join(', ')}) · ${PROXY_PROVIDERS.length} providers (${PROXY_PROVIDERS.join(', ')}) · ${PROXY_ENV_NAMES.length} env names read, values never in the client`,
+  },
+);
+
 /* STAR chat command matching (v172): "run a price check" and
  * its kin map to an executor. Deliberately narrow — a run verb
  * plus an executor keyword — so ordinary questions never fire
@@ -237,6 +264,8 @@ export function runtimeCommandFor(text: string): string | null {
   if (q.includes('history')) return 'history-check';
   if (q.includes('transit') || q.includes('stop')) return 'transit-check';
   if (q.includes('geocode') || q.includes('place')) return 'geocode-check';
+  if (q.includes('memory')) return 'memory-report';
+  if (q.includes('posture') || q.includes('security')) return 'posture-check';
   if (q.includes('provider') || q.includes('connection')) return 'provider-status';
   if (q.includes('coverage')) return 'coverage-report';
   if (q.includes('link') || q.includes('integrity')) return 'link-integrity';
