@@ -932,8 +932,9 @@ export const BotOperations: React.FC = () => {
             {regMsg && <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">{regMsg}</p>}
             <div>
               <p className="font-mono text-[9px] text-[#B8B8B8]">
-                CATALOGUED CONTRACTS — ONE-TAP CHECK (EVERY ENTRY CARRIES PROVENANCE; SEE
-                src/contract-catalog.ts)
+                CATALOGUED CONTRACTS — ONE-TAP CHECK · SUPPORT MODEL: 1 SOURCE = UNVERIFIED
+                (NEVER CATALOGUED) · 2 = SUPPORTED · 3+ = STRONGLY SUPPORTED · ONLY THE GATE
+                DECIDES CANONICAL (src/contract-catalog.ts)
               </p>
               <div className="mt-1.5 flex flex-wrap gap-1.5">
                 {CATALOGUED_CONTRACTS.map((c) => (
@@ -947,7 +948,7 @@ export const BotOperations: React.FC = () => {
                       setRegRole(c.role);
                       void runContractCheck(c.network, c.address, c.role);
                     }}
-                    title={`${c.name} · ${c.provenance}`}
+                    title={`${c.name} · ${c.support} · ${c.provenance}`}
                     className="rounded border border-white/15 px-2 py-1 font-mono text-[10px] text-white disabled:opacity-50"
                   >
                     {c.symbol}

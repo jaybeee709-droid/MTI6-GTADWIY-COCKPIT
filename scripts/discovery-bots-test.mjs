@@ -62,11 +62,11 @@ if (refused.ok) throw new Error('invalid address was accepted');
 
 const proposals = await B.proposeAllKeylessSources();
 console.log('keyless proposals:', JSON.stringify(proposals));
-if (proposals.length !== 15 || !proposals.every((p) => p.ok)) {
+if (proposals.length !== 20 || !proposals.every((p) => p.ok)) {
   throw new Error('keyless proposals incomplete');
 }
 const resources = [...store.values()].filter((r) => r.recordKind === 'RESOURCE_CANDIDATE');
-if (resources.length !== 15) throw new Error('expected 15 resource candidates, got ' + resources.length);
+if (resources.length !== 20) throw new Error('expected 15 resource candidates, got ' + resources.length);
 for (const r of resources) {
   if (r.pipelineStage !== 'DISCOVERED' || r.verificationStatus !== 'UNVERIFIED') {
     throw new Error('resource candidate born wrong: ' + r.id + ' ' + r.pipelineStage + '/' + r.verificationStatus);
@@ -86,5 +86,5 @@ if (!rec.evidence?.some((e) => e.kind === 'ONCHAIN_ANCHOR')) {
 }
 console.log(
   'DISCOVERY_BOTS_TEST_PASS — contract candidate ' + rec.id + ' @ ' + rec.pipelineStage +
-    ' · dedupe ' + rec.dedupe.verdict + ' · 15 keyless resources proposed, all DISCOVERED/UNVERIFIED',
+    ' · dedupe ' + rec.dedupe.verdict + ' · 20 keyless resources proposed, all DISCOVERED/UNVERIFIED',
 );

@@ -18,6 +18,7 @@ import { EmptyState, MonoLine, Panel, ScreenHeader, StatusPill } from './shared'
 import { EXECUTORS, runtimeStoreSummary } from '../worker-runtime';
 import { loadRawArchive, RAW_ARCHIVE_EXCERPT_CHARS, RAW_ARCHIVE_MAX, rawArchiveSummary } from '../raw-archive';
 import { useProvenanceLog, type ProvenanceRecord } from '../live-data';
+import { REGISTERED_SOURCES, SOURCE_REGISTRY_EXCLUSIONS } from '../source-registry-data';
 
 /* Source Health (Fabric priority 3): states are DERIVED, never
  * asserted — from this session's provenance log (what the app
@@ -282,6 +283,37 @@ export const CockpitStatusScreen: React.FC = () => {
                   </p>
                 ))
               )}
+            </div>
+          );
+        })()}
+      </Panel>
+
+      <Panel title="Source Registry">
+        {(() => {
+          const probed = REGISTERED_SOURCES.filter((s) => s.probedAt).length;
+          const cats = [...new Set(REGISTERED_SOURCES.map((s) => s.category))];
+          return (
+            <div className="space-y-2">
+              <MonoLine>
+                SOURCE REGISTRY v1 · {REGISTERED_SOURCES.length} KEYLESS SOURCES REGISTERED ·{' '}
+                {probed} PROBE-VERIFIED 2026-11-24 · {cats.length} CATEGORIES
+              </MonoLine>
+              {REGISTERED_SOURCES.map((s) => (
+                <p key={s.id} className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                  <span className="text-white">{s.name}</span> · {s.category} ·{' '}
+                  {s.probedAt ? `PROBED ${s.probedAt}` : 'CATALOGUED'} · {s.provides.slice(0, 3).join(', ')}
+                </p>
+              ))}
+              <p className="text-xs leading-relaxed text-[#B8B8B8]">
+                Registration is not connection: every source enters the Resource Engine as a
+                DISCOVERED / UNVERIFIED candidate, and only the owner's gate approves or connects
+                it. Tested and excluded, with reasons:
+              </p>
+              {SOURCE_REGISTRY_EXCLUSIONS.map((x) => (
+                <p key={x} className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                  EXCLUDED · {x}
+                </p>
+              ))}
             </div>
           );
         })()}

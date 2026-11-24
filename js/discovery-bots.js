@@ -240,6 +240,73 @@
       browserDirect: true,
       provides: ["repos", "docs", "rate-limit-60-per-hour-keyless"],
       probedAt: "2026-11-24"
+    },
+    /* Registry v1 expansion (2026-11-24, probed the same day).
+     * Tested and EXCLUDED, recorded here so they are not
+     * re-proposed blindly: DefiLlama Bridges (402 — paid plan),
+     * L2Beat API (401 — key required), Birdeye (401 — key
+     * required), Solscan public (404 — deprecated), Tally /
+     * yDaemon / Jupiter / mempool.space (unreachable from the
+     * build environment — unverified, not keyless-proven). */
+    {
+      id: "defillama-chains",
+      name: "DefiLlama Chains / TVL",
+      provider: "DefiLlama",
+      category: "chain-data",
+      endpointPattern: "https://api.llama.fi/v2/chains",
+      documentation: "https://defillama.com/docs/api",
+      cors: true,
+      browserDirect: true,
+      provides: ["chains", "tvl-by-chain"],
+      probedAt: "2026-11-24"
+    },
+    {
+      id: "defillama-stablecoins",
+      name: "DefiLlama Stablecoins",
+      provider: "DefiLlama",
+      category: "stablecoin-data",
+      endpointPattern: "https://stablecoins.llama.fi/stablecoins",
+      documentation: "https://defillama.com/docs/api",
+      cors: true,
+      browserDirect: true,
+      provides: ["stablecoins", "pegged-assets"],
+      probedAt: "2026-11-24"
+    },
+    {
+      id: "defillama-fees",
+      name: "DefiLlama Fees / Revenue Overview",
+      provider: "DefiLlama",
+      category: "protocol-data",
+      endpointPattern: "https://api.llama.fi/overview/fees",
+      documentation: "https://defillama.com/docs/api",
+      cors: true,
+      browserDirect: true,
+      provides: ["fees", "revenue"],
+      probedAt: "2026-11-24"
+    },
+    {
+      id: "beefy-vaults",
+      name: "Beefy Finance Vaults API",
+      provider: "Beefy",
+      category: "yield-data",
+      endpointPattern: "https://api.beefy.finance/vaults",
+      documentation: "https://docs.beefy.finance",
+      cors: true,
+      browserDirect: true,
+      provides: ["vault-metadata", "vault-strategies"],
+      probedAt: "2026-11-24"
+    },
+    {
+      id: "public-rpc-verified",
+      name: "Public JSON-RPC Endpoints (probe-verified set)",
+      provider: "Multiple public RPC operators",
+      category: "chain-data",
+      endpointPattern: "https://arb1.arbitrum.io/rpc · https://mainnet.optimism.io · https://api.avax.network/ext/bc/C/rpc · https://bsc-dataseed.binance.org · https://api.mainnet-beta.solana.com",
+      documentation: "https://chainid.network/chains.json",
+      cors: true,
+      browserDirect: true,
+      provides: ["eth_chainId-verified: arbitrum, optimism, avalanche, bnb, solana-health"],
+      probedAt: "2026-11-24"
     }
   ];
 

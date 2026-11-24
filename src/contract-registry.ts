@@ -37,6 +37,11 @@ export const BLOCKSCOUT_NETWORKS: { id: string; label: string; host: string }[] 
   { id: 'arbitrum', label: 'Arbitrum', host: 'arbitrum.blockscout.com' },
   { id: 'optimism', label: 'Optimism', host: 'optimism.blockscout.com' },
   { id: 'polygon', label: 'Polygon', host: 'polygon.blockscout.com' },
+  /* Scroll added v188: its Blockscout answered 200 on probe
+   * (2026-11-24, via redirect to its canonical host; browser
+   * fetch follows). Gnosis was tested the same day and excluded —
+   * bot-walled from the build environment, unverified. */
+  { id: 'scroll', label: 'Scroll', host: 'scroll.blockscout.com' },
 ];
 
 export interface ContractEntry {
