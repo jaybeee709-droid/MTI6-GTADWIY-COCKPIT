@@ -19,6 +19,7 @@ import { memorySummary } from './bot-memory';
 import { contractRegistrySummary } from './contract-registry';
 import { EXECUTORS, runtimeStoreSummary } from './worker-runtime';
 import { dexRegistrySummary } from './dex-registry';
+import { assetUniverseSummary } from './asset-universe';
 import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
 
 // §69 WHY? for a named workspace: the recorded chain behind what
@@ -129,6 +130,11 @@ export function answerLocally(raw: string): string | null {
       return `${FROM_RECORDS}the DEX Registry is empty — no DEX scan has run yet. Say "run a dex scan" and the runtime classifies the DefiLlama protocol index, places every DEX-class entry here as an UNVERIFIED candidate, and derives deployed_on / native-token relationship candidates. Classification is deterministic from the source's own category; placement follows the universal class matrix; only the owner's gate promotes a candidate.`;
     }
     return `${FROM_RECORDS}the DEX Registry holds ${s.dexCount} DEX candidate(s) across ${s.chainsCovered} chains, with ${s.relCount} relationship candidate(s) (deployed_on, has_native_token). All are UNVERIFIED candidates from DefiLlama Protocols — coverage is counted only from evidence each record carries (website, GitHub, chains, token contract), and the remaining checklist dimensions read ABSENT. Only the owner's gate promotes.`;
+  }
+
+  if (/(asset universe|tier 1|tier one|which assets|asset tiers)/.test(q)) {
+    const s = assetUniverseSummary();
+    return `${FROM_RECORDS}the Asset Universe holds ${s.total} tiered candidate assets across ${s.tierCounts.length} tier families (Tiers 1–10: natives, stablecoins, wrapped, DEX governance, lending, liquid staking, restaking, yield trading, infrastructure, RWA, AI, DePIN). ${s.withContract} carry verified contract evidence from the catalogue (2+ independent sources); ${s.awaitingContract} read CONTRACT UNKNOWN — discovery tasks, never guesses. It is a curated candidate set by design, not an ingestion of every listed coin.`;
   }
 
   if (/(bot memory|bots remember|bot-memory|memory engine)/.test(q)) {

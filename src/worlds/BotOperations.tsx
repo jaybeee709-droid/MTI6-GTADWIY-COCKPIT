@@ -53,6 +53,7 @@ import {
 import { CATALOGUED_CONTRACTS } from '../contract-catalog';
 import { DEX_CHECKLIST, dexCoverage } from '../classification';
 import { loadDexCandidates, loadRelationshipCandidates } from '../dex-registry';
+import { ASSET_FAMILIES_NOT_SYMBOLS, assetUniverse, assetUniverseSummary } from '../asset-universe';
 
 type ConsoleTab =
   | 'Overview'
@@ -1033,6 +1034,47 @@ export const BotOperations: React.FC = () => {
             <p className="mt-2 font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
               STAR CREATES CANDIDATES, NEVER TRUTH. PLACEMENT FOLLOWS THE UNIVERSAL CLASS MATRIX;
               PROMOTION BELONGS TO THE OWNER'S GATE ALONE. EXECUTION STAYS DISABLED.
+            </p>
+          </div>
+        );
+      })()}
+
+      {/* ASSET UNIVERSE (v191) — the owner's tiered seed universe:
+          curated candidates, NOT an ingested coin list. Contract
+          evidence attaches only from the verified catalogue;
+          the rest read CONTRACT UNKNOWN — discovery tasks. */}
+      {(() => {
+        const s = assetUniverseSummary();
+        const assets = assetUniverse();
+        return (
+          <div className="mt-4 rounded-2xl border border-white/10 bg-[#0A0A0A] p-4">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-xs text-[#8B5CFF]">ASSET UNIVERSE · TIERED CANDIDATES</span>
+              <span className="font-mono text-[10px] text-white">
+                {s.total} ASSETS · {s.withContract} WITH VERIFIED CONTRACT · {s.awaitingContract} AWAITING
+              </span>
+            </div>
+            <div className="mt-2 space-y-1.5">
+              {s.tierCounts.map((t) => (
+                <p key={`${t.tier}-${t.family}`} className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                  TIER {t.tier} · {t.family} · {t.count} SYMBOLS
+                </p>
+              ))}
+              <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                WITH CONTRACT EVIDENCE:{' '}
+                {assets
+                  .filter((a) => a.contract)
+                  .map((a) => a.symbol)
+                  .join(', ')}
+              </p>
+              <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                FAMILIES, NOT SYMBOLS: {ASSET_FAMILIES_NOT_SYMBOLS.join(' · ')}
+              </p>
+            </div>
+            <p className="mt-2 font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+              THE UNIVERSE IS A CURATED CANDIDATE SET, NOT AN INGESTED LIST OF EVERY LISTED COIN.
+              CONTRACTS ATTACH ONLY FROM THE VERIFIED CATALOGUE (2+ INDEPENDENT SOURCES); A SYMBOL
+              WITHOUT ONE READS CONTRACT UNKNOWN AND BECOMES A DISCOVERY TASK — NEVER A GUESS.
             </p>
           </div>
         );
