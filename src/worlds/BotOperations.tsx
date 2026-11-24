@@ -50,6 +50,7 @@ import {
   normalizeEvmAddress,
   recordContractCheck,
 } from '../contract-registry';
+import { CATALOGUED_CONTRACTS } from '../contract-catalog';
 
 type ConsoleTab =
   | 'Overview'
@@ -157,9 +158,9 @@ export const BotOperations: React.FC = () => {
   const [regBusy, setRegBusy] = useState(false);
   const [regMsg, setRegMsg] = useState<string | null>(null);
   const [regVersion, setRegVersion] = useState(0);
-  const doContractCheck = async () => {
+  const runContractCheck = async (network: string, rawAddress: string, role: string) => {
     if (regBusy) return;
-    const addr = normalizeEvmAddress(regAddress);
+    const addr = normalizeEvmAddress(rawAddress);
     if (!addr) {
       setRegMsg('UNCERTAINANCHOR: enter a valid EVM contract address (0x + 40 hex) — anchors are never guessed.');
       return;
@@ -167,8 +168,8 @@ export const BotOperations: React.FC = () => {
     setRegBusy(true);
     setRegMsg(null);
     try {
-      const result = await checkContractOnExplorer(regNetwork, addr);
-      recordContractCheck(regNetwork, addr, regRole, result, 'registry-panel');
+      const result = await checkContractOnExplorer(network, addr);
+      recordContractCheck(network, addr, role, result, 'registry-panel');
       setRegMsg(
         `Recorded: ${result.name ?? 'unnamed contract'} · source verified: ${result.isVerified ? 'YES' : 'NO'} · compiler ${result.compilerVersion ?? 'not reported'}${result.implementationAddress ? ` · proxy → ${result.implementationAddress}` : ''}`,
       );
@@ -178,6 +179,9 @@ export const BotOperations: React.FC = () => {
     } finally {
       setRegBusy(false);
     }
+  };
+  const doContractCheck = () => {
+    void runContractCheck(regNetwork, regAddress, regRole);
   };
   const dispatchBusy = useRef(false);
   useEffect(() => {
@@ -926,6 +930,31 @@ export const BotOperations: React.FC = () => {
               </button>
             </div>
             {regMsg && <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">{regMsg}</p>}
+            <div>
+              <p className="font-mono text-[9px] text-[#B8B8B8]">
+                CATALOGUED CONTRACTS — ONE-TAP CHECK (EVERY ENTRY CARRIES PROVENANCE; SEE
+                src/contract-catalog.ts)
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {CATALOGUED_CONTRACTS.map((c) => (
+                  <button
+                    key={c.address}
+                    type="button"
+                    disabled={regBusy}
+                    onClick={() => {
+                      setRegNetwork(c.network);
+                      setRegAddress(c.address);
+                      setRegRole(c.role);
+                      void runContractCheck(c.network, c.address, c.role);
+                    }}
+                    title={`${c.name} · ${c.provenance}`}
+                    className="rounded border border-white/15 px-2 py-1 font-mono text-[10px] text-white disabled:opacity-50"
+                  >
+                    {c.symbol}
+                  </button>
+                ))}
+              </div>
+            </div>
             {entries.length === 0 ? (
               <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
                 NO CONTRACTS RECORDED YET. CHECK ONE ABOVE, OR RUN THE RUNTIME'S EXPLORER CHECK —

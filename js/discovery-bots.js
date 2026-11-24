@@ -126,6 +126,120 @@
       cors: true,
       browserDirect: true,
       provides: ["is-verified", "abi", "compiler-version", "is-proxy", "implementation-address"]
+    },
+    /* Expansion set (2026-11-24): every source below was probed
+     * keyless from the build environment on 2026-11-24 and answered
+     * 200 with data (probedAt). Candidates are still born
+     * DISCOVERED / UNVERIFIED — the probe is evidence for the
+     * Resource Engine, not approval. L2Beat was tested the same
+     * day and EXCLUDED: its API now answers 401 without a key. */
+    {
+      id: "coinpaprika-public",
+      name: "CoinPaprika Public API",
+      provider: "CoinPaprika",
+      category: "price-data",
+      endpointPattern: "https://api.coinpaprika.com/v1/",
+      documentation: "https://api.coinpaprika.com",
+      cors: true,
+      browserDirect: true,
+      provides: ["global-market", "tickers", "coins"],
+      probedAt: "2026-11-24"
+    },
+    {
+      id: "coinbase-public",
+      name: "Coinbase Public Exchange Rates / Spot",
+      provider: "Coinbase",
+      category: "price-data",
+      endpointPattern: "https://api.coinbase.com/v2/prices/{pair}/spot",
+      documentation: "https://docs.cdp.coinbase.com",
+      cors: true,
+      browserDirect: true,
+      provides: ["spot-price", "exchange-rates"],
+      probedAt: "2026-11-24"
+    },
+    {
+      id: "defillama-yields",
+      name: "DefiLlama Yields",
+      provider: "DefiLlama",
+      category: "yield-data",
+      endpointPattern: "https://yields.llama.fi/pools",
+      documentation: "https://defillama.com/docs/api",
+      cors: true,
+      browserDirect: true,
+      provides: ["pool-yields", "apy-percent-source-reported"],
+      probedAt: "2026-11-24"
+    },
+    {
+      id: "blockstream-esplora-public",
+      name: "Blockstream Esplora (public instance)",
+      provider: "Blockstream",
+      category: "chain-data",
+      endpointPattern: "https://blockstream.info/api/",
+      documentation: "https://github.com/Blockstream/esplora/blob/master/API.md",
+      cors: true,
+      browserDirect: true,
+      provides: ["btc-blocks", "btc-transactions", "btc-addresses"],
+      probedAt: "2026-11-24"
+    },
+    {
+      id: "blockchair-public",
+      name: "Blockchair Public API",
+      provider: "Blockchair",
+      category: "chain-data",
+      endpointPattern: "https://api.blockchair.com/{chain}/stats",
+      documentation: "https://blockchair.com/api",
+      cors: true,
+      browserDirect: true,
+      provides: ["chain-stats", "multi-chain"],
+      probedAt: "2026-11-24"
+    },
+    {
+      id: "alternative-me-fng",
+      name: "Alternative.me Fear & Greed Index",
+      provider: "Alternative.me",
+      category: "sentiment-data",
+      endpointPattern: "https://api.alternative.me/fng/",
+      documentation: "https://alternative.me/crypto/fear-and-greed-index/",
+      cors: true,
+      browserDirect: true,
+      provides: ["fear-greed-index"],
+      probedAt: "2026-11-24"
+    },
+    {
+      id: "honeypot-is",
+      name: "Honeypot.is Token Safety Check",
+      provider: "Honeypot.is",
+      category: "contract-verification",
+      endpointPattern: "https://api.honeypot.is/v2/IsHoneypot?address={address}&chainID={chainId}",
+      documentation: "https://docs.honeypot.is",
+      cors: true,
+      browserDirect: true,
+      provides: ["honeypot-check", "token-metadata", "simulation-result"],
+      probedAt: "2026-11-24"
+    },
+    {
+      id: "snapshot-graphql",
+      name: "Snapshot Hub GraphQL",
+      provider: "Snapshot",
+      category: "governance-data",
+      endpointPattern: "https://hub.snapshot.org/graphql",
+      documentation: "https://docs.snapshot.org",
+      cors: true,
+      browserDirect: true,
+      provides: ["spaces", "proposals", "votes"],
+      probedAt: "2026-11-24"
+    },
+    {
+      id: "github-public",
+      name: "GitHub Public REST API",
+      provider: "GitHub",
+      category: "documentation",
+      endpointPattern: "https://api.github.com/",
+      documentation: "https://docs.github.com/en/rest",
+      cors: true,
+      browserDirect: true,
+      provides: ["repos", "docs", "rate-limit-60-per-hour-keyless"],
+      probedAt: "2026-11-24"
     }
   ];
 
@@ -306,13 +420,21 @@
       oauthRequired: false,
       freeState: "FREE_KEYLESS",
       evidence: [
-        {
-          kind: "OFFICIAL_DOC",
-          ref: sourceSpec.documentation || sourceSpec.endpointPattern,
-          capturedBy: KEYLESS_ACTOR.ref,
-          capturedAt: now,
-          summary: "Keyless public endpoint proposed by the keyless-discovery-bot; not approved, not connected."
-        }
+        sourceSpec.probedAt
+          ? {
+              kind: "ENDPOINT_PROBE",
+              ref: sourceSpec.endpointPattern,
+              capturedBy: KEYLESS_ACTOR.ref,
+              capturedAt: now,
+              summary: "Endpoint probed keyless on " + sourceSpec.probedAt + " and answered 200 with data; proposed by the keyless-discovery-bot; not approved, not connected."
+            }
+          : {
+              kind: "OFFICIAL_DOC",
+              ref: sourceSpec.documentation || sourceSpec.endpointPattern,
+              capturedBy: KEYLESS_ACTOR.ref,
+              capturedAt: now,
+              summary: "Keyless public endpoint proposed by the keyless-discovery-bot; not approved, not connected."
+            }
       ]
     };
     return RE.createCandidate(draft, KEYLESS_ACTOR, now);
