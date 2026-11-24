@@ -119,9 +119,19 @@ export const BotOperations: React.FC = () => {
     const ex = kinds[task.id];
     if (!ex || runningIds.includes(task.id)) return;
     setRunningIds((r) => [...r, task.id]);
-    const rec = await runRuntimeTask(tasks, task.id, ex, (t) => setTasks(t));
+    // Always run from the freshest store read — every transition
+    // saves, so a run never overwrites a sibling run's result.
+    const rec = await runRuntimeTask(loadTasks(), task.id, ex, (t) => setTasks(t));
     setRunningIds((r) => r.filter((x) => x !== task.id));
     setRunLog((log) => [rec, ...log].slice(0, 10));
+  };
+  const doRunAll = async () => {
+    const runnable = loadTasks().filter(
+      (t) => kinds[t.id] && (t.state === 'UNASSIGNED' || t.state === 'QUEUED'),
+    );
+    for (const t of runnable) {
+      await doRun(t);
+    }
   };
   const [taskMsg, setTaskMsg] = useState('');
   const [evidenceText, setEvidenceText] = useState<Record<string, string>>({});
@@ -634,6 +644,19 @@ export const BotOperations: React.FC = () => {
           <span className="font-mono text-[10px] text-[#B8B8B8]">
             ENGINE: LOADED · RUNS ONLY WHILE THIS PAGE IS OPEN · ACTIVE NOW: {runningIds.length} ·
             RUNS THIS SESSION: {runLog.length}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void doRunAll()}
+            disabled={runningIds.length > 0}
+            className="flex min-h-[44px] items-center rounded border border-[#8B5CFF]/60 px-3 font-mono text-[10px] text-white disabled:opacity-50"
+          >
+            ▶ RUN ALL QUEUED RUNTIME TASKS
+          </button>
+          <span className="font-mono text-[9px] text-[#B8B8B8]">
+            OR ASK STAR: “RUN A PRICE CHECK” — SHE RECORDS AND RUNS THE TASK HERSELF.
           </span>
         </div>
         <div className="grid gap-2 md:grid-cols-2">

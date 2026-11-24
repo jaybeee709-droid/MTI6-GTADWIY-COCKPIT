@@ -22,13 +22,13 @@
  * registry of its own (mti6_runtime_kinds_v1: taskId → executor
  * id), so the canonical task record keeps its exact shape.
  */
-import { fetchPrice, fmtTime, fmtUsd } from './live-data';
+import { fetchHistory, fetchPrice, fetchYields, fmtTime, fmtUsd } from './live-data';
 import { CANONICAL_60, ENCYCLOPEDIA_COUNTS, ENCYCLOPEDIA_FAMILIES, ENCYCLOPEDIA_INDEX } from './encyclopedia-data';
 import { ENTITY_UNIVERSE } from './entity-data';
 import { WORKSPACE_COVERAGE } from './workspace-coverage-data';
 import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
 import { recordMemory } from './bot-memory';
-import { transitionTask, type WorkerTask } from './worker-tasks';
+import { createTask, loadTasks, transitionTask, type WorkerTask } from './worker-tasks';
 
 export interface RuntimeExecutor {
   id: string;
@@ -122,6 +122,92 @@ export const EXECUTORS: RuntimeExecutor[] = [
 
 export const executorById = (id: string): RuntimeExecutor | null =>
   EXECUTORS.find((e) => e.id === id) ?? null;
+
+/* Phase 2 executors (v172) — the remaining live capabilities put
+ * to work through the same governed paths the screens use. */
+EXECUTORS.push(
+  {
+    id: 'yield-scan',
+    label: 'YIELD SCAN',
+    does: 'Fetches the governed DefiLlama yield observation for the watched projects and reports the largest pools with their source-reported APY.',
+    run: async () => {
+      const obs = await fetchYields();
+      if (!obs.value || obs.value.length === 0) {
+        throw new Error('The yield chain returned NO_DATA.');
+      }
+      const top = [...obs.value].sort((a, b) => b.tvlUsd - a.tvlUsd).slice(0, 3);
+      const parts = top.map(
+        (p) => `${p.project} ${p.symbol} (${p.chain}) APY ${p.apy.toFixed(2)}% · TVL ${fmtUsd(p.tvlUsd)}`,
+      );
+      return `${obs.value.length} watched pools · ${obs.source ?? 'DefiLlama'} · ${obs.status} · top by TVL: ${parts.join(' · ')} · APY is percent, source-reported, variable — not a promise`;
+    },
+  },
+  {
+    id: 'history-check',
+    label: 'HISTORY CHECK',
+    does: 'Fetches the governed 7-day BTC price history and computes the period move from the real series points.',
+    run: async () => {
+      const obs = await fetchHistory('BTC', '7d');
+      if (!obs.value || obs.value.points.length < 2) {
+        throw new Error('The history chain returned NO_DATA.');
+      }
+      const pts = obs.value.points;
+      const first = pts[0].p;
+      const last = pts[pts.length - 1].p;
+      const move = ((last - first) / first) * 100;
+      return `BTC 7d · ${pts.length} real series points · ${fmtUsd(first)} → ${fmtUsd(last)} (${move >= 0 ? '+' : ''}${move.toFixed(2)}% computed from the series) · ${obs.source ?? 'unknown source'} · ${obs.status}`;
+    },
+  },
+  {
+    id: 'transit-check',
+    label: 'TRANSIT CHECK',
+    does: 'Queries live transit stops near the recorded Bronx reference point through the gateway (Transitland) and reports what answers.',
+    run: async () => {
+      const res = await fetch('/api/mti6', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'transit.stopsNear',
+          payload: { lat: 40.8448, lon: -73.8648, radius: 1500, limit: 25 },
+        }),
+      });
+      const env = (await res.json().catch(() => null)) as
+        | { ok?: boolean; data?: { stops?: unknown[] }; error?: { code?: string } }
+        | null;
+      if (!env?.ok) {
+        const code = env?.error?.code ?? 'UPSTREAM_ERROR';
+        throw new Error(
+          code === 'AUTH_REQUIRED' ? 'Transit is NOT_CONFIGURED on the server.' : `Transit query failed (${code}).`,
+        );
+      }
+      const stops = Array.isArray(env.data?.stops) ? env.data.stops : [];
+      const names: string[] = [];
+      for (const raw of stops.slice(0, 3)) {
+        const s = raw as Record<string, unknown>;
+        const name = s.stop_name ?? s.name;
+        if (typeof name === 'string' && name) names.push(name);
+      }
+      return `${stops.length} stops within 1500m of the Bronx reference point · Transitland via the gateway · first: ${names.join(' · ') || 'names not published'}`;
+    },
+  },
+);
+
+/* STAR chat command matching (v172): "run a price check" and
+ * its kin map to an executor. Deliberately narrow — a run verb
+ * plus an executor keyword — so ordinary questions never fire
+ * a run by accident. */
+export function runtimeCommandFor(text: string): string | null {
+  const q = text.toLowerCase();
+  if (!/(run|execute|start|do)\b/.test(q)) return null;
+  if (q.includes('price')) return 'price-check';
+  if (q.includes('yield')) return 'yield-scan';
+  if (q.includes('history')) return 'history-check';
+  if (q.includes('transit') || q.includes('stop')) return 'transit-check';
+  if (q.includes('provider') || q.includes('connection')) return 'provider-status';
+  if (q.includes('coverage')) return 'coverage-report';
+  if (q.includes('link') || q.includes('integrity')) return 'link-integrity';
+  return null;
+}
 
 // --- Runtime-kind registry (taskId → executor id) ----------------
 
@@ -253,4 +339,41 @@ export async function runRuntimeTask(
       evidence: reason,
     };
   }
+}
+
+/* Run an executor as a fresh queue task (v172) — the path STAR
+ * commands take. The task is created in the canonical store,
+ * registered with its kind, executed, and left in Bot
+ * Operations as the permanent record of the run. */
+export async function runAdHocTask(executorId: string, title: string): Promise<RunRecord> {
+  const executor = executorById(executorId);
+  if (!executor) {
+    return {
+      taskId: '',
+      title,
+      executor: executorId,
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      outcome: 'FAILED',
+      evidence: 'Unknown executor.',
+    };
+  }
+  const before = loadTasks();
+  const next = createTask(before, { title, role: 'Monitoring', principal: null });
+  if (next.length === before.length) {
+    return {
+      taskId: '',
+      title,
+      executor: executorId,
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      outcome: 'FAILED',
+      evidence: 'The task could not be recorded.',
+    };
+  }
+  const created = next[0];
+  const kinds = loadKinds();
+  kinds[created.id] = executorId;
+  saveKinds(kinds);
+  return runRuntimeTask(next, created.id, executorId, () => {});
 }

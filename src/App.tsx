@@ -45,6 +45,7 @@ import { DISPLAY_CURRENCIES, currencyOf } from './currencies';
 import { fetchStarStatus, starChat, StarError } from './star-client';
 import { buildStarSystemPrompt } from './star-context';
 import { answerLocally } from './star-local';
+import { executorById, runAdHocTask, runtimeCommandFor } from './worker-runtime';
 import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
 import { STAR_EXPRESSIONS, STAR_PORTRAIT } from './star-avatar-data';
 import { SPACE_BG } from './worlds/CryptoWorld';
@@ -280,6 +281,37 @@ export function App() {
     const threadWithUser = [...starThread, userMsg];
     setStarThread(threadWithUser);
     setStarInput('');
+    // Worker-runtime commands (v172): "run a price check" and
+    // its kin execute locally through the runtime — a real task
+    // is recorded in Bot Operations, run, and completed with
+    // its own evidence, whichever STAR mode is active.
+    const cmd = runtimeCommandFor(text);
+    if (cmd) {
+      const label = executorById(cmd)?.label ?? cmd;
+      setStarBusy(true);
+      runAdHocTask(cmd, `STAR command — ${label}`)
+        .then((rec) => {
+          setStarThread((prev) => [
+            ...prev,
+            {
+              role: 'assistant',
+              content:
+                rec.outcome === 'COMPLETE'
+                  ? `Done — I ran ${label} through the worker runtime. ${rec.evidence} The run is recorded in Bot Operations, and it wrote its Bot Memory record.`
+                  : `The ${label} run failed: ${rec.evidence} The failure is recorded on its task in Bot Operations. Nothing else was acted on.`,
+              kind: 'chat',
+            },
+          ]);
+        })
+        .catch(() => {
+          setStarThread((prev) => [
+            ...prev,
+            { role: 'assistant', content: 'The runtime run could not start. Nothing was acted on.', kind: 'error' },
+          ]);
+        })
+        .finally(() => setStarBusy(false));
+      return;
+    }
     if (starConfigured !== true) {
       // Local brain first (v146): deterministic answers from the
       // platform's own records, still labelled DEMO; the canned
