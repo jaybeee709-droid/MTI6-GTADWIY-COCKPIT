@@ -28,6 +28,7 @@ import { ENTITY_UNIVERSE } from './entity-data';
 import { WORKSPACE_COVERAGE } from './workspace-coverage-data';
 import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
 import { memorySummary, recordMemory } from './bot-memory';
+import { recordContractCheck } from './contract-registry';
 import { PROXY_ACTIONS, PROXY_ENV_NAMES, PROXY_PROVIDERS } from './security-posture-data';
 import { createTask, loadTasks, transitionTask, type WorkerTask } from './worker-tasks';
 
@@ -307,7 +308,20 @@ EXECUTORS.push({
       implementations?: { address_hash?: string }[];
     };
     const impl = body.implementations?.[0]?.address_hash;
-    return `EIGEN token contract ${address} on Ethereum (owner-confirmed anchor) · Blockscout source verified: ${body.is_verified ? 'YES' : 'NO'} · contract name: ${body.name ?? 'not reported'} · compiler: ${body.compiler_version ?? 'not reported'} · proxy: ${impl ? `yes, implementation ${impl}` : 'no'} — explorer verification is evidence about source code, not a truth promotion; execution stays DISABLED`;
+    recordContractCheck(
+      'ethereum',
+      address,
+      'TOKEN',
+      {
+        name: typeof body.name === 'string' ? body.name : null,
+        isVerified: body.is_verified === true,
+        compilerVersion: typeof body.compiler_version === 'string' ? body.compiler_version : null,
+        implementationAddress: impl ?? null,
+        sourceUrl: `https://eth.blockscout.com/api/v2/smart-contracts/${address}`,
+      },
+      'explorer-check',
+    );
+    return `EIGEN token contract ${address} on Ethereum (owner-confirmed anchor) · Blockscout source verified: ${body.is_verified ? 'YES' : 'NO'} · contract name: ${body.name ?? 'not reported'} · compiler: ${body.compiler_version ?? 'not reported'} · proxy: ${impl ? `yes, implementation ${impl}` : 'no'} · recorded in the Contract Discovery Registry — explorer verification is evidence about source code, not a truth promotion; execution stays DISABLED`;
   },
 });
 

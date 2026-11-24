@@ -16,6 +16,7 @@ import { WORKSPACE_COVERAGE } from './workspace-coverage-data';
 import { CRYPTO_WORLD_CONTENTS, EARNINGS_CATEGORIES, TRIBE_PRINCIPALS } from './worlds-data';
 import { getProvenanceLog } from './live-data';
 import { memorySummary } from './bot-memory';
+import { contractRegistrySummary } from './contract-registry';
 import { EXECUTORS, runtimeStoreSummary } from './worker-runtime';
 import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
 
@@ -114,6 +115,13 @@ export function answerLocally(raw: string): string | null {
 
   if (/(gap|missing|incomplete|not built|what's missing|what is missing)/.test(q)) return gapSummary();
 
+  if (/(contract registry|discovered contracts|contract discovery)/.test(q)) {
+    const reg = contractRegistrySummary();
+    if (reg.total === 0) {
+      return `${FROM_RECORDS}the Contract Discovery Registry is empty — no contracts recorded yet. Check one in Bot Operations (keyless Blockscout read) or say "run an explorer check" and the EIGEN anchor lands there with its evidence. Entries are discovery evidence for the owner's gate: not canonical entities, not verified truth, never execution authority.`;
+    }
+    return `${FROM_RECORDS}the Contract Discovery Registry holds ${reg.total} contract(s), ${reg.verified} with explorer-verified source. Latest: ${reg.latest?.name ?? 'unnamed'} on ${reg.latest?.network} (${reg.latest?.role}), checked ${reg.latest ? new Date(reg.latest.checkedAt).toLocaleString() : ''} via ${reg.latest?.checkedBy}. Entries are evidence for the owner's gate — verification is evidence, not a truth promotion.`;
+  }
   if (/(bot memory|bots remember|bot-memory|memory engine)/.test(q)) {
     const mem = memorySummary();
     if (mem.totalRetained === 0)

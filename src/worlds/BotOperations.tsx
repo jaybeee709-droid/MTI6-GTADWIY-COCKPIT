@@ -42,6 +42,14 @@ import {
   type RunRecord,
   type RuntimeKindMap,
 } from '../worker-runtime';
+import {
+  BLOCKSCOUT_NETWORKS,
+  CONTRACT_ROLES,
+  checkContractOnExplorer,
+  loadContractEntries,
+  normalizeEvmAddress,
+  recordContractCheck,
+} from '../contract-registry';
 
 type ConsoleTab =
   | 'Overview'
@@ -141,6 +149,36 @@ export const BotOperations: React.FC = () => {
   // runtime tasks run on their own (checked every minute).
   // Closing the page stops it — the label says exactly that.
   const [autoDispatch, setAutoDispatch] = useState(false);
+  /* Contract Discovery Registry (v185): a keyless explorer
+   * checker over the registry store. */
+  const [regNetwork, setRegNetwork] = useState('ethereum');
+  const [regAddress, setRegAddress] = useState('');
+  const [regRole, setRegRole] = useState('UNKNOWN');
+  const [regBusy, setRegBusy] = useState(false);
+  const [regMsg, setRegMsg] = useState<string | null>(null);
+  const [regVersion, setRegVersion] = useState(0);
+  const doContractCheck = async () => {
+    if (regBusy) return;
+    const addr = normalizeEvmAddress(regAddress);
+    if (!addr) {
+      setRegMsg('UNCERTAINANCHOR: enter a valid EVM contract address (0x + 40 hex) — anchors are never guessed.');
+      return;
+    }
+    setRegBusy(true);
+    setRegMsg(null);
+    try {
+      const result = await checkContractOnExplorer(regNetwork, addr);
+      recordContractCheck(regNetwork, addr, regRole, result, 'registry-panel');
+      setRegMsg(
+        `Recorded: ${result.name ?? 'unnamed contract'} · source verified: ${result.isVerified ? 'YES' : 'NO'} · compiler ${result.compilerVersion ?? 'not reported'}${result.implementationAddress ? ` · proxy → ${result.implementationAddress}` : ''}`,
+      );
+      setRegVersion((v) => v + 1);
+    } catch (err) {
+      setRegMsg(`Check failed, nothing recorded: ${err instanceof Error ? err.message : 'unknown error'}`);
+    } finally {
+      setRegBusy(false);
+    }
+  };
   const dispatchBusy = useRef(false);
   useEffect(() => {
     if (!autoDispatch) return;
@@ -822,6 +860,95 @@ export const BotOperations: React.FC = () => {
           CHIPS. NO CREDENTIAL VALUE EXISTS IN ANY CATALOG RECORD — EXISTENCE AND CUSTODY ONLY.
         </p>
       </div>
+
+      {/* CONTRACT DISCOVERY REGISTRY (v185) — the Contract
+          Intelligence Bot's notebook (canonical logic:
+          js/discovery-bots.js). Keyless Blockscout checks are
+          recorded as EVIDENCE entries: explorer verification
+          state, name, compiler, proxy — never a canonical
+          entity, never a truth promotion, never execution
+          authority. */}
+      {(() => {
+        void regVersion;
+        const entries = loadContractEntries();
+        return (
+          <div className="rounded-xl border border-white/10 p-4 space-y-3" style={SPACE_BG}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-mono text-xs text-[#8B5CFF]">CONTRACT DISCOVERY REGISTRY</span>
+              <span className="font-mono text-[10px] text-[#B8B8B8]">
+                {entries.length} RECORDED · {entries.filter((e) => e.isVerified).length} SOURCE-VERIFIED · EVIDENCE ONLY
+              </span>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="flex flex-col gap-1">
+                <span className="font-mono text-[9px] text-[#B8B8B8]">NETWORK</span>
+                <select
+                  aria-label="Registry network"
+                  value={regNetwork}
+                  onChange={(e) => setRegNetwork(e.target.value)}
+                  className="rounded border border-white/15 bg-[#0A0A0A] px-2 py-1.5 text-xs text-white"
+                >
+                  {BLOCKSCOUT_NETWORKS.map((n) => (
+                    <option key={n.id} value={n.id}>{n.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex grow flex-col gap-1">
+                <span className="font-mono text-[9px] text-[#B8B8B8]">CONTRACT ADDRESS</span>
+                <input
+                  aria-label="Registry contract address"
+                  value={regAddress}
+                  onChange={(e) => setRegAddress(e.target.value)}
+                  placeholder="0x…"
+                  className="rounded border border-white/15 bg-[#0A0A0A] px-2 py-1.5 font-mono text-xs text-white placeholder-[#B8B8B8]/50"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="font-mono text-[9px] text-[#B8B8B8]">ROLE (LABEL)</span>
+                <select
+                  aria-label="Registry contract role"
+                  value={regRole}
+                  onChange={(e) => setRegRole(e.target.value)}
+                  className="rounded border border-white/15 bg-[#0A0A0A] px-2 py-1.5 text-xs text-white"
+                >
+                  {CONTRACT_ROLES.map((r) => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={doContractCheck}
+                disabled={regBusy}
+                className="rounded border border-[#8B5CFF]/60 px-3 py-1.5 font-mono text-[10px] text-white disabled:opacity-50"
+              >
+                {regBusy ? 'CHECKING…' : 'CHECK ON EXPLORER'}
+              </button>
+            </div>
+            {regMsg && <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">{regMsg}</p>}
+            {entries.length === 0 ? (
+              <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                NO CONTRACTS RECORDED YET. CHECK ONE ABOVE, OR RUN THE RUNTIME'S EXPLORER CHECK —
+                EVERY CHECK LANDS HERE WITH ITS EXPLORER EVIDENCE.
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                {entries.slice(0, 10).map((e) => (
+                  <p key={e.id} className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    <span className="text-white">{e.name ?? 'unnamed'}</span> · {e.network} · {e.role} ·{' '}
+                    {e.address.slice(0, 10)}…{e.address.slice(-6)} · source verified:{' '}
+                    {e.isVerified ? 'YES' : 'NO'} · {new Date(e.checkedAt).toLocaleString()} · via {e.checkedBy}
+                  </p>
+                ))}
+              </div>
+            )}
+            <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+              ENTRIES ARE DISCOVERY EVIDENCE FOR THE OWNER'S GATE — NOT CANONICAL ENTITIES, NOT
+              VERIFIED TRUTH, AND NEVER EXECUTION AUTHORITY. EXECUTION STAYS DISABLED.
+            </p>
+          </div>
+        );
+      })()}
 
       {/* BOT MEMORY (v165) — the controlled memory layer, ported
           from the v102 package at the owner's word. Read-only
