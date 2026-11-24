@@ -32,6 +32,13 @@ import {
   type RelationshipCandidate,
 } from './dex-registry';
 import { loadBridgeCandidates, upsertBridgeCandidates, type BridgeCandidate } from './bridge-registry';
+import {
+  loadPoolCandidates,
+  loadVaultCandidates,
+  upsertPoolCandidates,
+  upsertVaultCandidates,
+  type PlacementCandidate,
+} from './pool-vault-registry';
 import { CANONICAL_60, ENCYCLOPEDIA_COUNTS, ENCYCLOPEDIA_FAMILIES, ENCYCLOPEDIA_INDEX } from './encyclopedia-data';
 import { ENTITY_UNIVERSE } from './entity-data';
 import { WORKSPACE_COVERAGE } from './workspace-coverage-data';
@@ -602,6 +609,87 @@ EXECUTORS.push({
   },
 });
 
+/* Auto-placement slice 3 (v201): POOL + VAULT placement — the
+ * remaining measured classes from the v190 classification run
+ * (POOL 80 · VAULT 23). One scan, two stores; the stores never
+ * mix. The large PROTOCOL mass stays gate-side by design —
+ * placement slices cover the classes with placement evidence. */
+EXECUTORS.push({
+  id: 'pool-vault-scan',
+  label: 'POOL + VAULT SCAN',
+  does: 'Classifies the DefiLlama protocol index, places POOL-class entries into the Pool Registry and VAULT-class entries into the Vault Registry as candidates, with relationship candidates.',
+  run: async () => {
+    const obs = await fetchProtocolIndex();
+    if (!obs.value || obs.value.length === 0) {
+      return `Pool + vault scan: the DefiLlama protocol index answered ${obs.status} with no entries — nothing classified, nothing placed.`;
+    }
+    const now = Date.now();
+    const poolFresh: PlacementCandidate[] = [];
+    const vaultFresh: PlacementCandidate[] = [];
+    const relFresh: RelationshipCandidate[] = [];
+    let classified = 0;
+    let poolTotal = 0;
+    let vaultTotal = 0;
+    const POOL_CAP = 60;
+    const VAULT_CAP = 60;
+    for (const entry of obs.value) {
+      const { cls, subclass } = classifyCategory(entry.category);
+      classified += 1;
+      if (cls !== 'POOL' && cls !== 'VAULT') continue;
+      if (cls === 'POOL') {
+        poolTotal += 1;
+        if (poolFresh.length >= POOL_CAP) continue;
+      } else {
+        vaultTotal += 1;
+        if (vaultFresh.length >= VAULT_CAP) continue;
+      }
+      const candidate: PlacementCandidate = {
+        id: entry.slug,
+        name: entry.name,
+        cls,
+        subclass,
+        chains: entry.chains,
+        url: entry.url,
+        github: entry.github,
+        tokenSymbol: entry.symbol,
+        tokenAddress: entry.tokenAddress,
+        source: 'DefiLlama Protocols',
+        status: 'CANDIDATE',
+        truthState: 'UNVERIFIED',
+        discoveredAt: now,
+        updatedAt: now,
+      };
+      (cls === 'POOL' ? poolFresh : vaultFresh).push(candidate);
+      for (const chain of entry.chains) {
+        relFresh.push({
+          id: `${entry.slug}|deployed_on|${chain}`,
+          from: entry.name,
+          relation: 'deployed_on',
+          to: chain,
+          source: 'DefiLlama Protocols',
+          status: 'CANDIDATE',
+          at: now,
+        });
+      }
+      if (entry.symbol) {
+        relFresh.push({
+          id: `${entry.slug}|has_native_token|${entry.symbol}`,
+          from: entry.name,
+          relation: 'has_native_token',
+          to: entry.symbol,
+          source: 'DefiLlama Protocols',
+          status: 'CANDIDATE',
+          at: now,
+        });
+      }
+    }
+    const poolRes = upsertPoolCandidates(poolFresh);
+    const vaultRes = upsertVaultCandidates(vaultFresh);
+    const relRes = addRelationshipCandidates(relFresh);
+    return `Pool + vault scan via DefiLlama Protocols (status ${obs.status}): ${classified} protocols classified · POOL-class ${poolTotal} found, ${poolFresh.length} placed (${poolRes.created} new; registry holds ${poolRes.total}) · VAULT-class ${vaultTotal} found, ${vaultFresh.length} placed (${vaultRes.created} new; registry holds ${vaultRes.total}) · ${relRes.created} new relationship candidates (store holds ${relRes.total}). All candidates UNVERIFIED; only the owner's gate promotes.`;
+  },
+});
+
 /* Bot coverage expansion (v192) — the owner's direction: the
  * bots get in anywhere they can help — every registry, store,
  * and surface — building the platform up and keeping it updated
@@ -638,6 +726,8 @@ EXECUTORS.push({
     };
     const dex = loadDexCandidates();
     const bridges = loadBridgeCandidates();
+    const poolsReg = loadPoolCandidates();
+    const vaultsReg = loadVaultCandidates();
     const rels = loadRelationshipCandidates();
     const contracts = loadContractEntries();
     const archive = loadRawArchive();
@@ -647,6 +737,8 @@ EXECUTORS.push({
       `Freshness assignment (thresholds: <24h CURRENT · <7d AGING · else STALE):`,
       `DEX Registry (${dex.length}): ${stateOf(newest(dex.map((d) => d.updatedAt)))}`,
       `Bridge Registry (${bridges.length}): ${stateOf(newest(bridges.map((b) => b.updatedAt)))}`,
+      `Pool Registry (${poolsReg.length}): ${stateOf(newest(poolsReg.map((p) => p.updatedAt)))}`,
+      `Vault Registry (${vaultsReg.length}): ${stateOf(newest(vaultsReg.map((v) => v.updatedAt)))}`,
       `Relationship candidates (${rels.length}): ${stateOf(newest(rels.map((r) => r.at)))}`,
       `Contract Registry (${contracts.length}): ${stateOf(newest(contracts.map((c) => c.checkedAt)))}`,
       `Raw Archive (${archive.length}): ${stateOf(newest(archive.map((a) => a.at)))}`,
@@ -727,6 +819,7 @@ export function runtimeCommandFor(text: string): string | null {
   if (q.includes('catalog')) return 'catalog-check';
   if (q.includes('universe')) return 'universe-check';
   if (q.includes('bridge')) return 'bridge-scan';
+  if ((q.includes('pool') || q.includes('vault')) && (q.includes('scan') || q.includes('registr') || q.includes('place'))) return 'pool-vault-scan';
   if (q.includes('dex') && (q.includes('scan') || q.includes('classif') || q.includes('registr'))) return 'dex-scan';
   if (q.includes('money radar') || q.includes('radar') || q.includes('capital flow') || q.includes('money move')) return 'money-radar';
   if (q.includes('opportunit') && (q.includes('scan') || q.includes('discover'))) return 'opportunity-scan';

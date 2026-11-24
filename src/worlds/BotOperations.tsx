@@ -56,6 +56,7 @@ import { CATALOGUED_CONTRACTS } from '../contract-catalog';
 import { DEX_CHECKLIST, dexCoverage } from '../classification';
 import { loadDexCandidates, loadRelationshipCandidates } from '../dex-registry';
 import { loadBridgeCandidates } from '../bridge-registry';
+import { loadPoolCandidates, loadVaultCandidates } from '../pool-vault-registry';
 import { ASSET_FAMILIES_NOT_SYMBOLS, assetUniverse, assetUniverseSummary } from '../asset-universe';
 
 type ConsoleTab =
@@ -1198,6 +1199,49 @@ export const BotOperations: React.FC = () => {
                   <p key={b.id} className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
                     <span className="text-white">{b.name}</span> · {b.subclass} · spans{' '}
                     {b.chains.length} chain(s) · token {b.tokenSymbol ?? '—'} · {b.source}
+                  </p>
+                ))}
+              </div>
+            )}
+            <p className="mt-2 font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+              STAR CREATES CANDIDATES, NEVER TRUTH. PROMOTION BELONGS TO THE OWNER'S GATE ALONE.
+              EXECUTION STAYS DISABLED.
+            </p>
+          </div>
+        );
+      })()}
+
+      {/* POOL + VAULT REGISTRIES (v201) — auto-placement slice 3:
+          two stores, never mixed; candidates, never truth. */}
+      {(() => {
+        const pools = loadPoolCandidates();
+        const vaults = loadVaultCandidates();
+        return (
+          <div className="mt-4 rounded-2xl border border-white/10 bg-[#0A0A0A] p-4">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-xs text-[#8B5CFF]">POOL + VAULT REGISTRIES · AUTO-PLACEMENT CANDIDATES</span>
+              <span className="font-mono text-[10px] text-white">
+                {pools.length} POOLS · {vaults.length} VAULTS
+              </span>
+            </div>
+            {pools.length === 0 && vaults.length === 0 ? (
+              <p className="mt-2 font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                NO POOL OR VAULT CANDIDATES YET. RUN THE POOL + VAULT SCAN (RUNTIME PANEL ABOVE OR
+                ASK STAR) — IT CLASSIFIES THE DEFILLAMA PROTOCOL INDEX AND PLACES POOL-CLASS AND
+                VAULT-CLASS ENTRIES INTO THEIR OWN REGISTRIES AS UNVERIFIED CANDIDATES.
+              </p>
+            ) : (
+              <div className="mt-2 space-y-1.5">
+                {pools.slice(0, 6).map((c) => (
+                  <p key={c.id} className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    POOL · <span className="text-white">{c.name}</span> · {c.subclass} ·{' '}
+                    {c.chains.length} chain(s) · token {c.tokenSymbol ?? '—'} · {c.source}
+                  </p>
+                ))}
+                {vaults.slice(0, 6).map((c) => (
+                  <p key={c.id} className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    VAULT · <span className="text-white">{c.name}</span> · {c.subclass} ·{' '}
+                    {c.chains.length} chain(s) · token {c.tokenSymbol ?? '—'} · {c.source}
                   </p>
                 ))}
               </div>

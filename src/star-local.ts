@@ -20,6 +20,7 @@ import { contractRegistrySummary } from './contract-registry';
 import { EXECUTORS, runtimeStoreSummary } from './worker-runtime';
 import { dexRegistrySummary } from './dex-registry';
 import { bridgeRegistrySummary } from './bridge-registry';
+import { poolVaultSummary } from './pool-vault-registry';
 import { assetUniverseSummary } from './asset-universe';
 import { moneyRadarSummaryText } from './money-radar';
 import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
@@ -142,6 +143,13 @@ export function answerLocally(raw: string): string | null {
       return `${FROM_RECORDS}the Bridge Registry is empty — no bridge scan has run yet. Say "run a bridge scan" and the runtime classifies the DefiLlama protocol index and places every BRIDGE-class entry here as an UNVERIFIED candidate with its chain span. Only the owner's gate promotes a candidate.`;
     }
     return `${FROM_RECORDS}the Bridge Registry holds ${s.bridgeCount} bridge candidate(s) spanning ${s.chainsCovered} chains in total. All are UNVERIFIED candidates from DefiLlama Protocols — a bridge's placement evidence is its chain span, carried by deployed_on relationship candidates. Only the owner's gate promotes.`;
+  }
+  if (/(pool registry|vault registry|pool \+ vault|pools and vaults)/.test(q)) {
+    const s = poolVaultSummary();
+    if (s.poolCount === 0 && s.vaultCount === 0) {
+      return `${FROM_RECORDS}the Pool and Vault Registries are empty — no pool + vault scan has run yet. Say "run a pool scan" and the runtime classifies the DefiLlama protocol index and places POOL-class and VAULT-class entries into their own registries as UNVERIFIED candidates. Only the owner's gate promotes a candidate.`;
+    }
+    return `${FROM_RECORDS}the Pool Registry holds ${s.poolCount} candidate(s) and the Vault Registry ${s.vaultCount}, across ${s.chainsCovered} chains in total. Two separate stores — a pool is not a vault. All UNVERIFIED candidates from DefiLlama Protocols; only the owner's gate promotes.`;
   }
 
   if (/(asset universe|tier 1|tier one|which assets|asset tiers)/.test(q)) {
