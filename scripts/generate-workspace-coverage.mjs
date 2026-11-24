@@ -63,6 +63,7 @@ for (const w of registry.WORKSPACES) {
     riskDimensions: w.riskDimensions ?? [],
     actions: w.actions ?? [],
     panelsNote: w.panelsNote ?? '',
+    simulatorTemplate: w.simulatorTemplate ?? 'NONE',
   };
 }
 console.log(
@@ -93,6 +94,7 @@ export interface WorkspaceCoverage {
   riskDimensions: string[];
   actions: string[];
   panelsNote: string;
+  simulatorTemplate: string;
 }
 
 export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = ${JSON.stringify(coverage, null, 1)};

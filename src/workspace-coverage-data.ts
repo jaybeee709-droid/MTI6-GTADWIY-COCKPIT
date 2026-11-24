@@ -22,6 +22,7 @@ export interface WorkspaceCoverage {
   riskDimensions: string[];
   actions: string[];
   panelsNote: string;
+  simulatorTemplate: string;
 }
 
 export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
@@ -61,7 +62,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "graph",
    "source"
   ],
-  "panelsNote": "FULL − Simulator action (health/entry surface, §5/§104)"
+  "panelsNote": "FULL − Simulator action (health/entry surface, §5/§104)",
+  "simulatorTemplate": "NONE"
  },
  "globe": {
   "majors": [],
@@ -97,7 +99,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL − Costs/Risks panels render as layer state only"
+  "panelsNote": "FULL − Costs/Risks panels render as layer state only",
+  "simulatorTemplate": "NONE"
  },
  "markets-assets": {
   "majors": [
@@ -152,7 +155,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "NONE"
  },
  "networks": {
   "majors": [],
@@ -199,7 +203,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "NONE"
  },
  "protocols": {
   "majors": [],
@@ -246,7 +251,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "NONE"
  },
  "opportunities": {
   "majors": [],
@@ -287,7 +293,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "ALL"
  },
  "positions": {
   "majors": [],
@@ -326,7 +333,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "graph",
    "source"
   ],
-  "panelsNote": "FULL − Simulator action"
+  "panelsNote": "FULL − Simulator action",
+  "simulatorTemplate": "NONE"
  },
  "portfolio": {
   "majors": [
@@ -370,7 +378,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "graph",
    "source"
   ],
-  "panelsNote": "FULL − Simulator action"
+  "panelsNote": "FULL − Simulator action",
+  "simulatorTemplate": "NONE"
  },
  "intelligence": {
   "majors": [],
@@ -406,7 +415,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "graph",
    "source"
   ],
-  "panelsNote": "FULL − Simulator, Compare actions"
+  "panelsNote": "FULL − Simulator, Compare actions",
+  "simulatorTemplate": "NONE"
  },
  "risk": {
   "majors": [],
@@ -445,7 +455,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "graph",
    "source"
   ],
-  "panelsNote": "FULL − Simulator action"
+  "panelsNote": "FULL − Simulator action",
+  "simulatorTemplate": "NONE"
  },
  "security": {
   "majors": [
@@ -487,7 +498,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "graph",
    "source"
   ],
-  "panelsNote": "FULL − Simulator action"
+  "panelsNote": "FULL − Simulator action",
+  "simulatorTemplate": "NONE"
  },
  "encyclopedia": {
   "majors": [],
@@ -519,7 +531,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "graph",
    "source"
   ],
-  "panelsNote": "Frame-lite: Header + Primary + Context + Intelligence[Sources, Freshness] + Actions[World, Graph, Source] (catalog surface, §72)"
+  "panelsNote": "Frame-lite: Header + Primary + Context + Intelligence[Sources, Freshness] + Actions[World, Graph, Source] (catalog surface, §72)",
+  "simulatorTemplate": "NONE"
  },
  "live-data": {
   "majors": [],
@@ -554,7 +567,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "graph",
    "source"
   ],
-  "panelsNote": "FULL − Simulator, Compare actions"
+  "panelsNote": "FULL − Simulator, Compare actions",
+  "simulatorTemplate": "NONE"
  },
  "bot-ops": {
   "majors": [],
@@ -583,7 +597,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "graph",
    "source"
   ],
-  "panelsNote": "FULL − Simulator, World actions"
+  "panelsNote": "FULL − Simulator, World actions",
+  "simulatorTemplate": "NONE"
  },
  "trading": {
   "majors": [
@@ -634,7 +649,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Derivative Position"
  },
  "swap": {
   "majors": [
@@ -687,7 +703,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Swap"
  },
  "dex-aggregation": {
   "majors": [
@@ -740,7 +757,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Swap"
  },
  "cex-intelligence": {
   "majors": [],
@@ -770,7 +788,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   "actions": [
    "source"
   ],
-  "panelsNote": "Frame-lite: Header + Primary + Intelligence[Sources, Freshness, Alerts] + Actions[Source]"
+  "panelsNote": "Frame-lite: Header + Primary + Intelligence[Sources, Freshness, Alerts] + Actions[Source]",
+  "simulatorTemplate": "NONE"
  },
  "arbitrage": {
   "majors": [
@@ -828,7 +847,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Arbitrage"
  },
  "cross-chain-routing": {
   "majors": [
@@ -879,7 +899,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Bridge"
  },
  "bridge": {
   "majors": [
@@ -927,7 +948,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Bridge"
  },
  "liquidity": {
   "majors": [
@@ -983,7 +1005,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Liquidity"
  },
  "yield-farming": {
   "majors": [
@@ -1032,7 +1055,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Liquidity"
  },
  "staking": {
   "majors": [
@@ -1084,7 +1108,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Staking"
  },
  "liquid-staking": {
   "majors": [
@@ -1130,7 +1155,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Staking"
  },
  "restaking": {
   "majors": [
@@ -1176,7 +1202,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Staking"
  },
  "lending": {
   "majors": [
@@ -1234,7 +1261,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Lending"
  },
  "borrowing": {
   "majors": [
@@ -1284,7 +1312,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Borrowing"
  },
  "vaults": {
   "majors": [
@@ -1335,7 +1364,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Vault"
  },
  "yield-aggregation": {
   "majors": [
@@ -1385,7 +1415,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Vault"
  },
  "yield-trading": {
   "majors": [
@@ -1434,7 +1465,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Derivative Position"
  },
  "structured-credit": {
   "majors": [
@@ -1485,7 +1517,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Lending"
  },
  "perpetuals": {
   "majors": [
@@ -1531,7 +1564,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Derivative Position"
  },
  "futures": {
   "majors": [
@@ -1576,7 +1610,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Derivative Position"
  },
  "options": {
   "majors": [
@@ -1620,7 +1655,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Derivative Position"
  },
  "synthetics-cdp": {
   "majors": [
@@ -1667,7 +1703,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Derivative Position"
  },
  "margin-leverage": {
   "majors": [],
@@ -1718,7 +1755,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL − own Primary is an aggregation view"
+  "panelsNote": "FULL − own Primary is an aggregation view",
+  "simulatorTemplate": "Derivative Position / Borrowing"
  },
  "mining": {
   "majors": [
@@ -1764,7 +1802,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Mining Economics"
  },
  "validators": {
   "majors": [
@@ -1813,7 +1852,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Validator Economics"
  },
  "nodes": {
   "majors": [
@@ -1861,7 +1901,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "NONE"
  },
  "rpc-infrastructure": {
   "majors": [],
@@ -1904,7 +1945,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "graph",
    "source"
   ],
-  "panelsNote": "FULL − Simulator action"
+  "panelsNote": "FULL − Simulator action",
+  "simulatorTemplate": "NONE"
  },
  "depin": {
   "majors": [
@@ -1950,7 +1992,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "NONE"
  },
  "ai-compute": {
   "majors": [],
@@ -1989,7 +2032,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   "actions": [
    "encyclopedia"
   ],
-  "panelsNote": "SEAT frame (§3)"
+  "panelsNote": "SEAT frame (§3)",
+  "simulatorTemplate": "NONE"
  },
  "modular": {
   "majors": [],
@@ -2021,7 +2065,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   "actions": [
    "encyclopedia"
   ],
-  "panelsNote": "SEAT frame (§3)"
+  "panelsNote": "SEAT frame (§3)",
+  "simulatorTemplate": "NONE"
  },
  "identity": {
   "majors": [],
@@ -2052,7 +2097,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   "actions": [
    "encyclopedia"
   ],
-  "panelsNote": "SEAT frame (§3)"
+  "panelsNote": "SEAT frame (§3)",
+  "simulatorTemplate": "NONE"
  },
  "btcfi": {
   "majors": [
@@ -2101,7 +2147,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Staking / Lending"
  },
  "rwa": {
   "majors": [
@@ -2150,7 +2197,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "NONE"
  },
  "nftfi": {
   "majors": [
@@ -2196,7 +2244,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "Lending"
  },
  "gamefi": {
   "majors": [],
@@ -2224,7 +2273,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   "actions": [
    "encyclopedia"
   ],
-  "panelsNote": "SEAT frame (§3)"
+  "panelsNote": "SEAT frame (§3)",
+  "simulatorTemplate": "NONE"
  },
  "socialfi": {
   "majors": [],
@@ -2252,7 +2302,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
   "actions": [
    "encyclopedia"
   ],
-  "panelsNote": "SEAT frame (§3)"
+  "panelsNote": "SEAT frame (§3)",
+  "simulatorTemplate": "NONE"
  },
  "prediction": {
   "majors": [
@@ -2296,7 +2347,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "NONE"
  },
  "oracle": {
   "majors": [],
@@ -2342,7 +2394,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL (Dependency panel is the centerpiece: \"WHAT DEPENDS ON THIS ORACLE?\", §46)"
+  "panelsNote": "FULL (Dependency panel is the centerpiece: \"WHAT DEPENDS ON THIS ORACLE?\", §46)",
+  "simulatorTemplate": "NONE"
  },
  "insurance": {
   "majors": [
@@ -2387,7 +2440,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "NONE"
  },
  "governance": {
   "majors": [
@@ -2432,7 +2486,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "NONE"
  },
  "gauges": {
   "majors": [
@@ -2478,7 +2533,8 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "NONE"
  },
  "payments": {
   "majors": [
@@ -2524,6 +2580,7 @@ export const WORKSPACE_COVERAGE: Record<string, WorkspaceCoverage> = {
    "source",
    "simulator"
   ],
-  "panelsNote": "FULL"
+  "panelsNote": "FULL",
+  "simulatorTemplate": "NONE"
  }
 };

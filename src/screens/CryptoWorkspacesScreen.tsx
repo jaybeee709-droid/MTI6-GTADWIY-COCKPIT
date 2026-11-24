@@ -14,7 +14,8 @@ import React, { useEffect, useState } from 'react';
 import { Layers } from 'lucide-react';
 import { CRYPTO_WORKSPACES, CRYPTO_WORKSPACE_GROUPS, type WorkspaceGroupId } from '../crypto-workspaces-data';
 import { WORKSPACE_COVERAGE } from '../workspace-coverage-data';
-import { CANONICAL_60, ENCYCLOPEDIA_FAMILIES } from '../encyclopedia-data';
+import { CANONICAL_60, ENCYCLOPEDIA_FAMILIES, ENCYCLOPEDIA_INDEX } from '../encyclopedia-data';
+import { ENTITY_UNIVERSE } from '../entity-data';
 import { MonoLine, Panel, ScreenHeader, StatusPill } from './shared';
 
 const majorTitle = (id: string): string =>
@@ -39,12 +40,186 @@ function statusNote(status: string): string {
 
 type FrameMode = 'STANDARD' | 'ADVANCED' | 'ALL';
 
+const KIND_TO_REGISTRY: Record<string, string> = {
+  networks: 'chains',
+  assets: 'assets',
+  protocols: 'protocols',
+};
+
+function ownerRecordsFor(majorIds: Set<string>): { opportunities: number; positions: number } {
+  let opportunities = 0;
+  let positions = 0;
+  try {
+    const opps: unknown = JSON.parse(localStorage.getItem('mti6_opportunities_v1') ?? '[]');
+    if (Array.isArray(opps))
+      opportunities = opps.filter(
+        (o) => !!o && typeof o === 'object' && majorIds.has((o as { majorActivityId?: string }).majorActivityId ?? ''),
+      ).length;
+    const poss: unknown = JSON.parse(localStorage.getItem('mti6_positions_v1') ?? '[]');
+    if (Array.isArray(poss))
+      positions = poss.filter(
+        (p) => !!p && typeof p === 'object' && majorIds.has((p as { activityId?: string }).activityId ?? ''),
+      ).length;
+  } catch {
+    /* unreadable local records count as none recorded here */
+  }
+  return { opportunities, positions };
+}
+
+const WorkspaceDetail: React.FC<{ id: string; onBack: () => void }> = ({ id, onBack }) => {
+  const w = CRYPTO_WORKSPACES.find((x) => x.id === id);
+  const cov = WORKSPACE_COVERAGE[id];
+  if (!w || !cov) return null;
+  const majorIds = new Set([...cov.majors, ...cov.secondaryMajors]);
+  const owner = ownerRecordsFor(majorIds);
+  const childrenOf = (pid: string) => ENCYCLOPEDIA_INDEX.filter((e) => e.parent === pid);
+  const majorCounts = (mid: string) => {
+    const types = childrenOf(mid).filter((c) => c.level === 'TYPE');
+    const direct = childrenOf(mid).filter((c) => c.level === 'STRATEGY').length;
+    const under = types.reduce((n, t) => n + childrenOf(t.id).filter((c) => c.level === 'STRATEGY').length, 0);
+    return { types: types.length, strategies: direct + under };
+  };
+  const entitiesFor = (kind: string) =>
+    ENTITY_UNIVERSE.filter((e) => e.registry === (KIND_TO_REGISTRY[kind] ?? kind));
+  const groupLabel = CRYPTO_WORKSPACE_GROUPS.find((g) => g.id === w.group)?.label ?? w.group;
+
+  return (
+    <div className="space-y-5 text-white">
+      <button
+        type="button"
+        onClick={onBack}
+        className="flex min-h-[44px] items-center rounded-lg border border-[#00B7FF]/50 px-3 font-mono text-[11px] text-white"
+      >
+        ← BACK TO WORKSPACE INDEX
+      </button>
+
+      <ScreenHeader
+        icon={Layers}
+        title={w.title}
+        subtitle={`Dedicated workspace view — composed from the registry, the backbone, and the entity universe (${groupLabel} group)`}
+        note="Everything below is recorded data or a real join over the owner's own records. Sections with nothing recorded say so; nothing is invented to complete the page."
+      />
+
+      <Panel title="Workspace frame (recorded)">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusPill status={w.status} tone={statusTone(w.status)} />
+          {w.gated ? <StatusPill status="GATED" tone="warn" /> : null}
+        </div>
+        <p className="mt-1 text-xs text-[#B8B8B8]">{statusNote(w.status)}</p>
+        <MonoLine>
+          id: {w.id} · frame: {cov.frame || w.frame} · default view: {cov.defaultView} · world layer:{' '}
+          {cov.worldLayer || 'NOT RECORDED'} · ladder top: {cov.ladderTop || w.ladderTop} · execution:
+          DISABLED
+        </MonoLine>
+        {cov.panelsNote && <MonoLine>FRAME NOTE (RECORDED): {cov.panelsNote}</MonoLine>}
+        {cov.actions.length > 0 && (
+          <MonoLine>RECORDED ACTIONS: {cov.actions.join(' · ').toUpperCase()}</MonoLine>
+        )}
+      </Panel>
+
+      <Panel title="Backbone — activities, types, strategies">
+        {cov.majors.length === 0 && cov.secondaryMajors.length === 0 ? (
+          <MonoLine>
+            NO CANONICAL MAJOR ACTIVITY IS RECORDED FOR THIS WORKSPACE
+            {w.gated ? ' — OWNER-GATED SEAT; NO ACTIVITY IS INVENTED TO FILL IT.' : '.'}
+          </MonoLine>
+        ) : (
+          <div className="space-y-1.5">
+            {cov.majors.map((mid) => {
+              const c = majorCounts(mid);
+              return (
+                <p key={mid} className="font-mono text-[11px] text-white">
+                  · {majorTitle(mid)} — PRIMARY · {c.types} TYPES · {c.strategies} STRATEGIES RECORDED
+                </p>
+              );
+            })}
+            {cov.secondaryMajors.map((mid) => {
+              const c = majorCounts(mid);
+              return (
+                <p key={mid} className="font-mono text-[11px] text-[#B8B8B8]">
+                  · {majorTitle(mid)} — SECONDARY · {c.types} TYPES · {c.strategies} STRATEGIES RECORDED
+                </p>
+              );
+            })}
+            {cov.families.length > 0 && (
+              <MonoLine>FAMILIES: {cov.families.map(familyTitle).join(' · ')}</MonoLine>
+            )}
+          </div>
+        )}
+      </Panel>
+
+      <Panel title="Entities in scope (recorded kinds, canonical records)">
+        {cov.entityKinds.length === 0 ? (
+          <MonoLine>NO ENTITY KINDS ARE RECORDED FOR THIS WORKSPACE.</MonoLine>
+        ) : (
+          <div className="space-y-1.5">
+            {cov.entityKinds.map((kind) => {
+              const list = entitiesFor(kind);
+              return (
+                <p key={kind} className="font-mono text-[11px] text-[#B8B8B8]">
+                  {kind.toUpperCase()} ({list.length} CANONICAL, ALL UNVERIFIED):{' '}
+                  <span className="text-white">{list.map((e) => e.title).join(', ') || 'NONE RECORDED'}</span>
+                </p>
+              );
+            })}
+          </div>
+        )}
+      </Panel>
+
+      <Panel title="Cost & risk (recorded vocabulary)">
+        <MonoLine>
+          {cov.costClasses.length > 0
+            ? `COST CLASSES (CODES AS RECORDED): ${cov.costClasses.join(' · ')} — AMOUNTS UNKNOWN, NEVER ZERO`
+            : 'COST CLASSES: NONE RECORDED — COSTS UNKNOWN, NEVER ZERO'}
+        </MonoLine>
+        <MonoLine>
+          {cov.riskDimensions.length > 0
+            ? `RISK DIMENSIONS (CODES AS RECORDED): ${cov.riskDimensions.join(' · ')} — PROFILED BY DIMENSION, NEVER ONE SCORE`
+            : 'RISK DIMENSIONS: NONE RECORDED'}
+        </MonoLine>
+      </Panel>
+
+      <Panel title="Simulator, bots & STAR">
+        <MonoLine>
+          SIMULATOR TEMPLATE (RECORDED): {cov.simulatorTemplate}
+          {cov.simulatorTemplate === 'NONE'
+            ? ' — NO SIMULATOR IS RECORDED FOR THIS WORKSPACE.'
+            : ' — SIMULATIONS RUN FROM OPPORTUNITY RECORDS ON THE OPPORTUNITIES SCREEN (SIMULATION_ONLY, NEVER EXECUTED).'}
+        </MonoLine>
+        <MonoLine>
+          {cov.botRoles.length > 0
+            ? `BOT ROLE CODES (AS RECORDED): ${cov.botRoles.join(' · ')} — ASSIGNMENTS ARE OWNER RECORDS KEPT IN BOT OPERATIONS; WORKERS ACTIVE: 0 · NOT_CONNECTED.`
+            : 'BOT ROLES: NONE RECORDED FOR THIS WORKSPACE.'}
+        </MonoLine>
+        <MonoLine>
+          STAR: ASK STAR ABOUT ANY ENTITY OR MAJOR ABOVE BY NAME — SHE ANSWERS FROM THE SAME
+          RECORDS SHOWN HERE.
+        </MonoLine>
+      </Panel>
+
+      <Panel title="Owner context on this device (real joins, owner records only)">
+        <MonoLine>
+          OPPORTUNITY RECORDS AGAINST THIS WORKSPACE&apos;S MAJORS: {owner.opportunities} ·
+          POSITION RECORDS AGAINST THEM: {owner.positions} — THESE ARE THE OWNER&apos;S OWN LOCAL
+          RECORDS, NOT PLATFORM DATA; THE DISCOVERY FEED AND POSITION FEEDS REMAIN NOT_CONNECTED.
+        </MonoLine>
+      </Panel>
+    </div>
+  );
+};
+
 export const CryptoWorkspacesScreen: React.FC<{
   focusId?: string | null;
   onFocusHandled?: () => void;
 }> = ({ focusId, onFocusHandled }) => {
   const [groupFilter, setGroupFilter] = useState<WorkspaceGroupId | 'all'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Dedicated workspace view (v162; CW-0 Gap 6, first increment):
+  // one workspace composed from everything the platform records
+  // about it — the §113 list (activity, entities, dependencies,
+  // cost, risk, opportunities, position context, STAR, bots) with
+  // honest states for whatever is session data or unrecorded.
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   // Search tap-through (v149): when the top bar sends a workspace id,
   // show all groups, expand that row, and scroll it into view.
@@ -74,6 +249,10 @@ export const CryptoWorkspacesScreen: React.FC<{
   }));
   const visibleGroups = groupFilter === 'all' ? groups : groups.filter((g) => g.id === groupFilter);
   const total = CRYPTO_WORKSPACES.length;
+
+  if (detailId) {
+    return <WorkspaceDetail id={detailId} onBack={() => setDetailId(null)} />;
+  }
 
   return (
     <div className="space-y-5 text-white">
@@ -177,6 +356,13 @@ export const CryptoWorkspacesScreen: React.FC<{
                           SECONDARY MAJORS
                         </span>
                         <span className="text-[#00B7FF]">{isOpen ? 'HIDE' : 'VIEW'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDetailId(w.id)}
+                        className="mt-2 flex min-h-[44px] w-full items-center justify-center rounded border border-white/20 bg-[#050505] px-2 font-mono text-[10px] text-white"
+                      >
+                        OPEN WORKSPACE →
                       </button>
                       {frameMode === 'ALL' && (cov.costClasses.length > 0 || cov.riskDimensions.length > 0) && (
                         <p className="mt-1.5 font-mono text-[10px] text-[#B8B8B8]">
