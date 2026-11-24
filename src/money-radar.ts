@@ -29,6 +29,7 @@
 import {
   fetchDexVolumes,
   fetchGovernanceProposals,
+  fetchProtocolFees,
   fetchPrice,
   fetchProtocolIndex,
   fetchYields,
@@ -97,6 +98,7 @@ export interface MoneySignal {
 export const RADAR_CATEGORY_STATES: { name: string; state: 'ACTIVE' | 'NO_DATA'; note: string }[] = [
   { name: 'Market Prices', state: 'ACTIVE', note: 'BTC/ETH/SOL governed price chains — source-reported 24h move signals' },
   { name: 'DEX Volume', state: 'ACTIVE', note: 'DefiLlama DEX overview — 24h volume vs the prior day for DEXes ≥ $1M, baseline-guarded' },
+  { name: 'Protocol Fees', state: 'ACTIVE', note: 'DefiLlama fees overview — protocol 24h fees vs the prior day for protocols ≥ $100K, baseline-guarded; protocol revenue, never platform earnings' },
   { name: 'Protocol Discovery', state: 'ACTIVE', note: 'DefiLlama protocol index diffed scan-over-scan — new protocols surface as signals' },
   { name: 'Yield', state: 'ACTIVE', note: 'DefiLlama Yields watched pools' },
   { name: 'Liquidity', state: 'ACTIVE', note: 'Curve / Uniswap watched pools in the yields feed' },
@@ -148,6 +150,9 @@ interface RadarBaseline {
    * when the reported day-over-day move itself shifted by 5+
    * points since the baseline, so re-scans stay quiet. */
   dexVolumes?: Record<string, number>;
+  /** Last recorded protocol-fees change per slug (v208) —
+   * the same baseline guard as dexVolumes. */
+  protocolFees?: Record<string, number>;
 }
 
 const poolKeyOf = (p: { project: string; symbol: string; chain: string }): string =>
@@ -628,6 +633,58 @@ export async function runMoneyRadarScan(): Promise<RadarScanResult> {
     /* a failed overview feed mints nothing */
   }
 
+  /* Protocol fees (v208) — the governed DefiLlama fees
+   * overview, the DEX-volume block's sibling. Watched set:
+   * 24h fees ≥ $100K, top 100 by fees (all baselined). Same
+   * ±30% mint threshold (HOT ±100%), same 5-point baseline
+   * guard, same 12-per-scan materiality cap. Fees are a
+   * protocol's own revenue observation — the evidence says
+   * plainly they are not the platform's or Daniel's earnings. */
+  let protocolFees: Record<string, number> = { ...(baseline?.protocolFees ?? {}) };
+  try {
+    const pf = await fetchProtocolFees();
+    if (pf.value && pf.value.length > 0) {
+      const watched = pf.value.filter((e) => e.total24h >= 100_000).slice(0, 100);
+      const next: Record<string, number> = {};
+      const qualifying = watched.filter((e) => {
+        if (e.changePct === null) return false;
+        next[e.slug] = e.changePct;
+        if (Math.abs(e.changePct) < 30) return false;
+        const prevChange = baseline?.protocolFees?.[e.slug];
+        return !(prevChange !== undefined && Math.abs(e.changePct - prevChange) < 5);
+      });
+      qualifying.sort((a, b) => b.total24h - a.total24h);
+      for (const e of qualifying.slice(0, 12)) {
+        const changePct = e.changePct ?? 0;
+        const up = changePct >= 0;
+        signals.push({
+          id: `radar-protocol-fees-${up ? 'surge' : 'drop'}-${slug(e.slug)}-${pf.fetchedAt ?? observedAt}`,
+          signalType: up ? 'FEES_INCREASE' : 'FEES_DECREASE',
+          source: pf.source ?? 'DefiLlama Fees Overview',
+          entity: e.name,
+          asset: null,
+          protocol: e.name,
+          network: e.chains[0] ?? null,
+          poolKey: null,
+          radarType: 'Market',
+          boardState: Math.abs(changePct) >= 100 ? 'HOT' : up ? 'GROWING' : 'DECLINING',
+          observedAt: pf.fetchedAt ?? observedAt,
+          evidence: [
+            `${pf.source ?? 'DefiLlama Fees Overview'} reports ${e.name} 24h protocol fees ${fmtUsd(e.total24h)} vs ${e.prev24h !== null ? fmtUsd(e.prev24h) : 'not reported'} the prior day (${changePct >= 0 ? '+' : ''}${changePct.toFixed(1)}%) (${pf.status})`,
+            "Protocol fees are that protocol's own revenue observation — not the platform's earnings and not Daniel's. Intelligence for review only",
+          ],
+          evidenceCount: 2,
+          sourceCount: 1,
+          supportStatus: 'OBSERVED',
+          freshness: pf.status === 'STALE' ? 'STALE' : pf.status === 'LIVE' || pf.status === 'CACHED' ? 'CURRENT' : 'UNKNOWN',
+        });
+      }
+      protocolFees = next;
+    }
+  } catch {
+    /* a failed fees feed mints nothing */
+  }
+
   /* Record the signals (deduped by id — a re-scan of the same
    * observation mints nothing twice). */
   const stored = loadSignals();
@@ -746,6 +803,11 @@ export async function runMoneyRadarScan(): Promise<RadarScanResult> {
       dispatch(`Money Radar: DEX volume review ${s.entity}`, 'Analysis');
     }
   }
+  for (const s of freshSignals) {
+    if ((s.signalType === 'FEES_INCREASE' || s.signalType === 'FEES_DECREASE') && s.boardState === 'HOT') {
+      dispatch(`Money Radar: protocol fees review ${s.entity}`, 'Analysis');
+    }
+  }
   if (newDexNames.length > 0) {
     dispatch(
       `Money Radar: classify + place new DEX candidate(s): ${newDexNames.slice(0, 4).join(', ')}${newDexNames.length > 4 ? ', …' : ''}`,
@@ -756,7 +818,7 @@ export async function runMoneyRadarScan(): Promise<RadarScanResult> {
     dispatch(`Money Radar: governance review ${p.spaceName} — ${p.title.slice(0, 48)}`, 'Analysis');
   }
 
-  saveBaseline({ observedAt, source, status: obs.status, pools: current, prices: priceObs, protocolSlugs, governanceIds, dexVolumes });
+  saveBaseline({ observedAt, source, status: obs.status, pools: current, prices: priceObs, protocolSlugs, governanceIds, dexVolumes, protocolFees });
   return {
     status: obs.status,
     source,
@@ -856,5 +918,5 @@ export function moneyRadarSummaryText(): string {
   const latest = s.latest
     .map((x) => `${x.signalType} — ${x.entity} (${boardStateAt(x, Date.now())}, evidence ${x.evidenceCount}, ${x.supportStatus})`)
     .join(' · ');
-  return `From the platform's own records: Money Radar holds ${s.totalSignals} signal(s) over ${s.poolsTracked} tracked watched pools — board: ${board}. ${s.radarCandidates} radar opportunity candidate(s) sit in the opportunity store at DISCOVERED / UNVERIFIED for your review, and ${s.dispatchedOpen} radar work order(s) are open in the Bot Work Queue for the Tribe. Latest signals: ${latest}. Signals come only from governed observations (DefiLlama Yields, the BTC/ETH/SOL price chains, the DefiLlama protocol index, the DefiLlama DEX overview, and Snapshot governance — the last four diffed scan-over-scan or baseline-guarded); categories without a source read NO_DATA. The radar ranks and explains — acting on a candidate is your step, outside the platform.`;
+  return `From the platform's own records: Money Radar holds ${s.totalSignals} signal(s) over ${s.poolsTracked} tracked watched pools — board: ${board}. ${s.radarCandidates} radar opportunity candidate(s) sit in the opportunity store at DISCOVERED / UNVERIFIED for your review, and ${s.dispatchedOpen} radar work order(s) are open in the Bot Work Queue for the Tribe. Latest signals: ${latest}. Signals come only from governed observations (DefiLlama Yields, the BTC/ETH/SOL price chains, the DefiLlama protocol index, the DefiLlama DEX and fees overviews, and Snapshot governance — the diffed sources scan-over-scan, the reported-move sources baseline-guarded); categories without a source read NO_DATA. The radar ranks and explains — acting on a candidate is your step, outside the platform.`;
 }

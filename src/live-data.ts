@@ -499,6 +499,51 @@ export function fetchDexVolumes(): Promise<Observation<DexVolumeEntry[]>> {
   });
 }
 
+/* ------------- Protocol fees (DefiLlama overview — keyless) -------------
+ * Same governed pattern as the DEX overview: the feed reports
+ * each protocol's 24h fees AND the prior day's total. Fees are
+ * the protocol's own revenue observation — never the platform's
+ * or the owner's earnings, and surfaces must say so. */
+export interface ProtocolFeesEntry {
+  name: string;
+  slug: string;
+  category: string | null;
+  total24h: number;
+  prev24h: number | null;
+  changePct: number | null;
+  chains: string[];
+}
+
+export function fetchProtocolFees(): Promise<Observation<ProtocolFeesEntry[]>> {
+  return governed<ProtocolFeesEntry[]>('protocolfees:defillama', 600_000, ['DefiLlama Fees Overview'], async () => {
+    const data = await fetchJson(
+      'https://api.llama.fi/overview/fees?excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true',
+    );
+    const rows = (data as { protocols?: unknown } | null)?.protocols;
+    if (!Array.isArray(rows)) return null;
+    const out: ProtocolFeesEntry[] = [];
+    for (const raw of rows as Record<string, unknown>[]) {
+      if (!raw || typeof raw.name !== 'string' || typeof raw.slug !== 'string') continue;
+      const total24h = typeof raw.total24h === 'number' ? raw.total24h : null;
+      const prev24h = typeof raw.total48hto24h === 'number' ? raw.total48hto24h : null;
+      if (total24h === null) continue;
+      out.push({
+        name: raw.name,
+        slug: raw.slug,
+        category: typeof raw.category === 'string' ? raw.category : null,
+        total24h,
+        prev24h,
+        changePct: prev24h !== null && prev24h > 0 ? ((total24h - prev24h) / prev24h) * 100 : null,
+        chains: Array.isArray(raw.chains)
+          ? (raw.chains as unknown[]).filter((c): c is string => typeof c === 'string')
+          : [],
+      });
+    }
+    out.sort((a, b) => b.total24h - a.total24h);
+    return out.length > 0 ? { value: out, source: 'DefiLlama Fees Overview' } : null;
+  });
+}
+
 /* ---------------- governance (Snapshot — keyless GraphQL) ------------- */
 
 /** POST sibling of fetchJson — same timeout discipline and the
