@@ -55,7 +55,7 @@ export function upsertDexCandidates(fresh: DexCandidate[]): { created: number; u
 export interface RelationshipCandidate {
   id: string;
   from: string;
-  relation: 'deployed_on' | 'has_native_token';
+  relation: 'deployed_on' | 'has_native_token' | 'part_of';
   to: string;
   source: string;
   status: 'CANDIDATE';

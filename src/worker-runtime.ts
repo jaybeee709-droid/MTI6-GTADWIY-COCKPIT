@@ -483,6 +483,8 @@ EXECUTORS.push({
     const relFresh: RelationshipCandidate[] = [];
     let classified = 0;
     let dexClassTotal = 0;
+    let partOfCount = 0;
+    const nameBySlug = new Map(obs.value.map((e) => [e.slug, e.name]));
     /* Placement deepened (v205): EVERY DEX-class entry the
      * index carries is placed — the owner's goal is complete
      * DEX coverage, and the registry cap (3,000) sits above the
@@ -506,6 +508,10 @@ EXECUTORS.push({
         github: entry.github,
         tokenSymbol: entry.symbol,
         tokenAddress: entry.tokenAddress,
+        description: entry.description,
+        audits: entry.audits,
+        auditLinks: entry.auditLinks,
+        parentSlug: entry.parentSlug,
         source: 'DefiLlama Protocols',
         status: 'CANDIDATE',
         truthState: 'UNVERIFIED',
@@ -535,13 +541,25 @@ EXECUTORS.push({
             at: now,
           });
         }
+        if (entry.parentSlug) {
+          relFresh.push({
+            id: `${entry.slug}|part_of|${entry.parentSlug}`,
+            from: entry.name,
+            relation: 'part_of',
+            to: nameBySlug.get(entry.parentSlug) ?? entry.parentSlug,
+            source: 'DefiLlama Protocols',
+            status: 'CANDIDATE',
+            at: now,
+          });
+          partOfCount += 1;
+        }
       }
     }
     const dexRes = upsertDexCandidates(dexFresh);
     const relRes = addRelationshipCandidates(relFresh);
     const covered = dexFresh.reduce((acc, c) => acc + dexCoverage(c).length, 0);
     const avgCoverage = dexFresh.length > 0 ? (covered / dexFresh.length).toFixed(1) : '0';
-    return `DEX scan via DefiLlama Protocols (status ${obs.status}): ${classified} protocols classified · ${dexClassTotal} DEX-class found, all ${dexFresh.length} placed as candidates (${dexRes.created} new, ${dexRes.updated} refreshed; registry holds ${dexRes.total}) · relationship candidates derived for the first ${Math.min(dexFresh.length, REL_DERIVE_CAP)} placed (bounded store; ${relRes.created} new, store holds ${relRes.total}) · average checklist evidence ${avgCoverage}/${DEX_CHECKLIST.length} dimensions per DEX — the rest read ABSENT, never guessed. All candidates UNVERIFIED; only the owner's gate promotes.`;
+    return `DEX scan via DefiLlama Protocols (status ${obs.status}): ${classified} protocols classified · ${dexClassTotal} DEX-class found, all ${dexFresh.length} placed as candidates (${dexRes.created} new, ${dexRes.updated} refreshed; registry holds ${dexRes.total}) · relationship candidates derived for the first ${Math.min(dexFresh.length, REL_DERIVE_CAP)} placed (bounded store; ${relRes.created} new, store holds ${relRes.total}; ${partOfCount} part_of among them) · average checklist evidence ${avgCoverage}/${DEX_CHECKLIST.length} dimensions per DEX — the rest read ABSENT, never guessed. All candidates UNVERIFIED; only the owner's gate promotes.`;
   },
 });
 

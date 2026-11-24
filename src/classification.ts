@@ -184,6 +184,12 @@ export interface DexCandidate {
   github: string | null;
   tokenSymbol: string | null;
   tokenAddress: string | null;
+  /* Source-carried evidence (v206, optional — older stored
+   * records simply lack them and claim less coverage). */
+  description?: string | null;
+  audits?: number | null;
+  auditLinks?: string[];
+  parentSlug?: string | null;
   source: string;
   status: 'CANDIDATE';
   truthState: 'UNVERIFIED';
@@ -194,7 +200,10 @@ export interface DexCandidate {
 /* Which checklist dimensions a DEX candidate's own evidence
  * covers today. Live-figure dimensions (TVL, Volume, Fees,
  * Liquidity) are deliberately NOT claimed from a stored record —
- * they are read live on surfaces or not at all. */
+ * they are read live on surfaces or not at all. Audit Evidence
+ * IS claimed when the record carries the source's own audit
+ * count or audit links (v206) — that is evidence carried, not
+ * a figure. */
 export function dexCoverage(c: DexCandidate): string[] {
   const covered: string[] = ['Organization'];
   if (c.url) covered.push('Website');
@@ -202,5 +211,8 @@ export function dexCoverage(c: DexCandidate): string[] {
   if (c.chains.length > 0) covered.push('Chains', 'Relationship Graph');
   if (c.tokenAddress) covered.push('Contracts', 'Contract Evidence');
   if (c.tokenSymbol) covered.push('Native Token');
+  if ((typeof c.audits === 'number' && c.audits > 0) || (c.auditLinks && c.auditLinks.length > 0)) {
+    covered.push('Audit Evidence');
+  }
   return covered;
 }

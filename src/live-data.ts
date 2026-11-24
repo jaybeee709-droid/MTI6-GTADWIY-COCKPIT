@@ -418,6 +418,12 @@ export interface ProtocolIndexEntry {
   chains: string[];
   github: string | null;
   tokenAddress: string | null;
+  /* Evidence fields the source itself carries (v206) — identity
+   * and audit evidence only; figures (tvl, mcap) stay out. */
+  description: string | null;
+  audits: number | null;
+  auditLinks: string[];
+  parentSlug: string | null;
 }
 
 export function fetchProtocolIndex(): Promise<Observation<ProtocolIndexEntry[]>> {
@@ -436,6 +442,15 @@ export function fetchProtocolIndex(): Promise<Observation<ProtocolIndexEntry[]>>
         chains: Array.isArray(raw.chains) ? (raw.chains as unknown[]).filter((c): c is string => typeof c === 'string') : [],
         github: Array.isArray(raw.github) && typeof raw.github[0] === 'string' ? (raw.github[0] as string) : null,
         tokenAddress: typeof raw.address === 'string' && raw.address.length > 0 ? raw.address : null,
+        description: typeof raw.description === 'string' && raw.description.length > 0 ? raw.description : null,
+        audits: typeof raw.audits === 'number' ? raw.audits : null,
+        auditLinks: Array.isArray(raw.audit_links)
+          ? (raw.audit_links as unknown[]).filter((c): c is string => typeof c === 'string')
+          : [],
+        parentSlug:
+          typeof raw.parentProtocolSlug === 'string' && raw.parentProtocolSlug !== raw.slug
+            ? raw.parentProtocolSlug
+            : null,
       });
     }
     return out.length > 0 ? { value: out, source: 'DefiLlama Protocols' } : null;
