@@ -63,7 +63,7 @@ function gapSummary(): string {
   });
   const famsWith = new Set(CANONICAL_60.map((m) => m.family));
   const emptyFams = ENCYCLOPEDIA_FAMILIES.filter((f) => !famsWith.has(f.id)).map((f) => f.title);
-  return `${FROM_RECORDS}the recorded knowledge gaps are: ${zeroStrategy.map((m) => `${m.title} (types recorded, 0 strategies)`).join('; ')}; ${emptyFams.length} families hold no backbone major (${emptyFams.join(', ')}); Action and Sub-Action levels hold 0 records — Batch C is the owner's separate freeze decision and has not been taken. Gaps are surfaced, never filled.`;
+  return `${FROM_RECORDS}the recorded knowledge gaps are: ${zeroStrategy.map((m) => `${m.title} (types recorded, 0 strategies)`).join('; ')}; ${emptyFams.length} families hold no backbone major (${emptyFams.join(', ')}); the Action level holds ${ENCYCLOPEDIA_COUNTS.actions} records (Batch C — frozen by the owner 2026-11-24 and imported, all UNVERIFIED); the Sub-Action level holds 0 records — the next frontier, whose freeze decision has not been taken. Gaps are surfaced, never filled.`;
 }
 
 /* Per-entity intent (v161; CW-9 — STAR shares structured World
@@ -182,7 +182,7 @@ export function answerLocally(raw: string): string | null {
   }
 
   if (/(encyclopedia|backbone|canonical|activit|how many|records)/.test(q))
-    return `${FROM_RECORDS}the encyclopedia holds ${ENCYCLOPEDIA_COUNTS.total} activity records — ${ENCYCLOPEDIA_COUNTS.families} families, ${ENCYCLOPEDIA_COUNTS.majors} major activities (the canonical 60 backbone), ${ENCYCLOPEDIA_COUNTS.types} types, ${ENCYCLOPEDIA_COUNTS.strategies} strategies, and 0 actions / 0 sub-actions. Crypto World has ${CRYPTO_WORLD_CONTENTS.length} canonical contents and Earnings World ${EARNINGS_CATEGORIES.length} categories. All records are UNVERIFIED.`;
+    return `${FROM_RECORDS}the encyclopedia holds ${ENCYCLOPEDIA_COUNTS.total} activity records — ${ENCYCLOPEDIA_COUNTS.families} families, ${ENCYCLOPEDIA_COUNTS.majors} major activities (the canonical 60 backbone), ${ENCYCLOPEDIA_COUNTS.types} types, ${ENCYCLOPEDIA_COUNTS.strategies} strategies, ${ENCYCLOPEDIA_COUNTS.actions} actions, and ${ENCYCLOPEDIA_COUNTS.subActions} sub-actions. Crypto World has ${CRYPTO_WORLD_CONTENTS.length} canonical contents and Earnings World ${EARNINGS_CATEGORIES.length} categories. All records are UNVERIFIED.`;
 
   if (/(bot|tribe|worker|principal)/.test(q))
     return `${FROM_RECORDS}the bot system is STAR above 12 persistent Tribe principals (${TRIBE_PRINCIPALS.map((p) => p.displayName).join(', ')}) with task workers beneath them. Workers active: 0 — NOT_CONNECTED; no worker runtime exists yet, and work ends at PREPARED.`;
