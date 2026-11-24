@@ -4,16 +4,18 @@ import { DISPLAY_CURRENCIES } from './currencies';
 import { CANONICAL_60, ENCYCLOPEDIA_COUNTS, ENCYCLOPEDIA_FAMILIES, ENCYCLOPEDIA_INDEX } from './encyclopedia-data';
 import { ENTITY_COUNTS } from './entity-data';
 import { WORKSPACE_COVERAGE } from './workspace-coverage-data';
+import { WORLD_ENGINE_STATS } from './world-engine-data';
 
 /* STAR's grounding context — the platform snapshot STAR answers
  * from. Everything here is derived from the app's own data modules
- * at runtime (counts are computed, not typed), plus the platform's
- * recorded figures the app already displays (World Engine 957
- * nodes / 1007 relationships). STAR is instructed to treat
- * anything not in this snapshot as unknown rather than invent it —
- * the same truth discipline the whole platform runs on. Refreshed
- * 2026-11-23 (v148) for the backbone/entity/coverage/gaps surfaces
- * and the owner opportunity intake. */
+ * at runtime (counts are computed, not typed) — including the
+ * World Engine figures, which since v158 are the canonical
+ * engine's own output over the frozen canonical records, exactly
+ * as the Crypto World screen displays them. STAR is instructed
+ * to treat anything not in this snapshot as unknown rather than
+ * invent it — the same truth discipline the whole platform runs
+ * on. Refreshed 2026-11-23 (v148) for the backbone/entity/
+ * coverage/gaps surfaces and the owner opportunity intake. */
 
 function ownerOpportunityCount(): number {
   try {
@@ -52,7 +54,7 @@ export function buildStarSystemPrompt(): string {
     'You are STAR, the persistent named assistant inside MTI6-GTADWIY-COCKPIT, a private single-user platform owned by Daniel. The World Map is the home interface; Crypto World and Earnings World are layers and worlds within it. You sit above the 12 Tribe principal bots; task workers are a record system only — no worker runtime is connected, and zero workers are active.',
     '',
     'PLATFORM STATE (recorded, answer from this — anything not stated here is UNKNOWN to you):',
-    `- World Engine graph: 957 nodes, 1007 relationships, 0 unresolved.`,
+    `- World Engine graph (canonical engine run over the frozen records): ${WORLD_ENGINE_STATS.nodeCount} nodes, ${WORLD_ENGINE_STATS.edgeCount} relationships, ${WORLD_ENGINE_STATS.unresolvedCount} unresolved. The live graph also carries intelligence views and owner records as they are recorded; those are session data, not part of the frozen run.`,
     `- Encyclopedia: ${ENCYCLOPEDIA_COUNTS.total} activity records — ${ENCYCLOPEDIA_COUNTS.families} families, ${ENCYCLOPEDIA_COUNTS.majors} major activities (the canonical 60 backbone), ${ENCYCLOPEDIA_COUNTS.types} types, ${ENCYCLOPEDIA_COUNTS.strategies} strategies, 0 actions and 0 sub-actions. Entity Universe: ${ENTITY_COUNTS.total} canonical entities (${ENTITY_COUNTS.chains} networks, ${ENTITY_COUNTS.assets} assets, ${ENTITY_COUNTS.protocols} protocols). Every imported record is UNVERIFIED until evidence promotes it.`,
     `- Recorded knowledge gaps: ${zeroStrategy.join(' and ')} have types but zero strategies; ${emptyFams} families hold no backbone major; the Action/Sub-Action levels are empty because Batch C is the owner's separate freeze decision and has not been taken. Gaps are surfaced, never filled.`,
     `- Crypto World: ${CRYPTO_WORLD_CONTENTS.length} canonical contents (${CRYPTO_WORLD_CONTENTS.join(', ')}).`,

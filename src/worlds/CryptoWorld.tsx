@@ -31,6 +31,7 @@ import {
   RISK_RECONCILIATION,
   RISK_SUBJECT_TYPES,
 } from '../cost-risk-data';
+import { WORLD_ENGINE_STATS, WORLD_ENGINE_UNRESOLVED_SAMPLE } from '../world-engine-data';
 
 /** Gemini-adopted background treatment (owner, 2026-11-23): the
  *  concept set's deep-space tint, rendered ONLY in the platform's
@@ -174,6 +175,64 @@ const CostRiskPanel: React.FC = () => (
       NO COST RECORDS OR RISK PROFILES EXIST IN THIS SURFACE — THE FRAMEWORKS ARE WHAT THE
       WORKSPACES' COST AND RISK LINES ARE READ AGAINST. RECORDING A RISK IS INFORMATIONAL ONLY:
       IT AUTHORIZES NOTHING AND EXECUTES NOTHING.
+    </p>
+  </div>
+);
+
+/** WORLD ENGINE (v158; CW-0 Gap 5) — the canonical relationship
+ *  engine (js/world-engine.js) run over the frozen canonical
+ *  records at build time: every figure below is the engine's own
+ *  output over that snapshot, not a typed figure. Scope is stated
+ *  on the panel: the live graph additionally carries the
+ *  intelligence views and owner/session records, which are not
+ *  frozen data and are not in this run. */
+const WorldEnginePanel: React.FC = () => (
+  <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-3">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex items-center gap-2 text-xs font-mono text-[#00B7FF]">
+        <Network className="h-4 w-4" />
+        <span>WORLD ENGINE — RELATIONSHIP GRAPH OVER THE CANONICAL RECORDS</span>
+      </div>
+      <span className="font-mono text-[10px] text-[#B8B8B8]">
+        {WORLD_ENGINE_STATS.nodeCount} NODES · {WORLD_ENGINE_STATS.edgeCount} RELATIONSHIPS ·{' '}
+        {WORLD_ENGINE_STATS.unresolvedCount} UNRESOLVED
+      </span>
+    </div>
+    <div className="grid gap-1.5 md:grid-cols-2">
+      <div className="rounded-lg bg-[#151515] px-3 py-2">
+        <p className="font-mono text-[10px] text-[#B8B8B8]">NODES BY KIND</p>
+        <p className="mt-1 font-mono text-[11px] text-white">
+          {Object.entries(WORLD_ENGINE_STATS.byKind)
+            .map(([k, n]) => `${k} ${n}`)
+            .join(' · ')}
+        </p>
+      </div>
+      <div className="rounded-lg bg-[#151515] px-3 py-2">
+        <p className="font-mono text-[10px] text-[#B8B8B8]">RELATIONSHIPS BY TYPE</p>
+        <p className="mt-1 font-mono text-[11px] text-white">
+          {Object.entries(WORLD_ENGINE_STATS.byEdgeType)
+            .map(([k, n]) => `${k} ${n}`)
+            .join(' · ')}
+        </p>
+      </div>
+    </div>
+    {WORLD_ENGINE_UNRESOLVED_SAMPLE.length > 0 && (
+      <div className="space-y-1">
+        <p className="font-mono text-[10px] text-[#FFB020]">UNRESOLVED REFERENCES (NAMED, NEVER INVENTED INTO NODES)</p>
+        {WORLD_ENGINE_UNRESOLVED_SAMPLE.map((u, i) => (
+          <p key={i} className="font-mono text-[9px] text-[#B8B8B8]">
+            {u.from} —{u.type}→ {u.ref}
+          </p>
+        ))}
+      </div>
+    )}
+    <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+      COMPUTED BY THE CANONICAL ENGINE OVER THE FROZEN RECORDS (826 ENCYCLOPEDIA + 48 ENTITIES),
+      THE 12 PRINCIPALS, AND THE 4 APPROVED ANGELS. THE LIVE GRAPH ALSO CARRIES THE INTELLIGENCE
+      VIEWS (ASSETS / NETWORKS / PROTOCOLS) AND OWNER RECORDS (OPPORTUNITIES, POSITIONS,
+      ASSIGNMENTS, PROFILES) AS THEY ARE RECORDED — THOSE ARE SESSION DATA, NOT FROZEN RECORDS,
+      SO THEY ARE NOT IN THIS RUN. A REFERENCE TO SOMETHING UNREGISTERED IS COUNTED AS
+      UNRESOLVED, NEVER PROMOTED INTO AN INVENTED NODE.
     </p>
   </div>
 );
@@ -470,6 +529,8 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
       <LiveYieldsPanel />
 
       <CostRiskPanel />
+
+      <WorldEnginePanel />
 
       {/* 60 MAPPED ACTIVITIES — the owner's Copilot-built backbone,
           counted from the generated canonical data (v136). The full
