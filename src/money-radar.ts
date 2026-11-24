@@ -120,6 +120,9 @@ interface PoolObs {
   chain: string;
   tvlUsd: number;
   apy: number;
+  /** Source-reported 24h volume (v199); optional because
+   * baselines written before v199 do not carry it. */
+  volumeUsd1d?: number | null;
 }
 
 interface RadarBaseline {
@@ -294,6 +297,7 @@ export async function runMoneyRadarScan(): Promise<RadarScanResult> {
     chain: p.chain,
     tvlUsd: p.tvlUsd,
     apy: p.apy,
+    volumeUsd1d: p.volumeUsd1d,
   }));
   const baseline = loadBaseline();
   const prev = new Map((baseline?.pools ?? []).map((p) => [p.key, p]));
@@ -367,6 +371,31 @@ export async function runMoneyRadarScan(): Promise<RadarScanResult> {
           'APY is percent, source-reported and variable — an observation, not a promise',
         ]),
       );
+    }
+    /* Volume (v199) — the owner's Level 3 list watches volume
+     * movement; the source carries 24h volume for DEX pools
+     * (null elsewhere — absence never reads as zero flow). A
+     * ±25% move with a $10k absolute floor mints a signal so
+     * dust pools cannot shout. */
+    const volBefore = typeof before.volumeUsd1d === 'number' ? before.volumeUsd1d : null;
+    const volNow = typeof pool.volumeUsd1d === 'number' ? pool.volumeUsd1d : null;
+    if (volBefore !== null && volNow !== null && volBefore > 0) {
+      const volPct = ((volNow - volBefore) / volBefore) * 100;
+      if (volPct >= 25 && volNow >= 10_000) {
+        signals.push(
+          mk('VOLUME_INCREASE', pool, pool.project, type, volPct >= 100 ? 'HOT' : 'GROWING', [
+            `Source-reported 24h pool volume ${fmtUsd(volBefore)} → ${fmtUsd(volNow)} (+${volPct.toFixed(1)}%) between the two ${source} observations`,
+            'Volume is source-reported pool activity — an observation of flow, not earnings',
+          ]),
+        );
+      } else if (volPct <= -25 && volBefore >= 10_000) {
+        signals.push(
+          mk('VOLUME_DECREASE', pool, pool.project, type, volPct <= -50 ? 'HOT' : 'DECLINING', [
+            `Source-reported 24h pool volume ${fmtUsd(volBefore)} → ${fmtUsd(volNow)} (${volPct.toFixed(1)}%) between the two ${source} observations`,
+            'Volume is source-reported pool activity — an observation of flow, not earnings',
+          ]),
+        );
+      }
     }
   }
   for (const before of baseline?.pools ?? []) {
@@ -552,7 +581,7 @@ export async function runMoneyRadarScan(): Promise<RadarScanResult> {
   const qualifying = new Map<string, MoneySignal[]>();
   for (const s of freshSignals) {
     if (!s.poolKey) continue;
-    if (s.signalType !== 'POOL_CREATION' && s.signalType !== 'TVL_INCREASE' && s.signalType !== 'APY_INCREASE') continue;
+    if (s.signalType !== 'POOL_CREATION' && s.signalType !== 'TVL_INCREASE' && s.signalType !== 'APY_INCREASE' && s.signalType !== 'VOLUME_INCREASE') continue;
     qualifying.set(s.poolKey, [...(qualifying.get(s.poolKey) ?? []), s]);
   }
   let candidatesCreated = 0;
@@ -635,7 +664,7 @@ export async function runMoneyRadarScan(): Promise<RadarScanResult> {
   }
   for (const s of freshSignals) {
     if (!s.poolKey) continue;
-    if (s.signalType !== 'TVL_DECREASE' && s.signalType !== 'APY_DECREASE' && s.signalType !== 'POOL_REMOVED') continue;
+    if (s.signalType !== 'TVL_DECREASE' && s.signalType !== 'APY_DECREASE' && s.signalType !== 'POOL_REMOVED' && s.signalType !== 'VOLUME_DECREASE') continue;
     const pool = [...current, ...(baseline?.pools ?? [])].find((p) => p.key === s.poolKey);
     if (pool) dispatch(`Money Radar: risk review ${pool.project} ${pool.symbol} (${pool.chain})`, 'Risk');
   }

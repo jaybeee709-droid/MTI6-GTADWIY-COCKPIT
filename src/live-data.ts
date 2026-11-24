@@ -356,6 +356,10 @@ export interface PoolYield {
   tvlUsd: number;
   /** APY in PERCENT, exactly as the source reports it. Variable, not a promise. */
   apy: number;
+  /** Source-reported 24h pool volume in USD where the source
+   * carries it (DEX pools do; lending/staking pools read null —
+   * absence, never zero). */
+  volumeUsd1d: number | null;
 }
 
 export const YIELD_CHAIN = ['DefiLlama Yields'];
@@ -392,6 +396,7 @@ export function fetchYields(): Promise<Observation<PoolYield[]>> {
         chain: typeof raw.chain === 'string' ? raw.chain : '—',
         tvlUsd,
         apy,
+        volumeUsd1d: num(raw.volumeUsd1d),
       });
     }
     pools.sort((a, b) => b.tvlUsd - a.tvlUsd);
