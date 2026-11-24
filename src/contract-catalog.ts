@@ -1,7 +1,7 @@
-/* MTI6 catalogued contracts (v187, expanded v188) — the Contract
- * Discovery Registry's one-tap check list. Inclusion law (the
- * standing anchor rule + the owner's verification model,
- * 2026-11-24):
+/* MTI6 catalogued contracts (v187, expanded v188, expanded
+ * v196) — the Contract Discovery Registry's one-tap check list.
+ * Inclusion law (the standing anchor rule + the owner's
+ * verification model, 2026-11-24):
  *   1 independent source  = UNVERIFIED — never catalogued
  *   2 independent sources = SUPPORTED
  *   3+ sources            = STRONGLY SUPPORTED
@@ -14,7 +14,18 @@
  * and never execution authority.
  * EXCLUDED by the same law: Wormhole W (the candidate address
  * resolved to a different token on two sources), ARB and OP
- * (only one source confirmed — UNVERIFIED, not catalogued). */
+ * (only one source confirmed — UNVERIFIED, not catalogued).
+ * v196 expansion (27 entries, probed 2026-11-24 against the
+ * Asset Universe's CONTRACT UNKNOWN list; addresses resolved
+ * from the CoinGecko platforms index, then identity-checked on
+ * Blockscout + Honeypot.is): EXCLUDED on review — ASI (the
+ * probe matched AltSignals' ASI token, a symbol collision; the
+ * Artificial Superintelligence Alliance trades as FET, which IS
+ * catalogued) and JOE (the probe matched the "Joe Coin"
+ * memecoin, not LFJ's JOE). Also still unknown: PYTH, RAY, TAO,
+ * AKT, KELP (no qualifying platform address / no such CoinGecko
+ * symbol) and every L1-native or non-EVM asset — CONTRACT
+ * UNKNOWN stays the honest state for them. */
 
 export interface CataloguedContract {
   name: string;
@@ -263,5 +274,248 @@ export const CATALOGUED_CONTRACTS: CataloguedContract[] = [
     role: 'TOKEN',
     support: THREE,
     provenance: `${BS_CG_HP} · address from the CoinGecko platforms index, then confirmed on Blockscout "Ondo" + Honeypot.is`,
+  },
+  {
+    name: 'Euro Coin',
+    symbol: 'EURC',
+    address: '0x1abaea1f7c830bd89acc67ec4af516284b1bc33c',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "FiatTokenProxy"`,
+  },
+  {
+    name: 'PayPal USD',
+    symbol: 'PYUSD',
+    address: '0x6c3ea9036406852006290770bedfcaba0e23a0e8',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "AdminUpgradeabilityProxy"`,
+  },
+  {
+    name: 'World Liberty USD1',
+    symbol: 'USD1',
+    address: '0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "TransparentUpgradeableProxy"`,
+  },
+  {
+    name: 'Sushi Token',
+    symbol: 'SUSHI',
+    address: '0x6b3595068778dd592e39a122f4f5a5cf09c90fe2',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "SushiToken"`,
+  },
+  {
+    name: 'Coinbase Wrapped Staked ETH',
+    symbol: 'cbETH',
+    address: '0xbe9895146f7af43049ca1c1ae358b0541ea49704',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "FiatTokenProxy"`,
+  },
+  {
+    name: 'ether.fi Staked ETH',
+    symbol: 'eETH',
+    address: '0x35fa164735182de50811e8e2e824cfb9b6118ac2',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "UUPSProxy"`,
+  },
+  {
+    name: 'Renzo Restaked ETH',
+    symbol: 'ezETH',
+    address: '0xbf5495efe5db9ce00f80364c8b423567e58d2110',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "TransparentUpgradeableProxy"`,
+  },
+  {
+    name: 'Rocket Pool ETH',
+    symbol: 'rETH',
+    address: '0xae78736cd615f374d3085123a210448e74fc6393',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "RocketTokenRETH"`,
+  },
+  {
+    name: 'Kelp DAO Restaked ETH',
+    symbol: 'rsETH',
+    address: '0xa1290d69c65a6fe4df752f95823fae25cb99e5a7',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "TransparentUpgradeableProxy"`,
+  },
+  {
+    name: 'Staked Frax Ether',
+    symbol: 'sfrxETH',
+    address: '0xac3e018457b222d93114458476f3e3416abbe38f',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "sfrxETH"`,
+  },
+  {
+    name: 'Wrapped stETH',
+    symbol: 'wstETH',
+    address: '0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "WstETH"`,
+  },
+  {
+    name: 'ether.fi Token',
+    symbol: 'ETHFI',
+    address: '0xfe0c30065b384f05761f15d0cc899d4f9f9cc0eb',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "EtherFiGovernanceToken"`,
+  },
+  {
+    name: 'Renzo Token',
+    symbol: 'REZ',
+    address: '0x3b50805453023a91a8bf641e279401a0b23fa6f9',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "Renzo"`,
+  },
+  {
+    name: 'Swell Token',
+    symbol: 'SWELL',
+    address: '0x0a6e7ba5042b38349e437ec6db6214aec7b35676',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "SwellToken"`,
+  },
+  {
+    name: 'Axelar Token',
+    symbol: 'AXL',
+    address: '0x467719ad09025fcc6cf6f8311755809d45a5e5f3',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "BurnableMintableCappedERC20"`,
+  },
+  {
+    name: 'Ondo OUSG',
+    symbol: 'OUSG',
+    address: '0x1b19c19393e2d034d8ff31ff34c81252fcbbee92',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "TokenProxy"`,
+  },
+  {
+    name: 'Ondo USDY',
+    symbol: 'USDY',
+    address: '0x96f6ef951840721adbf46ac996b59e0235cb985c',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "TokenProxy"`,
+  },
+  {
+    name: 'SingularityNET Token',
+    symbol: 'AGIX',
+    address: '0x5b7533812759b45c2b44c19e320ba2cd2681b542',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "SingularityNetToken"`,
+  },
+  {
+    name: 'Artificial Superintelligence Alliance (FET)',
+    symbol: 'FET',
+    address: '0xaea46a60368a7bd060eec7df8cba43b7ef41ad85',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "FetchToken"`,
+  },
+  {
+    name: 'Morpheus Token',
+    symbol: 'MOR',
+    address: '0xcbb8f1bda10b9696c57e13bc128fe674769dcec0',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "MOROFT"`,
+  },
+  {
+    name: 'Render Token',
+    symbol: 'RENDER',
+    address: '0x6de037ef9ad2725eb40118bb1702ebb27e4aeb24',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: 'SUPPORTED (2 SOURCES)',
+    provenance: 'CoinGecko index + Blockscout (verified), probed 2026-11-24 · Blockscout "AdminUpgradeabilityProxy" · on-chain symbol reads RNDR (pre-migration); CoinGecko lists the Render token at this address',
+  },
+  {
+    name: 'PancakeSwap Token',
+    symbol: 'CAKE',
+    address: '0x152649ea73beab28c5b49b26eb48f7ead6d4c898',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "CakeOFT" · bridged OFT form on Ethereum (native chain BNB Smart Chain)`,
+  },
+  {
+    name: 'Franklin Templeton BENJI',
+    symbol: 'BENJI',
+    address: '0x3ddc84940ab509c11b20b76b466933f40b750dc9',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: 'SUPPORTED (2 SOURCES)',
+    provenance: 'CoinGecko index + Blockscout (verified), probed 2026-11-24 · Blockscout "ERC1967Proxy" · Honeypot.is does not index this token (404 at probe time)',
+  },
+  {
+    name: 'Aerodrome Finance Token',
+    symbol: 'AERO',
+    address: '0x940181a94a35a4569e4529a3cdfb74e38fd98631',
+    network: 'base',
+    role: 'TOKEN',
+    support: 'SUPPORTED (2 SOURCES)',
+    provenance: 'CoinGecko index + Honeypot.is, probed 2026-11-24 (Blockscout Base was bot-walled from the probe host)',
+  },
+  {
+    name: 'Bridged USDC (Base)',
+    symbol: 'USDbC',
+    address: '0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca',
+    network: 'base',
+    role: 'TOKEN',
+    support: 'SUPPORTED (2 SOURCES)',
+    provenance: 'CoinGecko index + Honeypot.is, probed 2026-11-24 (Blockscout Base was bot-walled from the probe host)',
+  },
+  {
+    name: 'Morpho Token',
+    symbol: 'MORPHO',
+    address: '0x58d97b57bb95320f9a05dc918aef65434969c2b2',
+    network: 'ethereum',
+    role: 'TOKEN',
+    support: THREE,
+    provenance: `${BS_CG_HP} · Blockscout "ERC1967Proxy" · canonical Morpho entry — a separate "Legacy Morpho" token exists and is NOT this record`,
+  },
+  {
+    name: 'Velodrome Token',
+    symbol: 'VELO',
+    address: '0x9560e827af36c94d2ac33a39bce1fe78631088db',
+    network: 'optimism',
+    role: 'TOKEN',
+    support: 'SUPPORTED (2 SOURCES)',
+    provenance: 'CoinGecko index (optimistic-ethereum platform) + Blockscout Optimism (verified "Velo"), probed 2026-11-24 · Honeypot.is does not support chain 10',
   },
 ];
