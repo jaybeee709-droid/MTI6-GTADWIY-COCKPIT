@@ -3512,13 +3512,19 @@ body.route-globe .globe-visual { border: none; border-radius: 0; }
   background: rgba(5, 12, 19, 0.88);
   border-color: var(--mti6-border);
 }
+/* The top roll WRAPS (never sideways-scrolls): the eight control
+   groups' combined min-content is wider than any viewport — the
+   lens group alone (heading + ten tabs) is ~1,150px — so a
+   nowrap strip with flex:none groups overflowed even at 1920px
+   and cut off the right-hand controls. Groups may shrink and
+   wrap their own children, so no group can exceed the strip. */
 .globe-roll--top {
   top: 0; display: flex; flex-direction: row; align-items: center;
-  flex-wrap: nowrap; gap: 10px; padding: 6px 10px;
-  overflow-x: auto; overflow-y: hidden;
+  flex-wrap: wrap; gap: 10px; padding: 6px 10px;
+  overflow-x: hidden; overflow-y: hidden;
   border-bottom: 1px solid var(--mti6-border);
 }
-.globe-roll__group { display: flex; align-items: center; gap: 8px; flex: none; }
+.globe-roll__group { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; flex-wrap: wrap; }
 .globe-roll .globe-controls__heading { white-space: nowrap; }
 .globe-roll .api-meta { white-space: nowrap; }
 .globe-roll .globe-mode-note { white-space: normal; flex: 0 1 300px; min-width: 160px; }
@@ -3541,15 +3547,23 @@ body.route-globe .globe-visual { border: none; border-radius: 0; }
 .globe-roll .globe-roll__truth { order: 3; margin-top: 0; white-space: normal; }
 /* Alert Mode: the banner rides ABOVE both rolls (z 4 over 3),
    clear of the top strip; the red frame is the banner + the
-   visual's inset shadow (the full-bleed visual has no border). */
+   visual's inset shadow (the full-bleed visual has no border).
+   Overlay anchoring: the wrapped top roll's height is a runtime
+   quantity, published by globe.js as --globe-roll-top-h on the
+   visual; top-anchored overlays consume it with their original
+   designed clearances (banner +15, Explore bar +7; landscape
+   +9/+3 against the 53px slim roll). The px fallbacks reproduce
+   the pre-wrap offsets exactly if the script never runs.
+   Standing rule: future top-anchored Globe overlays consume
+   --globe-roll-top-h — never a new fixed top constant. */
 .globe-visual > .globe-alert-banner {
-  position: absolute; top: 72px; left: 10px; right: 10px; z-index: 4;
+  position: absolute; top: calc(var(--globe-roll-top-h, 57px) + 15px); left: 10px; right: 10px; z-index: 4;
 }
 /* World Lens package: lens tabs ride the top roll; alert-area
    glows sit on the map at real projected points (the pulse is
    opacity only); the coverage readout hides until a context
    exists; the route line wraps inside the bottom roll. */
-.globe-lens-tabs { flex-wrap: nowrap; }
+.globe-lens-tabs { flex-wrap: wrap; }
 .globe-lens-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--bg-2); margin: 10px 0; display: flex; flex-direction: column; gap: 6px; }
 .globe-glow-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 1; }
 .globe-alert-glow { position: absolute; width: 26px; height: 26px; border-radius: 50%; transform: translate(-50%, -50%); background: radial-gradient(circle, rgba(255,60,60,0.85) 0%, rgba(255,60,60,0.32) 45%, rgba(255,60,60,0) 72%); box-shadow: 0 0 18px 6px rgba(255,40,40,0.45); animation: globe-glow-pulse 2s ease-in-out infinite; }
@@ -3587,7 +3601,7 @@ body.route-globe .globe-visual { border: none; border-radius: 0; }
   /* Slim rolls; the 44px targets inside are untouched. */
   .globe-roll--top { padding-block: 4px; gap: 8px; }
   .globe-roll--bottom { padding-top: 6px; gap: 4px; }
-  .globe-visual > .globe-alert-banner { top: 62px; }
+  .globe-visual > .globe-alert-banner { top: calc(var(--globe-roll-top-h, 53px) + 9px); }
 }
 
 /* ================================================================
@@ -3615,7 +3629,7 @@ body.route-globe .globe-visual { border: none; border-radius: 0; }
 .globe-explore { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .globe-explore--hidden { display: none; }
 .globe-explore__top {
-  position: absolute; top: 64px; left: 10px; right: 10px;
+  position: absolute; top: calc(var(--globe-roll-top-h, 57px) + 7px); left: 10px; right: 10px;
   display: flex; flex-direction: column; gap: 8px; pointer-events: none;
 }
 .globe-explore:not(.globe-explore--hidden) .globe-explore__top { animation: globe-explore-in .25s ease-out; }
@@ -3678,7 +3692,7 @@ body.route-globe .globe-visual { border: none; border-radius: 0; }
 .globe-explore__arrow--right { grid-column: 3; grid-row: 2; }
 .globe-explore__arrow--down { grid-column: 2; grid-row: 3; }
 @media (max-width: 767px) and (orientation: landscape) {
-  .globe-explore__top { top: 56px; }
+  .globe-explore__top { top: calc(var(--globe-roll-top-h, 53px) + 3px); }
   .globe-explore__result { max-height: 30vh; }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -348,6 +348,12 @@
   // (render() can run more than once; never attach it twice).
   var fsListenerAdded = false;
 
+  // The current render's top-roll ResizeObserver (overlay anchoring,
+  // below). render() is this module's whole lifecycle — a new render
+  // replaces the screen — so the previous render's observer is
+  // disconnected when the next render wires its own.
+  var rollHeightObserver = null;
+
   function getMode() {
     try {
       var saved = localStorage.getItem(MODE_KEY);
@@ -1300,6 +1306,21 @@
       renderAreaResults();
     }
 
+    // Exiting Explore clears the selection entering it set
+    // (enterExplore selects CITY): no chip stays lit and no
+    // result card lingers under an unselected selector.
+    function clearAreaCategory() {
+      activeAreaCat = null;
+      chipRows.forEach(function (row) {
+        row.querySelectorAll(".globe-chip").forEach(function (b) {
+          b.classList.remove("globe-chip--active");
+          b.setAttribute("aria-pressed", "false");
+        });
+      });
+      selectorResult.innerHTML = "";
+      exploreResult.innerHTML = "";
+    }
+
     function refreshSelectorArea() {
       var a = selectorAnchor();
       selectorArea.textContent = a ? "Area: " + descriptorText(a.lon, a.lat) : "";
@@ -1488,6 +1509,7 @@
       walk.active = false;
       exploreOverlay.classList.add("globe-explore--hidden");
       try { document.removeEventListener("keydown", exploreKeys); } catch (e) {}
+      clearAreaCategory();
       updateSelectorVisibility();
     }
 
@@ -2351,6 +2373,43 @@
     topRoll.appendChild(rollGroup([detailsBtn, fsBtn]));
     topRoll.appendChild(rollGroup([modeNoteEl]));
     visual.appendChild(topRoll);
+
+    // ---- Overlay anchoring: the roll publishes its height ----------
+    // Since the top roll WRAPS, its height is a runtime quantity
+    // (one line at wide widths, many on a phone), and the two
+    // top-anchored overlays — the Explore guide bar and the Alert
+    // Mode banner — cannot be calibrated to a constant. The roll
+    // therefore PUBLISHES its measured height as --globe-roll-top-h
+    // on the visual (the shared positioning context both overlays
+    // anchor to), and their CSS consumes it with the original
+    // designed clearances. A ResizeObserver refires exactly when
+    // wrapping changes the height (viewport resize, badge text,
+    // mode note). The Explore chips row and result card stack
+    // inside .globe-explore__top, so they ride the same anchor.
+    // If the browser has no ResizeObserver the variable is never
+    // set and the CSS px fallbacks reproduce the pre-wrap offsets
+    // — no regression path. Standing rule: any future
+    // top-anchored Globe overlay consumes --globe-roll-top-h,
+    // never a new fixed top constant.
+    function publishRollHeight() {
+      try {
+        var h = topRoll.offsetHeight;
+        // A not-yet-laid-out roll reads 0; skip it so the CSS
+        // fallback stands until a real measurement exists.
+        if (h > 0) visual.style.setProperty("--globe-roll-top-h", h + "px");
+      } catch (e) {}
+    }
+    publishRollHeight();
+    if (rollHeightObserver) {
+      try { rollHeightObserver.disconnect(); } catch (e) {}
+      rollHeightObserver = null;
+    }
+    if (typeof global.ResizeObserver === "function") {
+      try {
+        rollHeightObserver = new global.ResizeObserver(function () { publishRollHeight(); });
+        rollHeightObserver.observe(topRoll);
+      } catch (e) { rollHeightObserver = null; }
+    }
     // The two Live World action wrappers in the panel are empty
     // now (their buttons live in the bottom roll) — remove them
     // so the panel keeps no dead gaps.
