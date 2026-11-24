@@ -209,6 +209,47 @@ export const BotOperations: React.FC = () => {
   const doContractCheck = () => {
     void runContractCheck(regNetwork, regAddress, regRole);
   };
+  /* Continuous discovery (v202, Fabric Phase 4) — a second
+   * page-session switch, OFF by default and never persisted:
+   * while ON and this page is open, the discovery scans run in
+   * a governed rotation — one scan every five minutes, each
+   * recorded as a runtime task with evidence. Closing the page
+   * stops it; an always-on remote runtime still does not exist
+   * and this switch does not pretend otherwise. */
+  const [continuousDiscovery, setContinuousDiscovery] = useState(false);
+  const [discoveryMsg, setDiscoveryMsg] = useState<string | null>(null);
+  const rotationRef = useRef(0);
+  const discoveryBusy = useRef(false);
+  useEffect(() => {
+    if (!continuousDiscovery) return;
+    const ROTATION: { executor: string; title: string }[] = [
+      { executor: 'money-radar', title: 'Continuous discovery — Money Radar sweep' },
+      { executor: 'dex-scan', title: 'Continuous discovery — DEX scan' },
+      { executor: 'bridge-scan', title: 'Continuous discovery — Bridge scan' },
+      { executor: 'pool-vault-scan', title: 'Continuous discovery — Pool + Vault scan' },
+      { executor: 'opportunity-scan', title: 'Continuous discovery — Opportunity scan' },
+      { executor: 'catalog-check', title: 'Continuous discovery — Catalogue check' },
+    ];
+    const tick = async () => {
+      if (discoveryBusy.current) return;
+      discoveryBusy.current = true;
+      try {
+        const step = ROTATION[rotationRef.current % ROTATION.length];
+        rotationRef.current += 1;
+        const rec = await runAdHocTask(step.executor, step.title);
+        setTasks(loadTasks());
+        setRunLog((log) => [rec, ...log].slice(0, 10));
+        setDiscoveryMsg(rec.evidence);
+      } finally {
+        discoveryBusy.current = false;
+      }
+    };
+    const iv = setInterval(() => {
+      void tick();
+    }, 300000);
+    void tick();
+    return () => clearInterval(iv);
+  }, [continuousDiscovery]);
   const dispatchBusy = useRef(false);
   useEffect(() => {
     if (!autoDispatch) return;
@@ -774,6 +815,26 @@ export const BotOperations: React.FC = () => {
             EVERY MINUTE. CLOSING THE PAGE STOPS IT. IT NEVER RUNS FINANCIAL ACTIONS.
           </span>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setContinuousDiscovery((v) => !v)}
+            className="flex min-h-[44px] items-center rounded border px-3 font-mono text-[10px] text-white"
+            style={{ borderColor: continuousDiscovery ? '#32D74B' : 'rgba(255,255,255,0.2)' }}
+          >
+            CONTINUOUS DISCOVERY: {continuousDiscovery ? 'ON' : 'OFF'}
+          </button>
+          <span className="font-mono text-[9px] text-[#B8B8B8]">
+            WHILE ON AND THIS PAGE IS OPEN, THE DISCOVERY SCANS ROTATE ON THEIR OWN — MONEY
+            RADAR → DEX → BRIDGE → POOL+VAULT → OPPORTUNITY → CATALOGUE, ONE EVERY FIVE
+            MINUTES, EACH RECORDED AS A TASK WITH EVIDENCE. CLOSING THE PAGE STOPS IT.
+          </span>
+        </div>
+        {discoveryMsg && (
+          <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+            LATEST ROTATION RUN: {discoveryMsg}
+          </p>
+        )}
         <div className="grid gap-2 md:grid-cols-2">
           {EXECUTORS.map((e) => (
             <div key={e.id} className="rounded border border-white/10 bg-[#050505] px-3 py-2">
