@@ -117,6 +117,29 @@ const WorkspaceDetail: React.FC<{ id: string; onBack: () => void; onOpen: (id: s
         )}
       </Panel>
 
+      <Panel title="Why this workspace (§69 — the recorded chain)">
+        <div className="space-y-1.5">
+          <MonoLine>
+            SHOWN BECAUSE: THE CW-2 REGISTRY RECORDS THIS WORKSPACE IN THE {groupLabel.toUpperCase()}{' '}
+            GROUP WITH STATUS {w.status}
+            {w.gated ? ' — AN OWNER-GATED SEAT' : ''}. ITS FRAME IS THE SHARED WORKSPACE FRAME
+            (DEFAULT VIEW {cov.defaultView}) AND ITS LADDER TOPS OUT AT {cov.ladderTop || w.ladderTop}{' '}
+            — EXECUTION DISABLED.
+          </MonoLine>
+          <MonoLine>
+            CONTENT DERIVATION: REGISTRY RECORD → CW-1 RESOLVER COVERAGE → {cov.majors.length} PRIMARY
+            + {cov.secondaryMajors.length} SECONDARY BACKBONE MAJORS → THEIR RECORDED TYPES AND
+            STRATEGIES. ENTITY SCOPE COMES FROM THE RECORDED ENTITY KINDS; COST AND RISK FROM THE
+            RECORDED CODE SETS. NOTHING ON THIS SCREEN COMES FROM ANYWHERE ELSE.
+          </MonoLine>
+          {cov.panelsNote && <MonoLine>REGISTRY'S OWN NOTE: {cov.panelsNote}</MonoLine>}
+          <MonoLine>
+            IF A SECTION READS EMPTY OR NOT RECORDED, THAT IS THE RECORD'S TRUE STATE — THE WHY IS
+            NEVER A GAP BEING HIDDEN.
+          </MonoLine>
+        </div>
+      </Panel>
+
       <Panel title="Backbone — activities, types, strategies">
         {cov.majors.length === 0 && cov.secondaryMajors.length === 0 ? (
           <MonoLine>
