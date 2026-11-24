@@ -17,6 +17,7 @@ import { LayoutDashboard, Search } from 'lucide-react';
 import { EmptyState, MonoLine, Panel, ScreenHeader, StatusPill } from './shared';
 import { EXECUTORS, runtimeStoreSummary } from '../worker-runtime';
 import { loadRawArchive, RAW_ARCHIVE_EXCERPT_CHARS, RAW_ARCHIVE_MAX, rawArchiveSummary } from '../raw-archive';
+import { loadReplaySummary, replaySummaryText } from '../archive-replay';
 import { useProvenanceLog, type ProvenanceRecord } from '../live-data';
 import { REGISTERED_SOURCES, SOURCE_REGISTRY_EXCLUSIONS } from '../source-registry-data';
 
@@ -264,6 +265,17 @@ export const CockpitStatusScreen: React.FC = () => {
                 {RAW_ARCHIVE_EXCERPT_CHARS}-CHAR PAYLOAD EXCERPTS · ITS OWN STORE — COCKPITDB
                 UNTOUCHED
               </MonoLine>
+              {(() => {
+                const r = loadReplaySummary();
+                return r ? (
+                  <MonoLine>LAST REPLAY · {replaySummaryText(r)}</MonoLine>
+                ) : (
+                  <MonoLine>
+                    REPLAY · NOT RUN YET — ASK STAR TO "RUN A REPLAY" TO RE-DERIVE WHAT THE
+                    EXCERPTS CAN PROVE
+                  </MonoLine>
+                );
+              })()}
               {s.bySource.map((r) => (
                 <MonoLine key={r.source}>
                   {r.source} · {r.count} · LAST {new Date(r.lastAt).toLocaleString()}

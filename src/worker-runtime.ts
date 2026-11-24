@@ -40,6 +40,7 @@ import {
   type PlacementCandidate,
 } from './pool-vault-registry';
 import { approvalPackageText, buildApprovalPackage, saveApprovalPackage } from './approval-packages';
+import { replayArchive, replaySummaryText, saveReplaySummary } from './archive-replay';
 import { CANONICAL_60, ENCYCLOPEDIA_COUNTS, ENCYCLOPEDIA_FAMILIES, ENCYCLOPEDIA_INDEX } from './encyclopedia-data';
 import { ENTITY_UNIVERSE } from './entity-data';
 import { WORKSPACE_COVERAGE } from './workspace-coverage-data';
@@ -706,6 +707,19 @@ EXECUTORS.push({
   },
 });
 
+/* Archive Replay (v204) — re-derive from the Raw Archive's
+ * excerpts alone: no network, no canonical writes. */
+EXECUTORS.push({
+  id: 'archive-replay',
+  label: 'ARCHIVE REPLAY',
+  does: 'Replays the Raw Archive: counts what the excerpts can re-prove and re-derives protocol classifications from the archived protocol-index excerpts alone. No network; writes nothing canonical.',
+  run: async () => {
+    const summary = replayArchive();
+    saveReplaySummary(summary);
+    return replaySummaryText(summary);
+  },
+});
+
 /* Bot coverage expansion (v192) — the owner's direction: the
  * bots get in anywhere they can help — every registry, store,
  * and surface — building the platform up and keeping it updated
@@ -835,6 +849,7 @@ export function runtimeCommandFor(text: string): string | null {
   if (q.includes('catalog')) return 'catalog-check';
   if (q.includes('universe')) return 'universe-check';
   if (q.includes('approval package')) return 'approval-package';
+  if (q.includes('replay')) return 'archive-replay';
   if (q.includes('bridge')) return 'bridge-scan';
   if ((q.includes('pool') || q.includes('vault')) && (q.includes('scan') || q.includes('registr') || q.includes('place'))) return 'pool-vault-scan';
   if (q.includes('dex') && (q.includes('scan') || q.includes('classif') || q.includes('registr'))) return 'dex-scan';

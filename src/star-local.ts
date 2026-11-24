@@ -22,6 +22,7 @@ import { dexRegistrySummary } from './dex-registry';
 import { bridgeRegistrySummary } from './bridge-registry';
 import { poolVaultSummary } from './pool-vault-registry';
 import { approvalPackageText, loadApprovalPackage } from './approval-packages';
+import { loadReplaySummary, replaySummaryText } from './archive-replay';
 import { assetUniverseSummary } from './asset-universe';
 import { moneyRadarSummaryText } from './money-radar';
 import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
@@ -158,6 +159,13 @@ export function answerLocally(raw: string): string | null {
       return `${FROM_RECORDS}no approval package has been generated yet. Say "run an approval package" and I assemble every placed candidate — DEX, Bridge, Pool, Vault registries plus the relationship candidates — into one package for Daniel's review. Generating it promotes nothing; the gate is Daniel's alone.`;
     }
     return `${FROM_RECORDS}${approvalPackageText(pkg)}`;
+  }
+  if (/(archive replay|replay)/.test(q)) {
+    const s = loadReplaySummary();
+    if (!s) {
+      return `${FROM_RECORDS}the archive has not been replayed yet. Say "run a replay" and I re-derive what the Raw Archive's excerpts can prove — no network, nothing canonical written. Excerpts are capped at 1,500 chars, so replay is partial by design and says so.`;
+    }
+    return `${FROM_RECORDS}${replaySummaryText(s)}`;
   }
 
   if (/(asset universe|tier 1|tier one|which assets|asset tiers)/.test(q)) {
