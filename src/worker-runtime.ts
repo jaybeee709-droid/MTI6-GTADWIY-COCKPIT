@@ -284,6 +284,33 @@ EXECUTORS.push({
   },
 });
 
+/* The Contract Intelligence edge (v184): a keyless Blockscout
+ * REST v2 read of the owner-confirmed EIGEN token contract on
+ * Ethereum — the same explorer check js/discovery-bots.js
+ * performs for the candidate pipeline. Verification state is
+ * EVIDENCE about the contract's source, never a truth promotion
+ * and never execution authority: this reads, it cannot call. */
+EXECUTORS.push({
+  id: 'explorer-check',
+  label: 'EXPLORER CHECK',
+  does: 'Reads the EIGEN token contract (the owner-confirmed anchor) on Blockscout’s keyless API and reports its source-verification state as evidence.',
+  run: async () => {
+    const address = '0xec53bf9167f50cdeb3ae105f56099aaab9061f83';
+    const res = await fetch(`https://eth.blockscout.com/api/v2/smart-contracts/${address}`, {
+      headers: { accept: 'application/json' },
+    });
+    if (!res.ok) throw new Error(`Blockscout answered HTTP ${res.status}`);
+    const body = (await res.json()) as {
+      is_verified?: boolean;
+      name?: string;
+      compiler_version?: string;
+      implementations?: { address_hash?: string }[];
+    };
+    const impl = body.implementations?.[0]?.address_hash;
+    return `EIGEN token contract ${address} on Ethereum (owner-confirmed anchor) · Blockscout source verified: ${body.is_verified ? 'YES' : 'NO'} · contract name: ${body.name ?? 'not reported'} · compiler: ${body.compiler_version ?? 'not reported'} · proxy: ${impl ? `yes, implementation ${impl}` : 'no'} — explorer verification is evidence about source code, not a truth promotion; execution stays DISABLED`;
+  },
+});
+
 /* STAR chat command matching (v172): "run a price check" and
  * its kin map to an executor. Deliberately narrow — a run verb
  * plus an executor keyword — so ordinary questions never fire
@@ -299,6 +326,7 @@ export function runtimeCommandFor(text: string): string | null {
   if (q.includes('memory')) return 'memory-report';
   if (q.includes('posture') || q.includes('security')) return 'posture-check';
   if (q.includes('opportunit')) return 'opportunity-digest';
+  if (q.includes('explorer') || q.includes('blockscout') || q.includes('contract')) return 'explorer-check';
   if (q.includes('provider') || q.includes('connection')) return 'provider-status';
   if (q.includes('coverage')) return 'coverage-report';
   if (q.includes('link') || q.includes('integrity')) return 'link-integrity';
