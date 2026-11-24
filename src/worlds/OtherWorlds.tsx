@@ -38,6 +38,8 @@ import {
   transitionAlert,
   type AlertState,
 } from '../angel-security';
+import { PROXY_ACTIONS, PROXY_ENV_NAMES, PROXY_METHOD, PROXY_PROVIDERS } from '../security-posture-data';
+import { RESOURCE_PROVIDERS } from '../resource-catalog-data';
 
 /* ============================================================================
  * 1. OpportunitiesWorld — honest: the pipeline ends at PREPARED with
@@ -1149,6 +1151,51 @@ export const SecurityWorld: React.FC = () => {
           ALERTS ARE OWNER RECORDS WITH PROVENANCE (SOURCE + DETECTED-AT). THERE IS NO DISMISSED
           STATE AND NO SHORTCUT PAST VERIFYING AND CONFIRMED. THE MAP TURNS RED ONLY FOR A
           CONFIRMED, ACTIVE ALERT — AN EMPTY REGISTER CLAIMS NOTHING.
+        </p>
+      </div>
+
+      {/* PLATFORM SECURITY POSTURE (v154) — facts generated
+          mechanically from the proxy source itself (its declared
+          allowlist, providers, and the NAMES of the env vars it
+          reads) plus credential-custody counts derived from the
+          governed source catalog. No value is shown anywhere: a
+          secret's existence and custody are the record, never the
+          secret. */}
+      <div className="rounded-2xl border border-white/10 bg-[#101010] p-5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-mono text-xs text-[#00B7FF]">PLATFORM SECURITY POSTURE</span>
+          <span className="font-mono text-[10px] text-[#B8B8B8]">DERIVED FROM THE PROXY SOURCE + GOVERNED CATALOG</span>
+        </div>
+        <div className="space-y-1.5 font-mono text-[10px] text-[#B8B8B8]">
+          <p>
+            PROXY GATEWAY: {PROXY_METHOD}-ONLY · ALLOWLIST {PROXY_ACTIONS.length} ACTIONS —{' '}
+            {PROXY_ACTIONS.join(' · ')}. ANY ACTION NOT LISTED IS REJECTED BEFORE ANY UPSTREAM CODE RUNS.
+          </p>
+          <p>PROVIDERS BEHIND THE PROXY: {PROXY_PROVIDERS.join(' · ').toUpperCase()}</p>
+          <p>
+            SECRET CUSTODY: THE PROXY READS {PROXY_ENV_NAMES.length} ENVIRONMENT VARIABLES BY NAME —{' '}
+            {PROXY_ENV_NAMES.join(' · ')}. VALUES LIVE ONLY IN THE NETLIFY ENVIRONMENT: NEVER IN THIS
+            REPOSITORY, THE FRONTEND, OR ANY RECORD.
+          </p>
+          <p>
+            CATALOG CREDENTIAL STATES (GOVERNED SOURCES):{' '}
+            {Object.entries(
+              RESOURCE_PROVIDERS.reduce<Record<string, number>>((acc, p) => {
+                acc[p.credentialState] = (acc[p.credentialState] ?? 0) + 1;
+                return acc;
+              }, {}),
+            )
+              .map(([k, n]) => `${k} ${n}`)
+              .join(' · ')}
+          </p>
+          <p>
+            EXECUTION BOUNDARY: FINANCIAL EXECUTION IS DISABLED BY DESIGN AT EVERY SURFACE. THE
+            CAPABILITY LADDER ENDS AT OWNER APPROVAL — THE EXECUTE RUNG DOES NOT RUN.
+          </p>
+        </div>
+        <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+          THIS PANEL READS THE PLATFORM'S OWN DECLARED FACTS. IT IS NOT A SCAN RESULT AND NOT A
+          MONITOR: IT CLAIMS NO DETECTION, NO PENETRATION TEST, AND NO LIVE SECURITY FEED.
         </p>
       </div>
     </div>
