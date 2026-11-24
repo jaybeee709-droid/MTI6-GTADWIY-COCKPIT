@@ -325,6 +325,79 @@ EXECUTORS.push({
   },
 });
 
+/* Opportunity discovery (v189) — Fabric Priority 4, fed by the
+ * owner-named source (DefiLlama Yields, Registry v1 Category I).
+ * The scan reads the governed yields fetch and records NEW pools
+ * as DISCOVERED candidates in the owner's opportunity store —
+ * candidate isolation holds: records are born UNVERIFIED at
+ * DISCOVERED, carry NO return/APY figures (forbidden in
+ * opportunity records; the yield figure lives on the yields
+ * surface with its source label), and move only through the
+ * pipeline's own transitions toward PREPARED. Nothing here
+ * approves, recommends, or executes. */
+EXECUTORS.push({
+  id: 'opportunity-scan',
+  label: 'OPPORTUNITY SCAN',
+  does: 'Scans the watched DefiLlama yield pools and records new ones as DISCOVERED opportunity candidates (UNVERIFIED, no return figures) in the opportunity store.',
+  run: async () => {
+    const obs = await fetchYields();
+    if (!obs.value || obs.value.length === 0) {
+      return `Opportunity scan: the yields source answered ${obs.status} with no pools — no candidates created. The discovery source is DefiLlama Yields via the governed fetch; an empty answer creates nothing.`;
+    }
+    const KEY = 'mti6_opportunities_v1';
+    let records: Record<string, unknown>[] = [];
+    try {
+      const raw = localStorage.getItem(KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(parsed)) records = parsed as Record<string, unknown>[];
+    } catch {
+      records = [];
+    }
+    const slug = (s: string): string =>
+      s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'pool';
+    const existing = new Set(records.map((r) => String(r.id)));
+    let created = 0;
+    let already = 0;
+    const fresh: Record<string, unknown>[] = [];
+    for (const pool of obs.value) {
+      const id = `opp-defillama-${slug(`${pool.project}-${pool.symbol}-${pool.chain}`)}`;
+      if (existing.has(id)) {
+        already += 1;
+        continue;
+      }
+      if (created >= 8) continue;
+      existing.add(id);
+      created += 1;
+      fresh.push({
+        id,
+        title: `${pool.project} ${pool.symbol} pool (${pool.chain})`,
+        assetRef: { assetClassId: '', chain: pool.chain },
+        networkRef: { networkId: '' },
+        majorActivityId: '',
+        typeId: '',
+        strategyId: '',
+        source: 'worker-runtime:opportunity-scan',
+        verificationStatus: 'UNVERIFIED',
+        pipelineState: 'DISCOVERED',
+        protocolRef: { name: pool.project, source: 'DefiLlama Yields (yields.llama.fi/pools)' },
+        returnSource: {
+          description:
+            'Pool yield is reported by the source and shown, source-labelled, on the yields surface — never copied into this record.',
+          source: 'DefiLlama Yields',
+        },
+      });
+    }
+    if (fresh.length > 0) {
+      try {
+        localStorage.setItem(KEY, JSON.stringify([...fresh, ...records]));
+      } catch {
+        return `Opportunity scan: storage unavailable — ${fresh.length} candidate(s) identified but NOT recorded. Source status ${obs.status}.`;
+      }
+    }
+    return `Opportunity scan via DefiLlama Yields (status ${obs.status}): ${obs.value.length} watched pools · ${created} new DISCOVERED candidate(s) recorded · ${already} already recorded. Candidates are UNVERIFIED, carry no return figures, and advance only through the pipeline's own gates — nothing is approved or executed.`;
+  },
+});
+
 /* STAR chat command matching (v172): "run a price check" and
  * its kin map to an executor. Deliberately narrow — a run verb
  * plus an executor keyword — so ordinary questions never fire
@@ -339,6 +412,7 @@ export function runtimeCommandFor(text: string): string | null {
   if (q.includes('geocode') || q.includes('place')) return 'geocode-check';
   if (q.includes('memory')) return 'memory-report';
   if (q.includes('posture') || q.includes('security')) return 'posture-check';
+  if (q.includes('opportunit') && (q.includes('scan') || q.includes('discover'))) return 'opportunity-scan';
   if (q.includes('opportunit')) return 'opportunity-digest';
   if (q.includes('explorer') || q.includes('blockscout') || q.includes('contract')) return 'explorer-check';
   if (q.includes('provider') || q.includes('connection')) return 'provider-status';
