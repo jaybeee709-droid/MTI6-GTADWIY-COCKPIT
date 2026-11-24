@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { recordRawArchive } from './raw-archive';
 
 /* Live data + provenance (owner direction 2026-11-23: "Light up live
  * data, build the provenance explorer").
@@ -188,7 +189,17 @@ async function fetchJson(url: string, timeoutMs = 12000): Promise<unknown> {
   try {
     const res = await fetch(url, { signal: controller.signal, headers: { Accept: 'application/json' } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
+    const data = await res.json();
+    /* Raw Archive Layer (Fabric Layer 2): every governed fetch
+     * is archived as received — source, endpoint, timestamp,
+     * bounded payload excerpt — in its own store, never in
+     * CockpitDB. recordRawArchive never throws. */
+    try {
+      recordRawArchive(new URL(url).hostname, url, JSON.stringify(data) ?? '');
+    } catch {
+      /* archiving yields; the fetch never does */
+    }
+    return data;
   } finally {
     clearTimeout(timer);
   }

@@ -12,10 +12,114 @@
 // read as zero (dashboard.js fix-up #3, defect A), and the same rule
 // applies here.
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { LayoutDashboard, Search } from 'lucide-react';
 import { EmptyState, MonoLine, Panel, ScreenHeader, StatusPill } from './shared';
 import { EXECUTORS, runtimeStoreSummary } from '../worker-runtime';
+import { loadRawArchive, RAW_ARCHIVE_EXCERPT_CHARS, RAW_ARCHIVE_MAX, rawArchiveSummary } from '../raw-archive';
+import { useProvenanceLog, type ProvenanceRecord } from '../live-data';
+
+/* Source Health (Fabric priority 3): states are DERIVED, never
+ * asserted — from this session's provenance log (what the app
+ * actually fetched, and what came back) and the gateway's
+ * configured flags (what exists server-side). Vocabulary is
+ * exactly OK / DEGRADED / ERROR / UNMEASURED: a source the app
+ * has not measured this session reads UNMEASURED, however
+ * healthy it may be elsewhere. */
+type HealthState = 'OK' | 'DEGRADED' | 'ERROR' | 'UNMEASURED';
+const HEALTH_SOURCES: { name: string; match: string; gatewayKey?: string }[] = [
+  { name: 'CoinGecko', match: 'coingecko' },
+  { name: 'Coinbase', match: 'coinbase' },
+  { name: 'CoinPaprika', match: 'coinpaprika' },
+  { name: 'DefiLlama', match: 'defillama' },
+  { name: 'Blockscout', match: 'blockscout' },
+  { name: 'Transitland (via gateway)', match: 'transit', gatewayKey: 'transitland' },
+  { name: 'Geoapify (via gateway)', match: 'geoapify', gatewayKey: 'geoapify' },
+  { name: 'LocationIQ (via gateway)', match: 'locationiq', gatewayKey: 'locationiq' },
+  { name: 'STAR provider (via gateway)', match: 'star', gatewayKey: 'star' },
+];
+
+function healthFor(
+  def: (typeof HEALTH_SOURCES)[number],
+  log: ProvenanceRecord[],
+  configured: Record<string, boolean> | null,
+): { state: HealthState; basis: string } {
+  const hits = log.filter((r) => (r.source ?? '').toLowerCase().includes(def.match));
+  const latest = hits[hits.length - 1];
+  if (latest) {
+    const when = latest.fetchedAt ? new Date(latest.fetchedAt).toLocaleTimeString() : 'time unrecorded';
+    if (latest.status === 'LIVE' || latest.status === 'CACHED') {
+      return { state: 'OK', basis: `last observation ${latest.status} · ${latest.label} · ${when}` };
+    }
+    if (latest.status === 'STALE') {
+      return { state: 'DEGRADED', basis: `last observation STALE (kept, labelled) · ${latest.label} · ${when}` };
+    }
+    return { state: 'ERROR', basis: `last full chain returned NO_DATA · ${latest.label}` };
+  }
+  if (def.gatewayKey) {
+    if (configured === null) return { state: 'UNMEASURED', basis: 'gateway state not checked yet' };
+    return configured[def.gatewayKey]
+      ? { state: 'UNMEASURED', basis: 'key configured in Netlify · no call measured this session' }
+      : { state: 'UNMEASURED', basis: 'not configured in Netlify · nothing to measure' };
+  }
+  return { state: 'UNMEASURED', basis: 'no fetch measured this session' };
+}
+
+const SourceHealthPanel: React.FC = () => {
+  const log = useProvenanceLog();
+  const [configured, setConfigured] = useState<Record<string, boolean> | null>(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch('/api/mti6', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'gateway.status' }),
+        });
+        const body = await res.json();
+        if (alive && body?.ok && body.data?.providersConfigured) {
+          setConfigured(body.data.providersConfigured as Record<string, boolean>);
+        }
+      } catch {
+        /* gateway unreachable from here — states stay UNMEASURED */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return (
+    <div className="space-y-1.5">
+      {HEALTH_SOURCES.map((def) => {
+        const h = healthFor(def, log, configured);
+        return (
+          <p key={def.name} className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+            <span className="text-white">{def.name}</span> ·{' '}
+            <span
+              className={
+                h.state === 'OK'
+                  ? 'text-[#32D74B]'
+                  : h.state === 'DEGRADED'
+                    ? 'text-[#FFB020]'
+                    : h.state === 'ERROR'
+                      ? 'text-[#FF3B30]'
+                      : 'text-[#B8B8B8]'
+              }
+            >
+              {h.state}
+            </span>{' '}
+            · {h.basis}
+          </p>
+        );
+      })}
+      <p className="pt-1 font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+        DERIVED FROM THIS SESSION'S PROVENANCE LOG + THE GATEWAY'S CONFIGURED FLAGS. NOTHING HERE
+        IS A CLAIM ABOUT A SOURCE THE APP HAS NOT MEASURED.
+      </p>
+    </div>
+  );
+};
 
 const PANELS: { name: string; state: string; note: string }[] = [
   {
@@ -139,6 +243,45 @@ export const CockpitStatusScreen: React.FC = () => {
                 The engine performs research and checks only — it signs nothing, sends nothing, and
                 moves no funds. Full run record: Bot Operations.
               </p>
+            </div>
+          );
+        })()}
+      </Panel>
+
+      <Panel title="Source Health">
+        <SourceHealthPanel />
+      </Panel>
+
+      <Panel title="Raw Archive">
+        {(() => {
+          const s = rawArchiveSummary();
+          const entries = loadRawArchive().slice(0, 8);
+          return (
+            <div className="space-y-2">
+              <MonoLine>
+                {s.total} FETCH(ES) ARCHIVED · BOUNDS: {RAW_ARCHIVE_MAX} RECORDS ·{' '}
+                {RAW_ARCHIVE_EXCERPT_CHARS}-CHAR PAYLOAD EXCERPTS · ITS OWN STORE — COCKPITDB
+                UNTOUCHED
+              </MonoLine>
+              {s.bySource.map((r) => (
+                <MonoLine key={r.source}>
+                  {r.source} · {r.count} · LAST {new Date(r.lastAt).toLocaleString()}
+                </MonoLine>
+              ))}
+              {entries.length === 0 ? (
+                <p className="text-xs text-[#B8B8B8]">
+                  Nothing archived yet — the archive fills as the app makes governed fetches
+                  (prices, history, yields). It is an evidence archive: replayable, searchable,
+                  and never a source of canonical facts by itself.
+                </p>
+              ) : (
+                entries.map((e) => (
+                  <p key={e.id} className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    {new Date(e.at).toLocaleTimeString()} · {e.source} · {e.bytes} bytes
+                    {e.truncated ? ' (excerpted)' : ''} · {e.endpoint}
+                  </p>
+                ))
+              )}
             </div>
           );
         })()}
