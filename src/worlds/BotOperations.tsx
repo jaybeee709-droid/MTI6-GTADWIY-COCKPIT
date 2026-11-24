@@ -37,11 +37,13 @@ import {
   EXECUTORS,
   executorById,
   loadKinds,
+  runAdHocTask,
   runRuntimeTask,
   saveKinds,
   type RunRecord,
   type RuntimeKindMap,
 } from '../worker-runtime';
+import { RADAR_CATEGORY_STATES, moneyRadarSummary } from '../money-radar';
 import {
   BLOCKSCOUT_NETWORKS,
   CONTRACT_ROLES,
@@ -153,6 +155,25 @@ export const BotOperations: React.FC = () => {
   // runtime tasks run on their own (checked every minute).
   // Closing the page stops it — the label says exactly that.
   const [autoDispatch, setAutoDispatch] = useState(false);
+  /* Money Radar (v193) — STAR dispatch: one tap records and runs
+   * the radar sweep through the runtime; the panel below reads
+   * the radar stores directly. */
+  const [radarBusy, setRadarBusy] = useState(false);
+  const [radarMsg, setRadarMsg] = useState<string | null>(null);
+  const doRadarRun = async () => {
+    if (radarBusy) return;
+    setRadarBusy(true);
+    setRadarMsg(null);
+    try {
+      const rec = await runAdHocTask('money-radar', 'Money Radar sweep');
+      setTasks(loadTasks());
+      setRunLog((log) => [rec, ...log].slice(0, 10));
+      setRadarMsg(rec.evidence);
+    } finally {
+      setRadarBusy(false);
+    }
+  };
+  const radar = moneyRadarSummary();
   /* Contract Discovery Registry (v185): a keyless explorer
    * checker over the registry store. */
   const [regNetwork, setRegNetwork] = useState('ethereum');
@@ -789,6 +810,116 @@ export const BotOperations: React.FC = () => {
           SOURCE: WORKER-RUNTIME) — THE MEMORY LAYER'S FIRST GOVERNED PRODUCER. THE ENGINE
           PERFORMS RESEARCH AND CHECKS ONLY; IT SIGNS NOTHING, SENDS NOTHING, AND MOVES NO
           FUNDS — THE LADDER STILL ENDS AT PREPARED.
+        </p>
+      </div>
+
+      {/* MONEY RADAR (v193) — the Opportunity Intelligence layer
+          (owner spec 2026-11-24). STAR's workers go out to the
+          governed sources, the radar records what is changing,
+          candidates land in the opportunity store, and the
+          follow-up work is dispatched to the Tribe in the queue
+          above. The radar observes and surfaces only. */}
+      <div className="rounded-xl border border-white/10 p-4 space-y-3" style={SPACE_BG}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-mono text-xs text-[#8B5CFF]">MONEY RADAR — OPPORTUNITY INTELLIGENCE</span>
+          <span className="font-mono text-[10px] text-[#B8B8B8]">
+            SIGNALS: {radar.totalSignals} · TRACKED POOLS: {radar.poolsTracked} · RADAR CANDIDATES:{' '}
+            {radar.radarCandidates} · WORK ORDERS OPEN: {radar.dispatchedOpen} · LAST SCAN:{' '}
+            {radar.lastScanAt ? new Date(radar.lastScanAt).toLocaleString() : 'NEVER'}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void doRadarRun()}
+            disabled={radarBusy}
+            className="flex min-h-[44px] items-center rounded border border-[#8B5CFF]/60 px-3 font-mono text-[10px] text-white disabled:opacity-50"
+          >
+            {radarBusy ? 'RADAR RUNNING…' : '▶ RUN MONEY RADAR (STAR DISPATCH)'}
+          </button>
+          <span className="font-mono text-[9px] text-[#B8B8B8]">
+            OR ASK STAR: “RUN MONEY RADAR” — THE WORKER FETCHES, THE RADAR DIFFS, THE TRIBE GETS
+            THE WORK.
+          </span>
+        </div>
+        {radarMsg && <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">{radarMsg}</p>}
+        <div className="flex flex-wrap gap-1.5">
+          {(['NEW', 'HOT', 'GROWING', 'DECLINING', 'STALE', 'EXPIRED'] as const).map((b) => (
+            <span
+              key={b}
+              className="rounded border border-white/15 px-2 py-1 font-mono text-[9px] text-white"
+            >
+              {b}: {radar.byBoard[b]}
+            </span>
+          ))}
+        </div>
+        {radar.latest.length === 0 ? (
+          <p className="font-mono text-[10px] text-[#B8B8B8]">
+            NO SIGNALS RECORDED — RUN THE RADAR AND THE FIRST OBSERVATION SETS THE BASELINE.
+            NOTHING IS INVENTED TO FILL THIS BOARD.
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {radar.latest.map((s) => (
+              <div key={s.id} className="rounded border border-white/10 bg-[#050505] px-3 py-2">
+                <p className="font-mono text-[10px] text-white">
+                  {s.signalType} · {s.entity} · {s.radarType.toUpperCase()}
+                </p>
+                <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+                  {s.source} · {new Date(s.observedAt).toLocaleString()} · EVIDENCE {s.evidenceCount} ·
+                  SOURCES {s.sourceCount} · {s.supportStatus} · FRESHNESS {s.freshness}
+                </p>
+                <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">{s.evidence[0]}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="grid gap-2 md:grid-cols-2">
+          <div className="rounded border border-white/10 bg-[#050505] px-3 py-2">
+            <p className="font-mono text-[10px] text-white">ASSET RADAR</p>
+            {radar.assetRadar.length === 0 ? (
+              <p className="font-mono text-[9px] text-[#B8B8B8]">NO ASSETS TRACKED YET.</p>
+            ) : (
+              radar.assetRadar.map((a) => (
+                <p key={a.asset} className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+                  {a.asset}: earns in {a.protocols.join(', ')} · networks {a.networks.join(', ')} ·{' '}
+                  {a.pools} pool(s) · {a.opportunities} radar opportunit
+                  {a.opportunities === 1 ? 'y' : 'ies'}
+                </p>
+              ))
+            )}
+          </div>
+          <div className="rounded border border-white/10 bg-[#050505] px-3 py-2">
+            <p className="font-mono text-[10px] text-white">PROTOCOL RADAR (WATCHED POOLS)</p>
+            {radar.protocolRadar.length === 0 ? (
+              <p className="font-mono text-[9px] text-[#B8B8B8]">NO PROTOCOLS TRACKED YET.</p>
+            ) : (
+              radar.protocolRadar.map((p) => (
+                <p key={p.protocol} className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+                  {p.protocol}: {p.pools} watched pool(s) · watched TVL ${Math.round(p.watchedTvlUsd).toLocaleString()} ·{' '}
+                  {p.signals} signal(s)
+                </p>
+              ))
+            )}
+          </div>
+        </div>
+        <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+          RADAR COVERAGE — ACTIVE:{' '}
+          {RADAR_CATEGORY_STATES.filter((c) => c.state === 'ACTIVE')
+            .map((c) => c.name)
+            .join(' · ')}{' '}
+          — NO_DATA (NO SOURCE CONNECTED, NOTHING INVENTED):{' '}
+          {RADAR_CATEGORY_STATES.filter((c) => c.state === 'NO_DATA')
+            .map((c) => c.name)
+            .join(' · ')}
+          .
+        </p>
+        <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+          THE SEPARATION IS PERMANENT: WORLD ENGINE ANSWERS “WHAT EXISTS?” · MONEY RADAR ANSWERS
+          “WHAT IS CHANGING?” · STAR ANSWERS “WHAT SHOULD DANIEL LOOK AT NEXT?” · DANIEL DECIDES.
+          THE RADAR CREATES SIGNALS, CANDIDATES, AND WORK ORDERS ONLY — IT NEVER MOVES MONEY AND
+          NEVER WRITES CANONICAL TRUTH. SCORING IS EVIDENCE DIMENSIONS ONLY — NO CONFIDENCE
+          PERCENTAGES.
         </p>
       </div>
 

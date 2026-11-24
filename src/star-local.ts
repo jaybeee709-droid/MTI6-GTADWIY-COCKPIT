@@ -20,6 +20,7 @@ import { contractRegistrySummary } from './contract-registry';
 import { EXECUTORS, runtimeStoreSummary } from './worker-runtime';
 import { dexRegistrySummary } from './dex-registry';
 import { assetUniverseSummary } from './asset-universe';
+import { moneyRadarSummaryText } from './money-radar';
 import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
 
 // §69 WHY? for a named workspace: the recorded chain behind what
@@ -112,6 +113,9 @@ export function answerLocally(raw: string): string | null {
 
   if (/(execut|buy|sell|trade|swap|withdraw|send money|place an order)/.test(q))
     return 'I cannot do that, by design. Work in this platform ends at PREPARED on the capability ladder (MONITOR \u2192 ANALYZE \u2192 RECOMMEND \u2192 PREPARE \u2192 OWNER APPROVAL \u2192 EXECUTE), and EXECUTE is disabled. Nothing was acted on.';
+
+  if (/(money radar|capital flow|money move|what's happening|what is happening|radar)/.test(q))
+    return moneyRadarSummaryText();
 
   if (/opportunit/.test(q)) return opportunitySummary();
 

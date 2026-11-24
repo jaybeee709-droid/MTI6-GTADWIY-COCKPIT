@@ -41,6 +41,7 @@ import { CATALOGUED_CONTRACTS } from './contract-catalog';
 import { assetUniverse, assetUniverseSummary } from './asset-universe';
 import { loadRawArchive } from './raw-archive';
 import { alertCounts, loadAngelStore } from './angel-security';
+import { runMoneyRadarScan } from './money-radar';
 import { PROXY_ACTIONS, PROXY_ENV_NAMES, PROXY_PROVIDERS } from './security-posture-data';
 import { createTask, loadTasks, transitionTask, type WorkerTask } from './worker-tasks';
 
@@ -410,6 +411,46 @@ EXECUTORS.push({
   },
 });
 
+/* Money Radar (v193) — the Opportunity Intelligence layer
+ * (owner spec 2026-11-24). The worker goes out to the governed
+ * yields source, diffs the observation against the radar
+ * baseline, records money-movement signals, generates
+ * opportunity candidates, and dispatches the follow-up work to
+ * the Tribe as role-routed queue orders — STAR surfaces, the
+ * principals and their workers work the queue, Daniel reviews.
+ * The radar observes and surfaces only; it moves no money. */
+EXECUTORS.push({
+  id: 'money-radar',
+  label: 'MONEY RADAR',
+  does: 'Fetches the governed yields observation, diffs it against the radar baseline, records money-movement signals (new pools, TVL/APY moves, capital entering/leaving watched pools), generates DISCOVERED opportunity candidates, and dispatches verification / risk / capital-flow work orders to the Tribe queue.',
+  run: async () => {
+    const r = await runMoneyRadarScan();
+    if (r.poolsObserved === 0) {
+      return `Money Radar: the yields source answered ${r.status} with no pools — no signals recorded, no candidates created, nothing dispatched. An empty answer creates nothing.`;
+    }
+    const board = new Map<string, number>();
+    for (const s of r.signals) board.set(s.boardState, (board.get(s.boardState) ?? 0) + 1);
+    const boardLine = [...board.entries()].map(([k, n]) => `${k} ${n}`).join(' · ') || 'no state changes';
+    const top = r.signals
+      .slice(0, 5)
+      .map((s) => `${s.signalType} — ${s.entity} (${s.boardState}, evidence ${s.evidenceCount}, ${s.supportStatus})`)
+      .join(' · ');
+    const dispatchLine = r.dispatched.length
+      ? r.dispatched.map((d) => `"${d.title}" → ${d.role} · ${d.principalName}`).join(' · ')
+      : 'none (nothing new to work, or the orders are already open)';
+    return [
+      `Money Radar scan via ${r.source ?? 'DefiLlama Yields'} (${r.status}, ${r.poolsObserved} watched pools):`,
+      r.baselineWasEmpty
+        ? `baseline established — ${r.signals.length} first-observation signal(s) (${boardLine})`
+        : `${r.signals.length} new signal(s) against the previous baseline (${boardLine})`,
+      top ? `signals: ${top}` : 'no movement crossed the radar thresholds this scan',
+      `opportunity candidates: ${r.candidatesCreated} new DISCOVERED candidate(s) recorded (${r.candidatesExisting} already recorded) — UNVERIFIED, no return figures, review state READY_FOR_REVIEW on the radar board`,
+      `work dispatched to the Tribe: ${dispatchLine}`,
+      'Radar law: World Engine says what exists, Money Radar says what is changing, STAR says what deserves attention — Daniel decides. Nothing was executed.',
+    ].join(' · ');
+  },
+});
+
 /* DEX discovery + classification (v190) — the auto-placement
  * pipeline's first working slice. The scan reads the governed
  * DefiLlama protocol index, classifies every entry through the
@@ -612,6 +653,7 @@ export function runtimeCommandFor(text: string): string | null {
   if (q.includes('catalog')) return 'catalog-check';
   if (q.includes('universe')) return 'universe-check';
   if (q.includes('dex') && (q.includes('scan') || q.includes('classif') || q.includes('registr'))) return 'dex-scan';
+  if (q.includes('money radar') || q.includes('radar') || q.includes('capital flow') || q.includes('money move')) return 'money-radar';
   if (q.includes('opportunit') && (q.includes('scan') || q.includes('discover'))) return 'opportunity-scan';
   if (q.includes('opportunit')) return 'opportunity-digest';
   if (q.includes('explorer') || q.includes('blockscout') || q.includes('contract')) return 'explorer-check';
