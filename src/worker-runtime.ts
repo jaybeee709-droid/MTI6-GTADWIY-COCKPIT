@@ -159,6 +159,39 @@ EXECUTORS.push(
     },
   },
   {
+    id: 'geocode-check',
+    label: 'GEOCODE CHECK',
+    does: 'Resolves the Bronx through the gateway geocoding chain (Geoapify, then LocationIQ) and reports which provider answered with real coordinates.',
+    run: async () => {
+      const res = await fetch('/api/mti6', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'geo.geocode', payload: { q: 'Bronx, New York' } }),
+      });
+      const env = (await res.json().catch(() => null)) as
+        | {
+            ok?: boolean;
+            data?: { results?: { label: string; lat: number; lon: number }[]; provider?: string };
+            error?: { code?: string };
+          }
+        | null;
+      if (!env?.ok) {
+        const code = env?.error?.code ?? 'UPSTREAM_ERROR';
+        throw new Error(
+          code === 'AUTH_REQUIRED'
+            ? 'Geocoding is NOT_CONFIGURED on the server (no provider key set yet).'
+            : code === 'NOT_FOUND'
+              ? 'The geocoding chain answered with no match for the Bronx query.'
+              : `Geocoding query failed (${code}).`,
+        );
+      }
+      const results = env.data?.results ?? [];
+      const first = results[0];
+      if (!first) throw new Error('The geocoding chain returned no results.');
+      return `${env.data?.provider ?? 'geocoding chain'} answered · ${results.length} result(s) · first: ${first.label} @ ${first.lat.toFixed(4)}, ${first.lon.toFixed(4)} · pipeline live through the gateway`;
+    },
+  },
+  {
     id: 'transit-check',
     label: 'TRANSIT CHECK',
     does: 'Queries live transit stops near the recorded Bronx reference point through the gateway (Transitland) and reports what answers.',
@@ -203,6 +236,7 @@ export function runtimeCommandFor(text: string): string | null {
   if (q.includes('yield')) return 'yield-scan';
   if (q.includes('history')) return 'history-check';
   if (q.includes('transit') || q.includes('stop')) return 'transit-check';
+  if (q.includes('geocode') || q.includes('place')) return 'geocode-check';
   if (q.includes('provider') || q.includes('connection')) return 'provider-status';
   if (q.includes('coverage')) return 'coverage-report';
   if (q.includes('link') || q.includes('integrity')) return 'link-integrity';
