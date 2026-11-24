@@ -22,6 +22,7 @@ import { dexRegistrySummary } from './dex-registry';
 import { bridgeRegistrySummary } from './bridge-registry';
 import { poolVaultSummary } from './pool-vault-registry';
 import { approvalPackageText, loadApprovalPackage } from './approval-packages';
+import { swapDeskSummaryText } from './swap-desk';
 import { loadReplaySummary, replaySummaryText } from './archive-replay';
 import { assetUniverseSummary } from './asset-universe';
 import { moneyRadarSummaryText } from './money-radar';
@@ -159,6 +160,9 @@ export function answerLocally(raw: string): string | null {
       return `${FROM_RECORDS}no approval package has been generated yet. Say "run an approval package" and I assemble every placed candidate — DEX, Bridge, Pool, Vault registries plus the relationship candidates — into one package for Daniel's review. Generating it promotes nothing; the gate is Daniel's alone.`;
     }
     return `${FROM_RECORDS}${approvalPackageText(pkg)}`;
+  }
+  if (/(swap desk|prepared swap|swap quote)/.test(q)) {
+    return `${FROM_RECORDS}${swapDeskSummaryText()}`;
   }
   if (/(archive replay|replay)/.test(q)) {
     const s = loadReplaySummary();

@@ -32,6 +32,7 @@ import {
   useObservation,
 } from '../live-data';
 import { ProvenanceChip } from '../ProvenanceChip';
+import { SwapDeskPanel } from './SwapDeskPanel';
 
 const PRICE_COINS = ['BTC', 'ETH', 'SOL', 'DOGE', 'XRP', 'LTC', 'ADA'] as const;
 const CHART_RANGES = ['1d', '7d', '30d'] as const;
@@ -556,6 +557,8 @@ export const CryptoMarketScreen: React.FC = () => {
           </div>
         )}
       </Panel>
+
+      <SwapDeskPanel />
 
       <Panel title="Stocks">
         <p className="text-xs leading-relaxed text-[#B8B8B8]">

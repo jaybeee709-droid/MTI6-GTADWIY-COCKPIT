@@ -544,6 +544,157 @@ export function fetchProtocolFees(): Promise<Observation<ProtocolFeesEntry[]>> {
   });
 }
 
+/* ------------- exact decimal helpers (BigInt — no float money) ------- */
+export function rawFromHuman(amount: string, decimals: number): string | null {
+  const m = /^(\d+)(?:\.(\d+))?$/.exec(amount.trim());
+  if (!m) return null;
+  const fracIn = m[2] ?? '';
+  if (fracIn.length > decimals && /[^0]/.test(fracIn.slice(decimals))) return null;
+  const frac = fracIn.padEnd(decimals, '0').slice(0, decimals);
+  const raw = BigInt(m[1]) * 10n ** BigInt(decimals) + BigInt(frac === '' ? '0' : frac);
+  return raw > 0n ? raw.toString() : null;
+}
+
+export function humanFromRaw(raw: string, decimals: number, maxFrac = 6): string {
+  let v: bigint;
+  try { v = BigInt(raw); } catch { return '0'; }
+  const base = 10n ** BigInt(decimals);
+  const whole = v / base;
+  const rem = v % base;
+  if (rem === 0n) return whole.toString();
+  let frac = rem.toString().padStart(decimals, '0').replace(/0+$/, '');
+  if (frac.length > maxFrac) frac = frac.slice(0, maxFrac);
+  return `${whole}.${frac}`;
+}
+
+/* ------------- DEX swap quotes (keyless aggregators — v210) ------------
+ * The Swap Desk's quote chain, probed live 2026-11-24:
+ * Paraswap, KyberSwap Aggregator and CoW Swap all answer
+ * keyless with real quotes (LI.FI's keyless tier was rate-
+ * limited at first contact — excluded until it earns a place).
+ * A quote is an observation, never a trade: nothing here
+ * signs, broadcasts, or settles anything. */
+export interface SwapQuoteToken {
+  address: string;
+  symbol: string;
+  decimals: number;
+}
+
+export interface SwapQuote {
+  fromSymbol: string;
+  toSymbol: string;
+  fromAmountRaw: string;
+  toAmountRaw: string;
+  toAmount: string;
+  gasCostUsd: number | null;
+  validTo: number | null;
+}
+
+export function fetchSwapQuote(
+  from: SwapQuoteToken,
+  to: SwapQuoteToken,
+  fromAmountRaw: string,
+  fromAddress?: string,
+): Promise<Observation<SwapQuote>> {
+  return governed<SwapQuote>(
+    `swapquote:${from.address.toLowerCase()}:${to.address.toLowerCase()}:${fromAmountRaw}`,
+    30_000,
+    ['Paraswap', 'KyberSwap Aggregator', 'CoW Swap'],
+    async () => {
+      try {
+        const j = (await fetchJson(
+          `https://api.paraswap.io/prices?srcToken=${from.address}&destToken=${to.address}&amount=${fromAmountRaw}&srcDecimals=${from.decimals}&destDecimals=${to.decimals}&side=SELL&network=1`,
+        )) as { priceRoute?: { destAmount?: unknown; gasCostUSD?: unknown } } | null;
+        const pr = j?.priceRoute;
+        if (pr && typeof pr.destAmount === 'string') {
+          return {
+            value: {
+              fromSymbol: from.symbol, toSymbol: to.symbol, fromAmountRaw,
+              toAmountRaw: pr.destAmount,
+              toAmount: humanFromRaw(pr.destAmount, to.decimals),
+              gasCostUsd: pr.gasCostUSD ? Number(pr.gasCostUSD) : null,
+              validTo: null,
+            },
+            source: 'Paraswap',
+          };
+        }
+      } catch { /* fall through to the next source */ }
+      try {
+        const j = (await fetchJson(
+          `https://aggregator-api.kyberswap.com/ethereum/api/v1/routes?tokenIn=${from.address}&tokenOut=${to.address}&amountIn=${fromAmountRaw}`,
+        )) as { data?: { routeSummary?: { amountOut?: unknown; gasUsd?: unknown } } } | null;
+        const rs = j?.data?.routeSummary;
+        if (rs && typeof rs.amountOut === 'string') {
+          return {
+            value: {
+              fromSymbol: from.symbol, toSymbol: to.symbol, fromAmountRaw,
+              toAmountRaw: rs.amountOut,
+              toAmount: humanFromRaw(rs.amountOut, to.decimals),
+              gasCostUsd: rs.gasUsd ? Number(rs.gasUsd) : null,
+              validTo: null,
+            },
+            source: 'KyberSwap Aggregator',
+          };
+        }
+      } catch { /* fall through to the next source */ }
+      try {
+        const addr = fromAddress ?? '0x0000000000000000000000000000000000000000';
+        const j = (await fetchJsonPost('https://api.cow.fi/mainnet/api/v1/quote', {
+          sellToken: from.address, buyToken: to.address, from: addr, receiver: addr,
+          sellAmountBeforeFee: fromAmountRaw, kind: 'sell', signingScheme: 'eip712',
+        })) as { quote?: { buyAmount?: unknown; validTo?: unknown } } | null;
+        const q = j?.quote;
+        if (q && typeof q.buyAmount === 'string') {
+          return {
+            value: {
+              fromSymbol: from.symbol, toSymbol: to.symbol, fromAmountRaw,
+              toAmountRaw: q.buyAmount,
+              toAmount: humanFromRaw(q.buyAmount, to.decimals),
+              gasCostUsd: null,
+              validTo: typeof q.validTo === 'number' ? q.validTo : null,
+            },
+            source: 'CoW Swap',
+          };
+        }
+      } catch { /* no source answered */ }
+      return null;
+    },
+  );
+}
+
+/* ------------- address balances (Blockscout — keyless, read-only) ----- */
+export interface AddressBalances {
+  eth: string | null;
+  tokens: { symbol: string; address: string; amount: string; decimals: number }[];
+}
+
+export function fetchAddressBalances(address: string): Promise<Observation<AddressBalances>> {
+  return governed<AddressBalances>(`balances:blockscout:${address.toLowerCase()}`, 120_000, ['Blockscout'], async () => {
+    const info = (await fetchJson(`https://eth.blockscout.com/api/v2/addresses/${address}`)) as
+      { coin_balance?: unknown } | null;
+    const eth = info && typeof info.coin_balance === 'string' ? humanFromRaw(info.coin_balance, 18) : null;
+    const tokens: AddressBalances['tokens'] = [];
+    try {
+      const tb = (await fetchJson(`https://eth.blockscout.com/api/v2/addresses/${address}/token-balances`)) as unknown;
+      if (Array.isArray(tb)) {
+        for (const it of tb as { token?: { symbol?: unknown; decimals?: unknown; address_hash?: unknown; address?: unknown }; value?: unknown }[]) {
+          const t = it?.token;
+          const dec = Number(t?.decimals);
+          if (!t || typeof t.symbol !== 'string' || typeof it.value !== 'string' || !Number.isFinite(dec)) continue;
+          tokens.push({
+            symbol: t.symbol,
+            address: String(t.address_hash ?? t.address ?? ''),
+            amount: humanFromRaw(it.value, dec),
+            decimals: dec,
+          });
+        }
+      }
+    } catch { /* the token list is unavailable; the ETH balance still stands */ }
+    if (eth === null && tokens.length === 0) return null;
+    return { value: { eth, tokens }, source: 'Blockscout' };
+  });
+}
+
 /* ---------------- governance (Snapshot — keyless GraphQL) ------------- */
 
 /** POST sibling of fetchJson — same timeout discipline and the

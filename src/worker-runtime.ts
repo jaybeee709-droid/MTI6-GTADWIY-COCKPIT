@@ -22,7 +22,8 @@
  * registry of its own (mti6_runtime_kinds_v1: taskId → executor
  * id), so the canonical task record keeps its exact shape.
  */
-import { fetchHistory, fetchPrice, fetchProtocolIndex, fetchYields, fmtTime, fmtUsd } from './live-data';
+import { fetchHistory, fetchPrice, fetchProtocolIndex, fetchSwapQuote, fetchYields, fmtTime, fmtUsd, rawFromHuman } from './live-data';
+import { swappableBySymbol } from './swap-desk';
 import { classifyCategory, dexCoverage, DEX_CHECKLIST, type DexCandidate } from './classification';
 import {
   addRelationshipCandidates,
@@ -740,6 +741,28 @@ EXECUTORS.push({
   },
 });
 
+/* Swap Desk quote check (v210) — the execution track's first
+ * executor: a live reference quote through the desk's governed
+ * aggregator chain. Preparation evidence only — a quote is
+ * not a trade; nothing is signed, sent, or settled. */
+EXECUTORS.push({
+  id: 'quote-check',
+  label: 'QUOTE CHECK',
+  does: 'Fetches a live reference DEX quote (100 USDC → WETH, Ethereum) through the Swap Desk quote chain (Paraswap → KyberSwap Aggregator → CoW Swap) and reports the amounts with their source and status. Preparation evidence only — nothing is signed, sent, or traded.',
+  run: async () => {
+    const from = swappableBySymbol('USDC');
+    const to = swappableBySymbol('WETH');
+    if (!from || !to) return 'Swap Desk token list unavailable — USDC/WETH are not in the catalogued swappable set.';
+    const raw = rawFromHuman('100', from.decimals);
+    if (!raw) return 'Reference amount failed validation — nothing quoted.';
+    const obs = await fetchSwapQuote(from, to, raw);
+    if (!obs.value) {
+      return `Quote chain answered NO_DATA (${obs.status}) — Paraswap, KyberSwap and CoW Swap all failed to answer. Nothing quoted, nothing prepared.`;
+    }
+    return `Live quote (${obs.status}, source ${obs.source ?? 'unknown'}): 100 USDC → ${obs.value.toAmount} WETH${obs.value.gasCostUsd !== null ? ` · estimated gas ${fmtUsd(obs.value.gasCostUsd)}` : ''}. Preparation evidence only — a quote is not a trade; nothing signed, nothing sent.`;
+  },
+});
+
 /* Bot coverage expansion (v192) — the owner's direction: the
  * bots get in anywhere they can help — every registry, store,
  * and surface — building the platform up and keeping it updated
@@ -870,6 +893,7 @@ export function runtimeCommandFor(text: string): string | null {
   if (q.includes('universe')) return 'universe-check';
   if (q.includes('approval package')) return 'approval-package';
   if (q.includes('replay')) return 'archive-replay';
+  if (q.includes('quote')) return 'quote-check';
   if (q.includes('bridge')) return 'bridge-scan';
   if ((q.includes('pool') || q.includes('vault')) && (q.includes('scan') || q.includes('registr') || q.includes('place'))) return 'pool-vault-scan';
   if (q.includes('dex') && (q.includes('scan') || q.includes('classif') || q.includes('registr'))) return 'dex-scan';
