@@ -48,6 +48,48 @@ function gapSummary(): string {
   return `${FROM_RECORDS}the recorded knowledge gaps are: ${zeroStrategy.map((m) => `${m.title} (types recorded, 0 strategies)`).join('; ')}; ${emptyFams.length} families hold no backbone major (${emptyFams.join(', ')}); Action and Sub-Action levels hold 0 records — Batch C is the owner's separate freeze decision and has not been taken. Gaps are surfaced, never filled.`;
 }
 
+/* Per-entity intent (v161; CW-9 — STAR shares structured World
+ * Engine context): a question naming a canonical entity is
+ * answered from that entity's frozen record — definition,
+ * registry, and its recorded references resolved to titles —
+ * never from general knowledge. Matching is by recorded title
+ * (or its base name before a parenthetical) or recorded symbol;
+ * the longest matching title wins. */
+function entityAnswer(q: string): string | null {
+  const titleOf = (id: string) =>
+    ENTITY_UNIVERSE.find((e) => e.id === id)?.title ??
+    CANONICAL_60.find((m) => m.id === id)?.title ??
+    id;
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const wordIn = (phrase: string) => new RegExp(`\\b${esc(phrase)}\\b`).test(q);
+  const matches = ENTITY_UNIVERSE.filter((e) => {
+    const title = e.title.toLowerCase();
+    const base = title.replace(/\(.*?\)/g, '').trim();
+    if (q.includes(title)) return true;
+    if (base.length >= 3 && wordIn(base)) return true;
+    if (e.symbol && wordIn(e.symbol.toLowerCase())) return true;
+    return false;
+  });
+  if (matches.length === 0) return null;
+  const e = [...matches].sort((a, b) => b.title.length - a.title.length)[0];
+  const kind =
+    e.registry === 'chains' ? 'network' : e.registry === 'assets' ? 'asset' : 'protocol';
+  const parts = [`${FROM_RECORDS}${e.title} is a recorded ${kind} in the Entity Universe (UNVERIFIED). ${e.definition}`];
+  if (e.formerName) parts.push(`Formerly named ${e.formerName}; the canonical name is ${e.title}.`);
+  if (e.symbol) parts.push(`Recorded symbol: ${e.symbol}.`);
+  if (e.registry === 'chains') {
+    parts.push(`Chain ID: ${e.chainId ?? 'NOT RECORDED'}.`);
+    if (e.nativeAssetRef) parts.push(`Native asset: ${titleOf(e.nativeAssetRef)}.`);
+  }
+  if (e.networkRef) parts.push(`Recorded network: ${titleOf(e.networkRef)}.`);
+  if (e.activityRefs && e.activityRefs.length > 0)
+    parts.push(`Backbone activities it is recorded against: ${e.activityRefs.map(titleOf).join(', ')}.`);
+  if (e.networkRefs && e.networkRefs.length > 0)
+    parts.push(`Recorded networks: ${e.networkRefs.map(titleOf).join(', ')}.`);
+  parts.push('Anything beyond this record — prices, yields, live state — is not in the record and I will not invent it.');
+  return parts.join(' ');
+}
+
 export function answerLocally(raw: string): string | null {
   const q = raw.toLowerCase();
 
@@ -64,6 +106,9 @@ export function answerLocally(raw: string): string | null {
     const secondary = rows.reduce((n, w) => n + w.secondaryMajors.length, 0);
     return `${FROM_RECORDS}${rows.length} crypto workspaces are registered, carrying ${primary} primary and ${secondary} secondary links into the 60-major backbone — every link resolves against the frozen canonical data. Workspaces with no recorded majors are gated seats; no activity is invented for them.`;
   }
+
+  const perEntity = entityAnswer(q);
+  if (perEntity) return perEntity;
 
   if (/(entit|protocol|network|chain|asset)/.test(q)) {
     const names = ENTITY_UNIVERSE.slice(0, 6).map((e) => e.title).join(', ');
