@@ -13,11 +13,12 @@
  *     only by the owner's own approval tap to OWNER_APPROVED.
  *
  * What it never does: sign, broadcast, settle, hold keys, or
- * touch funds. Signing happens in Daniel's own wallet; the
- * sign handoff is a separate package. A prepared swap is an
- * intent record, not a trade, and carries no calldata — at
- * sign time a fresh quote is fetched, because quotes expire
- * in minutes and a stale quote must never be signed blind.
+ * touch funds. Signing happens in Daniel's own wallet, via
+ * the sign handoff below (v211: security gate + fresh quote +
+ * the venue's own interface). A prepared swap is an intent
+ * record, not a trade, and carries no calldata — at handoff
+ * a fresh quote is fetched, because quotes expire in minutes
+ * and a stale quote must never be signed blind.
  *
  * Swappable tokens = the Contract Catalogue's Ethereum
  * entries whose contract decimals are recorded below
@@ -27,6 +28,7 @@
 import { CATALOGUED_CONTRACTS } from './contract-catalog';
 import {
   fetchSwapQuote,
+  fetchHoneypotCheck,
   rawFromHuman,
   type Observation,
   type SwapQuote,
@@ -119,8 +121,19 @@ export interface PreparedSwap {
   quoteSource: string | null;
   quoteStatus: string;
   quoteFetchedAt: number | null;
-  state: 'PREPARED' | 'OWNER_APPROVED';
+  state: 'PREPARED' | 'OWNER_APPROVED' | 'HANDED_OFF';
   approvedAt: number | null;
+  /** Sign handoff (v211) — set when the owner takes the swap
+   * to his own wallet. The desk still signed nothing. */
+  handedOffAt?: number | null;
+  handoffVenue?: string | null;
+  safety?: {
+    checkedAt: number;
+    toIsHoneypot: boolean | null;
+    toRisk: string | null;
+    fromSupport: string;
+    toSupport: string;
+  } | null;
 }
 
 export function loadPreparedSwaps(): PreparedSwap[] {
@@ -188,6 +201,75 @@ export function approvePreparedSwap(id: string): PreparedSwap | null {
   return s;
 }
 
+/* ------------------------- sign handoff (v211) ------------------------
+ * The owner's approved swap leaves the desk exactly one way:
+ *   1. SECURITY GATE — a live Honeypot.is check on the token
+ *      he would RECEIVE. A honeypot flag REFUSES the handoff.
+ *      The catalogue support levels of both tokens ride along
+ *      on the record as evidence.
+ *   2. FRESH QUOTE — the preparation quote is never signed
+ *      blind; the desk re-quotes at handoff and the record is
+ *      updated to the fresh observation.
+ *   3. THE LINK — the swap opens in the venue's own interface
+ *      (Uniswap, exact pair + amount prefilled) where Daniel
+ *      reviews the venue's own numbers against the desk's
+ *      fresh quote and signs with HIS wallet. MTI6 never sees
+ *      a key, never signs, never broadcasts. */
+export function signLinkFor(swap: PreparedSwap): string | null {
+  const from = swappableBySymbol(swap.fromSymbol);
+  const to = swappableBySymbol(swap.toSymbol);
+  if (!from || !to) return null;
+  return `https://app.uniswap.org/swap?inputCurrency=${from.address}&outputCurrency=${to.address}&exactAmount=${encodeURIComponent(swap.fromAmount)}&exactField=input`;
+}
+
+export async function handoffSwap(
+  id: string,
+): Promise<{ ok: true; swap: PreparedSwap; link: string; obs: Observation<SwapQuote> } | { ok: false; error: string }> {
+  const swaps = loadPreparedSwaps();
+  const s = swaps.find((x) => x.id === id);
+  if (!s) return { ok: false, error: 'Prepared swap not found.' };
+  if (s.state !== 'OWNER_APPROVED') {
+    return { ok: false, error: `Handoff requires OWNER_APPROVED — this swap is ${s.state}. Approve it first; the ladder has no skipped rungs.` };
+  }
+  const from = swappableBySymbol(s.fromSymbol);
+  const to = swappableBySymbol(s.toSymbol);
+  if (!from || !to) return { ok: false, error: 'Pair no longer in the swappable list — handoff refused.' };
+
+  const safetyObs = await fetchHoneypotCheck(to.address);
+  if (safetyObs.value?.isHoneypot === true) {
+    return {
+      ok: false,
+      error: `SECURITY GATE: Honeypot.is flags ${to.symbol} as a HONEYPOT (you could buy but not sell). Handoff refused — the swap stays OWNER_APPROVED and nothing was sent anywhere.`,
+    };
+  }
+
+  const watch = loadWatchWallet();
+  const obs = await fetchSwapQuote(from, to, s.fromAmountRaw, watch?.address);
+  if (!obs.value) {
+    return { ok: false, error: `No fresh quote — the aggregator chain answered NO_DATA (${obs.status}). Handoff not made; a stale quote is never signed blind.` };
+  }
+
+  s.toAmount = obs.value.toAmount;
+  s.toAmountRaw = obs.value.toAmountRaw;
+  s.quoteSource = obs.source;
+  s.quoteStatus = obs.status;
+  s.quoteFetchedAt = obs.fetchedAt;
+  s.safety = {
+    checkedAt: Date.now(),
+    toIsHoneypot: safetyObs.value ? safetyObs.value.isHoneypot : null,
+    toRisk: safetyObs.value?.risk ?? null,
+    fromSupport: from.support,
+    toSupport: to.support,
+  };
+  s.state = 'HANDED_OFF';
+  s.handedOffAt = Date.now();
+  s.handoffVenue = 'Uniswap';
+  savePreparedSwaps(swaps);
+  const link = signLinkFor(s);
+  if (!link) return { ok: false, error: 'Could not build the signing link — handoff recorded but link unavailable.' };
+  return { ok: true, swap: s, link, obs };
+}
+
 export function quoteFreshness(swap: PreparedSwap): 'FRESH' | 'STALE' {
   if (!swap.quoteFetchedAt) return 'STALE';
   return Date.now() - swap.quoteFetchedAt <= QUOTE_FRESH_MS ? 'FRESH' : 'STALE';
@@ -199,6 +281,7 @@ export function swapDeskSummary(): {
   swappableCount: number;
   prepared: number;
   approved: number;
+  handedOff: number;
   latest: PreparedSwap | null;
 } {
   const swaps = loadPreparedSwaps();
@@ -207,6 +290,7 @@ export function swapDeskSummary(): {
     swappableCount: SWAPPABLE_TOKENS.length,
     prepared: swaps.filter((s) => s.state === 'PREPARED').length,
     approved: swaps.filter((s) => s.state === 'OWNER_APPROVED').length,
+    handedOff: swaps.filter((s) => s.state === 'HANDED_OFF').length,
     latest: swaps[0] ?? null,
   };
 }
@@ -219,5 +303,5 @@ export function swapDeskSummaryText(): string {
   const latestLine = s.latest
     ? ` Latest prepared: ${s.latest.fromAmount} ${s.latest.fromSymbol} → ~${s.latest.toAmount} ${s.latest.toSymbol} via ${s.latest.quoteSource ?? 'unknown source'} (${s.latest.state}${s.latest.state === 'PREPARED' ? `, quote ${quoteFreshness(s.latest).toLowerCase()}` : ''}).`
     : ' No swaps prepared yet.';
-  return `Swap Desk — the wallet leg of the execution track (D1 YES, D2 both venues, wallet first). ${watchLine} Swappable: ${s.swappableCount} catalogued Ethereum tokens with recorded decimals. Prepared swaps: ${s.prepared} awaiting approval, ${s.approved} owner-approved.${latestLine} ${SWAP_DESK_LAW}`;
+  return `Swap Desk — the execution track (D1 YES, D2 DEX only, no KYC venue, owner signs in his own wallet). ${watchLine} Swappable: ${s.swappableCount} catalogued Ethereum tokens with recorded decimals. Prepared swaps: ${s.prepared} awaiting approval, ${s.approved} owner-approved, ${s.handedOff} handed off to Daniel's wallet for signing. Every handoff passes a live Honeypot.is security gate on the token he would receive — a honeypot flag refuses the handoff.${latestLine} ${SWAP_DESK_LAW}`;
 }

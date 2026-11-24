@@ -23,7 +23,7 @@
  * id), so the canonical task record keeps its exact shape.
  */
 import { fetchHistory, fetchPrice, fetchProtocolIndex, fetchSwapQuote, fetchYields, fmtTime, fmtUsd, rawFromHuman } from './live-data';
-import { swappableBySymbol } from './swap-desk';
+import { swappableBySymbol, swapDeskSummary } from './swap-desk';
 import { classifyCategory, dexCoverage, DEX_CHECKLIST, type DexCandidate } from './classification';
 import {
   addRelationshipCandidates,
@@ -842,7 +842,9 @@ EXECUTORS.push({
     } catch {
       /* oppLine stays honest */
     }
-    return `Security sweep: gateway allowlist ${PROXY_ACTIONS.length} actions · ${PROXY_PROVIDERS.length} providers · ${PROXY_ENV_NAMES.length} env names (values never read) · Angel Security: ${store.alerts.length} alert(s), ${active} confirmed/active (by state: ${Object.entries(counts).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}) · execution boundary: ${oppLine} · execution remains DISABLED by design.`;
+    const desk = swapDeskSummary();
+    const deskLine = `Swap Desk: ${desk.prepared} prepared · ${desk.approved} owner-approved · ${desk.handedOff} handed off — every handoff gated by a live Honeypot.is check; MTI6 signs nothing and broadcasts nothing`;
+    return `Security sweep: gateway allowlist ${PROXY_ACTIONS.length} actions · ${PROXY_PROVIDERS.length} providers · ${PROXY_ENV_NAMES.length} env names (values never read) · Angel Security: ${store.alerts.length} alert(s), ${active} confirmed/active (by state: ${Object.entries(counts).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}) · execution boundary: ${oppLine} · ${deskLine}.`;
   },
 });
 

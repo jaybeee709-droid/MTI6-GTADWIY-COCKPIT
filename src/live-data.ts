@@ -695,6 +695,40 @@ export function fetchAddressBalances(address: string): Promise<Observation<Addre
   });
 }
 
+/* ------------- token safety (Honeypot.is — keyless) -------------------
+ * The Swap Desk's pre-sign security gate source, probed live
+ * 2026-11-24. Simulates a buy/sell against the token and
+ * reports honeypot status + taxes + a risk summary. A safety
+ * observation, not a guarantee — the desk refuses a handoff
+ * only on a positive honeypot flag, and shows the rest. */
+export interface HoneypotCheck {
+  isHoneypot: boolean;
+  risk: string | null;
+  buyTax: number | null;
+  sellTax: number | null;
+}
+
+export function fetchHoneypotCheck(address: string): Promise<Observation<HoneypotCheck>> {
+  return governed<HoneypotCheck>(`honeypot:${address.toLowerCase()}`, 600_000, ['Honeypot.is'], async () => {
+    const j = (await fetchJson(`https://api.honeypot.is/v2/IsHoneypot?address=${address}&chainID=1`)) as {
+      honeypotResult?: { isHoneypot?: unknown };
+      summary?: { risk?: unknown };
+      simulationResult?: { buyTax?: unknown; sellTax?: unknown };
+    } | null;
+    const hp = j?.honeypotResult?.isHoneypot;
+    if (typeof hp !== 'boolean') return null;
+    return {
+      value: {
+        isHoneypot: hp,
+        risk: typeof j?.summary?.risk === 'string' ? j.summary.risk : null,
+        buyTax: typeof j?.simulationResult?.buyTax === 'number' ? j.simulationResult.buyTax : null,
+        sellTax: typeof j?.simulationResult?.sellTax === 'number' ? j.simulationResult.sellTax : null,
+      },
+      source: 'Honeypot.is',
+    };
+  });
+}
+
 /* ---------------- governance (Snapshot — keyless GraphQL) ------------- */
 
 /** POST sibling of fetchJson — same timeout discipline and the

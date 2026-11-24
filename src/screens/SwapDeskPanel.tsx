@@ -1,9 +1,10 @@
 /* Swap Desk panel (v210) — the wallet leg of the execution
  * track on the Crypto Market (trading) screen. Owner decisions
- * D1 (execution YES) + D2 (both venues, wallet first),
+ * D1 (execution YES) + D2 FINAL (DEX only, no KYC venue),
  * 2026-11-24. The desk prepares and records; it never signs,
  * broadcasts, or holds keys — signing happens in Daniel's own
- * wallet (the sign handoff is the next package). Fetch
+ * wallet via the sign handoff (v211: live Honeypot.is security
+ * gate + fresh quote + the venue's own interface). Fetch
  * discipline matches the app: quotes and balances load on
  * button press only, through the governed live-data chains,
  * and every figure carries its provenance. */
@@ -17,6 +18,7 @@ import {
   loadPreparedSwaps,
   prepareSwap,
   approvePreparedSwap,
+  handoffSwap,
   quoteFreshness,
   type PreparedSwap,
   type WatchWallet,
@@ -51,6 +53,8 @@ export const SwapDeskPanel: React.FC = () => {
   const [prepBusy, setPrepBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [swaps, setSwaps] = useState<PreparedSwap[]>(() => loadPreparedSwaps());
+  const [handoffBusy, setHandoffBusy] = useState<string | null>(null);
+  const [handoffBox, setHandoffBox] = useState<{ swap: PreparedSwap; link: string } | null>(null);
 
   const doSaveWatch = () => {
     const w = saveWatchWallet(watchInput);
@@ -101,7 +105,7 @@ export const SwapDeskPanel: React.FC = () => {
         return;
       }
       setSwaps(loadPreparedSwaps());
-      setMsg(`Prepared: ${r.swap.fromAmount} ${r.swap.fromSymbol} → ~${r.swap.toAmount} ${r.swap.toSymbol} (quote: ${r.swap.quoteSource ?? 'unknown'}, ${r.swap.quoteStatus}). PREPARED only — approve it below, then sign in your wallet when the sign handoff lands.`);
+      setMsg(`Prepared: ${r.swap.fromAmount} ${r.swap.fromSymbol} → ~${r.swap.toAmount} ${r.swap.toSymbol} (quote: ${r.swap.quoteSource ?? 'unknown'}, ${r.swap.quoteStatus}). PREPARED only — approve it below, then SIGN HANDOFF takes it to your wallet.`);
     } finally {
       setPrepBusy(false);
     }
@@ -110,6 +114,23 @@ export const SwapDeskPanel: React.FC = () => {
   const doApprove = (id: string) => {
     approvePreparedSwap(id);
     setSwaps(loadPreparedSwaps());
+  };
+
+  const doHandoff = async (id: string) => {
+    if (handoffBusy) return;
+    setHandoffBusy(id);
+    try {
+      const r = await handoffSwap(id);
+      if (!r.ok) {
+        setMsg(r.error);
+        return;
+      }
+      setSwaps(loadPreparedSwaps());
+      setHandoffBox({ swap: r.swap, link: r.link });
+      setMsg(`Handoff ready: fresh quote ${r.swap.fromAmount} ${r.swap.fromSymbol} → ~${r.swap.toAmount} ${r.swap.toSymbol} (${r.swap.quoteSource ?? 'unknown'}, ${r.swap.quoteStatus}). Security gate passed — open the venue, compare its numbers with this quote, and sign with your wallet only if they match your intent.`);
+    } finally {
+      setHandoffBusy(null);
+    }
   };
 
   const heldCatalogued = (balances?.value?.tokens ?? []).filter((t) =>
@@ -247,14 +268,43 @@ export const SwapDeskPanel: React.FC = () => {
                   APPROVE
                 </button>
               )}
+              {s.state === 'OWNER_APPROVED' && (
+                <button type="button" className={btn} onClick={() => doHandoff(s.id)} disabled={handoffBusy === s.id}>
+                  {handoffBusy === s.id ? 'CHECKING…' : 'SIGN HANDOFF'}
+                </button>
+              )}
+              {s.state === 'HANDED_OFF' && (
+                <span className={micro}>→ {s.handoffVenue ?? 'VENUE'} · AWAITING YOUR SIGNATURE THERE</span>
+              )}
             </div>
           ))
+        )}
+        {handoffBox && (
+          <div className="space-y-1.5 rounded-md border border-white/15 bg-black/30 px-2 py-2">
+            <div className={micro}>SIGN IN YOUR WALLET — {handoffBox.swap.fromAmount} {handoffBox.swap.fromSymbol} → ~{handoffBox.swap.toAmount} {handoffBox.swap.toSymbol}</div>
+            <a
+              href={handoffBox.link}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-block rounded-md border border-white/20 bg-white/10 px-3 py-1.5 font-mono text-[11px] text-[#E8EAF0]"
+            >
+              OPEN IN UNISWAP TO SIGN
+            </a>
+            <p className="text-[11px] leading-relaxed text-[#B8B8B8]">
+              The venue opens with your exact pair and amount. Its own quote rules there — compare it with the desk's fresh
+              quote above before you sign, and sign only if it matches your intent. MTI6 never sees your key and cannot
+              sign or send anything.
+              {handoffBox.swap.safety
+                ? ` Security gate: Honeypot.is on ${handoffBox.swap.toSymbol} — honeypot: ${handoffBox.swap.safety.toIsHoneypot === null ? 'UNMEASURED' : handoffBox.swap.safety.toIsHoneypot ? 'YES' : 'NO'}, risk: ${handoffBox.swap.safety.toRisk ?? 'unknown'}; catalogue support ${handoffBox.swap.safety.toSupport}.`
+                : ''}
+            </p>
+          </div>
         )}
       </div>
 
       <p className="text-[11px] leading-relaxed text-[#B8B8B8]">{SWAP_DESK_LAW}</p>
       <p className={micro}>
-        CAPITAL BOUNDARY (D3): NOT SET — UNTIL DANIEL SETS IT, PREPARATION CARRIES NO PLATFORM CAP; EVERY SWAP STILL NEEDS ITS OWN OWNER APPROVAL, AND SIGNING HAPPENS ONLY IN HIS WALLET. QUOTE CHAIN: PARASWAP → KYBERSWAP → COW SWAP (KEYLESS, PROBED LIVE 2026-11-24).
+        CAPITAL BOUNDARY (D3): NOT SET — UNTIL DANIEL SETS IT, PREPARATION CARRIES NO PLATFORM CAP; EVERY SWAP STILL NEEDS ITS OWN OWNER APPROVAL, AND SIGNING HAPPENS ONLY IN HIS WALLET. QUOTE CHAIN: PARASWAP → KYBERSWAP → COW SWAP (KEYLESS, PROBED LIVE 2026-11-24). SECURITY GATE: EVERY HANDOFF RUNS A LIVE HONEYPOT.IS CHECK ON THE TOKEN YOU WOULD RECEIVE — A HONEYPOT FLAG REFUSES THE HANDOFF.
       </p>
     </section>
   );
