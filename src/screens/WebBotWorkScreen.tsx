@@ -34,6 +34,20 @@ function isVideoLink(text: string): boolean {
   return /(?:youtube\.com\/watch\?|youtu\.be\/|vimeo\.com\/)/i.test(text);
 }
 
+/** A value becomes a link href ONLY if it parses as a real http(s)
+ *  URL (security pass, v155). The video test above is an unanchored
+ *  substring match, so without this gate a string merely CONTAINING
+ *  a video host — e.g. a javascript: payload — could land raw in an
+ *  href. Scheme allowlist: http: and https: only. */
+function safeHttpUrl(text: string): string | null {
+  try {
+    const u = new URL(text);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null;
+  } catch {
+    return null;
+  }
+}
+
 function fmtClock(): string {
   try {
     return new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -56,18 +70,28 @@ export const WebBotWorkScreen: React.FC = () => {
     if (!value) return;
     addLog(`Bot starting: ${value.slice(0, 80)}`);
     if (isVideoLink(value)) {
+      const safe = safeHttpUrl(value);
+      if (!safe) {
+        addLog('That text mentions a video host but is not a valid http(s) web address — no link was created.');
+        setWindowText(
+          'That was not accepted as a web address, so no link was created. Paste the full video URL (starting https://) to open it in your phone’s default browser.',
+        );
+        setWindowLink(null);
+        return;
+      }
       addLog('Video link — no embedded player; opening via default browser link (web search finds the video).');
       setWindowText('Video links open in your phone’s default browser. Use the global search bar to find videos on the web.');
-      setWindowLink({ href: value, label: 'Open video in your phone’s default browser' });
+      setWindowLink({ href: safe, label: 'Open video in your phone’s default browser' });
       return;
     }
     if (/^https?:\/\//i.test(value)) {
+      const safe = safeHttpUrl(value);
       addLog('Fetching public page text (no bypass if blocked)…');
       addLog('Scouts layer did not load — no page text can be fetched in this build.');
       setWindowText(
         'The KnowledgeScout layer is not wired in this build, so this page’s text cannot be read here. Pages that block browser fetches are never bypassed — open it in your phone’s default browser instead.',
       );
-      setWindowLink({ href: value, label: 'Open in your phone’s default browser' });
+      setWindowLink(safe ? { href: safe, label: 'Open in your phone’s default browser' } : null);
       return;
     }
     addLog(`Searching saved bot knowledge and headlines for: ${value}`);
