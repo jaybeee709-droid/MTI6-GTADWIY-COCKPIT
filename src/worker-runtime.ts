@@ -26,6 +26,8 @@ import { fetchHistory, fetchPrice, fetchProtocolIndex, fetchYields, fmtTime, fmt
 import { classifyCategory, dexCoverage, DEX_CHECKLIST, type DexCandidate } from './classification';
 import {
   addRelationshipCandidates,
+  loadDexCandidates,
+  loadRelationshipCandidates,
   upsertDexCandidates,
   type RelationshipCandidate,
 } from './dex-registry';
@@ -34,7 +36,11 @@ import { ENTITY_UNIVERSE } from './entity-data';
 import { WORKSPACE_COVERAGE } from './workspace-coverage-data';
 import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
 import { memorySummary, recordMemory } from './bot-memory';
-import { recordContractCheck } from './contract-registry';
+import { checkContractOnExplorer, loadContractEntries, recordContractCheck } from './contract-registry';
+import { CATALOGUED_CONTRACTS } from './contract-catalog';
+import { assetUniverse, assetUniverseSummary } from './asset-universe';
+import { loadRawArchive } from './raw-archive';
+import { alertCounts, loadAngelStore } from './angel-security';
 import { PROXY_ACTIONS, PROXY_ENV_NAMES, PROXY_PROVIDERS } from './security-posture-data';
 import { createTask, loadTasks, transitionTask, type WorkerTask } from './worker-tasks';
 
@@ -483,6 +489,110 @@ EXECUTORS.push({
   },
 });
 
+/* Bot coverage expansion (v192) — the owner's direction: the
+ * bots get in anywhere they can help — every registry, store,
+ * and surface — building the platform up and keeping it updated
+ * and secure, inside the same law (candidates only, evidence
+ * only, execution disabled). Four coverage executors: the asset
+ * universe audit, freshness assignment across stores, the
+ * security sweep, and catalogue maintenance re-checks. */
+
+EXECUTORS.push({
+  id: 'universe-check',
+  label: 'UNIVERSE CHECK',
+  does: 'Audits the tiered Asset Universe: tier coverage, verified-contract joins, and the CONTRACT UNKNOWN symbols standing as open discovery tasks.',
+  run: async () => {
+    const s = assetUniverseSummary();
+    const unknown = assetUniverse()
+      .filter((a) => !a.contract)
+      .map((a) => a.symbol);
+    return `Asset Universe audit: ${s.total} candidate assets across Tiers 1–10 · ${s.withContract} with verified contract evidence · ${s.awaitingContract} CONTRACT UNKNOWN (open discovery tasks: ${unknown.slice(0, 14).join(', ')}${unknown.length > 14 ? ', …' : ''}). Contracts attach only through the verified catalogue — no symbol gets an address by guessing.`;
+  },
+});
+
+EXECUTORS.push({
+  id: 'freshness-check',
+  label: 'FRESHNESS CHECK',
+  does: 'Assigns freshness states (CURRENT / AGING / STALE / UNKNOWN) across the candidate stores from their own timestamps — never guessed.',
+  run: async () => {
+    const now = Date.now();
+    const stateOf = (ts: number | null): string => {
+      if (ts === null) return 'UNKNOWN (no records)';
+      const ageH = (now - ts) / 3_600_000;
+      if (ageH < 24) return `CURRENT (newest ${ageH.toFixed(1)}h old)`;
+      if (ageH < 168) return `AGING (newest ${(ageH / 24).toFixed(1)}d old)`;
+      return `STALE (newest ${(ageH / 24).toFixed(1)}d old)`;
+    };
+    const dex = loadDexCandidates();
+    const rels = loadRelationshipCandidates();
+    const contracts = loadContractEntries();
+    const archive = loadRawArchive();
+    const mem = memorySummary();
+    const newest = (xs: number[]): number | null => (xs.length ? Math.max(...xs) : null);
+    return [
+      `Freshness assignment (thresholds: <24h CURRENT · <7d AGING · else STALE):`,
+      `DEX Registry (${dex.length}): ${stateOf(newest(dex.map((d) => d.updatedAt)))}`,
+      `Relationship candidates (${rels.length}): ${stateOf(newest(rels.map((r) => r.at)))}`,
+      `Contract Registry (${contracts.length}): ${stateOf(newest(contracts.map((c) => c.checkedAt)))}`,
+      `Raw Archive (${archive.length}): ${stateOf(newest(archive.map((a) => a.at)))}`,
+      `Bot Memory (${mem.total} active): ${mem.staleCount} past their review dates`,
+    ].join(' · ');
+  },
+});
+
+EXECUTORS.push({
+  id: 'security-sweep',
+  label: 'SECURITY SWEEP',
+  does: 'Sweeps the platform’s security posture: gateway allowlist, angel alerts by state, and the execution boundary (no opportunity record may sit past PREPARED).',
+  run: async () => {
+    const store = loadAngelStore();
+    const counts = alertCounts(store.alerts);
+    const active = store.alerts.filter((a) => a.state === 'ACTIVE' || a.state === 'CONFIRMED').length;
+    let oppLine = 'opportunity store unreadable';
+    try {
+      const raw = localStorage.getItem('mti6_opportunities_v1');
+      const parsed = raw ? JSON.parse(raw) : [];
+      const list = Array.isArray(parsed) ? (parsed as { pipelineState?: string }[]) : [];
+      const past = list.filter((r) => {
+        const order = ['DISCOVERED', 'IDENTIFIED', 'DATA_VERIFIED', 'RISK_ANALYZED', 'DEPENDENCIES_CHECKED', 'FRESHNESS_CHECKED', 'SIMULATED', 'RANKED', 'RECOMMENDED', 'PREPARED'];
+        const i = order.indexOf(String(r.pipelineState));
+        return i < 0 || i > order.indexOf('PREPARED');
+      }).length;
+      oppLine = `${list.length} opportunity record(s), ${past} past PREPARED (must be 0)`;
+    } catch {
+      /* oppLine stays honest */
+    }
+    return `Security sweep: gateway allowlist ${PROXY_ACTIONS.length} actions · ${PROXY_PROVIDERS.length} providers · ${PROXY_ENV_NAMES.length} env names (values never read) · Angel Security: ${store.alerts.length} alert(s), ${active} confirmed/active (by state: ${Object.entries(counts).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}) · execution boundary: ${oppLine} · execution remains DISABLED by design.`;
+  },
+});
+
+EXECUTORS.push({
+  id: 'catalog-check',
+  label: 'CATALOGUE CHECK',
+  does: 'Re-checks the least-recently-checked catalogued contracts against Blockscout (4 per run) and records the fresh evidence — catalogue maintenance, drift surfaces as evidence.',
+  run: async () => {
+    const entries = loadContractEntries();
+    const lastByKey = new Map(entries.map((e) => [`${e.network}:${e.address}`, e.checkedAt]));
+    const ordered = [...CATALOGUED_CONTRACTS].sort(
+      (a, b) => (lastByKey.get(`${a.network}:${a.address}`) ?? 0) - (lastByKey.get(`${b.network}:${b.address}`) ?? 0),
+    );
+    const slice = ordered.slice(0, 4);
+    const lines: string[] = [];
+    for (const c of slice) {
+      try {
+        const result = await checkContractOnExplorer(c.network, c.address);
+        recordContractCheck(c.network, c.address, c.role, result, 'catalog-check');
+        lines.push(
+          `${c.symbol}: live name ${result.name ?? 'not reported'} · source verified ${result.isVerified ? 'YES' : 'NO — DRIFT vs catalogue'}`,
+        );
+      } catch (err) {
+        lines.push(`${c.symbol}: check failed (${err instanceof Error ? err.message : 'unknown'}) — recorded nothing`);
+      }
+    }
+    return `Catalogue check (rotation, ${slice.length} of ${CATALOGUED_CONTRACTS.length}): ${lines.join(' · ')}. Fresh evidence recorded in the Contract Discovery Registry; a NO on verified is drift evidence for the owner, never an automatic edit.`;
+  },
+});
+
 /* STAR chat command matching (v172): "run a price check" and
  * its kin map to an executor. Deliberately narrow — a run verb
  * plus an executor keyword — so ordinary questions never fire
@@ -497,6 +607,10 @@ export function runtimeCommandFor(text: string): string | null {
   if (q.includes('geocode') || q.includes('place')) return 'geocode-check';
   if (q.includes('memory')) return 'memory-report';
   if (q.includes('posture') || q.includes('security')) return 'posture-check';
+  if (q.includes('freshness') || q.includes('stale')) return 'freshness-check';
+  if (q.includes('sweep')) return 'security-sweep';
+  if (q.includes('catalog')) return 'catalog-check';
+  if (q.includes('universe')) return 'universe-check';
   if (q.includes('dex') && (q.includes('scan') || q.includes('classif') || q.includes('registr'))) return 'dex-scan';
   if (q.includes('opportunit') && (q.includes('scan') || q.includes('discover'))) return 'opportunity-scan';
   if (q.includes('opportunit')) return 'opportunity-digest';
