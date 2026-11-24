@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Activity,
   Bot,
@@ -133,6 +133,36 @@ export const BotOperations: React.FC = () => {
       await doRun(t);
     }
   };
+  // Auto-dispatch (v173) — a page-session switch, OFF by default
+  // and never persisted: while ON and this page is open, queued
+  // runtime tasks run on their own (checked every minute).
+  // Closing the page stops it — the label says exactly that.
+  const [autoDispatch, setAutoDispatch] = useState(false);
+  const dispatchBusy = useRef(false);
+  useEffect(() => {
+    if (!autoDispatch) return;
+    const tick = async () => {
+      if (dispatchBusy.current) return;
+      const runnable = loadTasks().filter(
+        (t) => kinds[t.id] && (t.state === 'UNASSIGNED' || t.state === 'QUEUED'),
+      );
+      if (runnable.length === 0) return;
+      dispatchBusy.current = true;
+      try {
+        for (const t of runnable) {
+          await doRun(t);
+        }
+      } finally {
+        dispatchBusy.current = false;
+      }
+    };
+    const iv = setInterval(() => {
+      void tick();
+    }, 60000);
+    void tick();
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoDispatch, kinds]);
   const [taskMsg, setTaskMsg] = useState('');
   const [evidenceText, setEvidenceText] = useState<Record<string, string>>({});
   const principalName = (id: string | null) =>
@@ -657,6 +687,20 @@ export const BotOperations: React.FC = () => {
           </button>
           <span className="font-mono text-[9px] text-[#B8B8B8]">
             OR ASK STAR: “RUN A PRICE CHECK” — SHE RECORDS AND RUNS THE TASK HERSELF.
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setAutoDispatch((v) => !v)}
+            className="flex min-h-[44px] items-center rounded border px-3 font-mono text-[10px] text-white"
+            style={{ borderColor: autoDispatch ? '#32D74B' : 'rgba(255,255,255,0.2)' }}
+          >
+            AUTO-DISPATCH: {autoDispatch ? 'ON' : 'OFF'}
+          </button>
+          <span className="font-mono text-[9px] text-[#B8B8B8]">
+            WHILE ON AND THIS PAGE IS OPEN, QUEUED RUNTIME TASKS RUN ON THEIR OWN — CHECKED
+            EVERY MINUTE. CLOSING THE PAGE STOPS IT. IT NEVER RUNS FINANCIAL ACTIONS.
           </span>
         </div>
         <div className="grid gap-2 md:grid-cols-2">
