@@ -457,6 +457,48 @@ export function fetchProtocolIndex(): Promise<Observation<ProtocolIndexEntry[]>>
   });
 }
 
+/* ------------- DEX volumes (DefiLlama overview — keyless) -------------
+ * The overview feed reports each DEX's 24h volume AND the prior
+ * day's total, so a day-over-day move rests on the source's own
+ * pair of observations. Identity + volume observations only. */
+export interface DexVolumeEntry {
+  name: string;
+  slug: string;
+  total24h: number;
+  prev24h: number | null;
+  changePct: number | null;
+  chains: string[];
+}
+
+export function fetchDexVolumes(): Promise<Observation<DexVolumeEntry[]>> {
+  return governed<DexVolumeEntry[]>('dexvolumes:defillama', 600_000, ['DefiLlama DEX Overview'], async () => {
+    const data = await fetchJson(
+      'https://api.llama.fi/overview/dexs?excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true',
+    );
+    const rows = (data as { protocols?: unknown } | null)?.protocols;
+    if (!Array.isArray(rows)) return null;
+    const out: DexVolumeEntry[] = [];
+    for (const raw of rows as Record<string, unknown>[]) {
+      if (!raw || typeof raw.name !== 'string' || typeof raw.slug !== 'string') continue;
+      const total24h = typeof raw.total24h === 'number' ? raw.total24h : null;
+      const prev24h = typeof raw.total48hto24h === 'number' ? raw.total48hto24h : null;
+      if (total24h === null) continue;
+      out.push({
+        name: raw.name,
+        slug: raw.slug,
+        total24h,
+        prev24h,
+        changePct: prev24h !== null && prev24h > 0 ? ((total24h - prev24h) / prev24h) * 100 : null,
+        chains: Array.isArray(raw.chains)
+          ? (raw.chains as unknown[]).filter((c): c is string => typeof c === 'string')
+          : [],
+      });
+    }
+    out.sort((a, b) => b.total24h - a.total24h);
+    return out.length > 0 ? { value: out, source: 'DefiLlama DEX Overview' } : null;
+  });
+}
+
 /* ---------------- governance (Snapshot — keyless GraphQL) ------------- */
 
 /** POST sibling of fetchJson — same timeout discipline and the
