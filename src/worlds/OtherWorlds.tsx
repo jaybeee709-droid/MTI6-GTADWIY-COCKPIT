@@ -28,6 +28,16 @@ import {
   ENCYCLOPEDIA_INDEX,
 } from '../encyclopedia-data';
 import { ENTITY_COUNTS, ENTITY_UNIVERSE } from '../entity-data';
+import {
+  ALERT_SEVERITIES,
+  ALERT_TRANSITIONS,
+  SECURITY_DOMAINS,
+  alertCounts,
+  createAlert,
+  loadAngelStore,
+  transitionAlert,
+  type AlertState,
+} from '../angel-security';
 
 /* ============================================================================
  * 1. OpportunitiesWorld — honest: the pipeline ends at PREPARED with
@@ -873,6 +883,38 @@ export const SecurityWorld: React.FC = () => {
     railATransfer: true,
     botAutonomy: false,
   });
+  // Angel Security (v153) — canonical alert store
+  // (mti6_angel_security_v1). Owner intake + lifecycle only;
+  // there are no detectors behind this surface.
+  const [angelStore, setAngelStore] = useState(() => loadAngelStore());
+  const [alertDomain, setAlertDomain] = useState<string>(SECURITY_DOMAINS[0].id);
+  const [alertTitle, setAlertTitle] = useState('');
+  const [alertDesc, setAlertDesc] = useState('');
+  const [alertSystem, setAlertSystem] = useState('');
+  const [alertSeverity, setAlertSeverity] = useState<string>('UNKNOWN');
+  const [alertMsg, setAlertMsg] = useState('');
+  const counts = alertCounts(angelStore.alerts);
+  const doCreateAlert = () => {
+    const res = createAlert(angelStore, {
+      domain: alertDomain,
+      title: alertTitle,
+      description: alertDesc,
+      affectedSystem: alertSystem,
+      severity: alertSeverity,
+    });
+    if (res.error) return setAlertMsg(res.error);
+    setAngelStore(res.store);
+    setAlertTitle('');
+    setAlertDesc('');
+    setAlertSystem('');
+    setAlertMsg('');
+  };
+  const doTransitionAlert = (id: string, to: AlertState) => {
+    const res = transitionAlert(angelStore, id, to);
+    if (res.error) return setAlertMsg(res.error);
+    setAngelStore(res.store);
+    setAlertMsg('');
+  };
 
   const toggleSwitch = (key: string) => {
     setKillSwitches((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -991,6 +1033,123 @@ export const SecurityWorld: React.FC = () => {
             <Lock className="h-4 w-4 text-[#32D74B]" /> Privacy: NO_DATA — no telemetry mode is claimed.
           </div>
         )}
+      </div>
+
+      {/* ANGEL SECURITY (v153) — owner alert intake + lifecycle over
+          the canonical store. No detectors: an alert exists only
+          because the owner recorded it. New alerts start at
+          DETECTED; transitions follow the canonical allowlist only,
+          with the owner as the recorded actor. */}
+      <div className="rounded-2xl border border-white/10 bg-[#101010] p-5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-mono text-xs text-[#FF3B30]">ANGEL SECURITY — OWNER ALERT INTAKE &amp; LIFECYCLE</span>
+          <span className="font-mono text-[10px] text-[#B8B8B8]">
+            ALERTS RECORDED: {angelStore.alerts.length}
+            {Object.entries(counts).map(([s, n]) => ` · ${s}: ${n}`).join('')}
+            {' '}· DETECTORS: NONE CONNECTED
+          </span>
+        </div>
+
+        <div className="grid gap-2 md:grid-cols-2">
+          <select
+            value={alertDomain}
+            onChange={(e) => setAlertDomain(e.target.value)}
+            aria-label="Alert domain"
+            className="h-9 rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white outline-none focus:border-[#FF3B30]"
+          >
+            {SECURITY_DOMAINS.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={alertSeverity}
+            onChange={(e) => setAlertSeverity(e.target.value)}
+            aria-label="Alert severity"
+            className="h-9 rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white outline-none focus:border-[#FF3B30]"
+          >
+            {ALERT_SEVERITIES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+          <input
+            value={alertTitle}
+            onChange={(e) => setAlertTitle(e.target.value)}
+            placeholder="Alert title (required)"
+            aria-label="Alert title"
+            className="h-9 rounded-lg border border-white/15 bg-[#050505] px-2.5 text-xs text-white outline-none placeholder:text-[#B8B8B8]/60 focus:border-[#FF3B30]"
+          />
+          <input
+            value={alertSystem}
+            onChange={(e) => setAlertSystem(e.target.value)}
+            placeholder="Affected system (required) — e.g. wallet, star, crypto-world"
+            aria-label="Affected system"
+            className="h-9 rounded-lg border border-white/15 bg-[#050505] px-2.5 text-xs text-white outline-none placeholder:text-[#B8B8B8]/60 focus:border-[#FF3B30]"
+          />
+          <input
+            value={alertDesc}
+            onChange={(e) => setAlertDesc(e.target.value)}
+            placeholder="Description (required) — what was observed, in words"
+            aria-label="Alert description"
+            className="h-9 rounded-lg border border-white/15 bg-[#050505] px-2.5 text-xs text-white outline-none placeholder:text-[#B8B8B8]/60 focus:border-[#FF3B30] md:col-span-2"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={doCreateAlert}
+          className="flex min-h-[44px] items-center rounded-lg bg-[#FF3B30] px-4 text-xs font-semibold text-white"
+        >
+          RECORD ALERT AT DETECTED
+        </button>
+        {alertMsg && <p className="font-mono text-[10px] text-[#FFB020]">{alertMsg}</p>}
+
+        {angelStore.alerts.length === 0 ? (
+          <p className="font-mono text-[10px] text-[#B8B8B8]">
+            NO ALERTS RECORDED — THE REGISTER IS EMPTY, NOT CLEAR. NO DETECTOR RUNS BEHIND THIS
+            SURFACE, SO NOTHING IS INVENTED TO FILL IT.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {angelStore.alerts.map((a) => (
+              <div key={a.id} className="rounded-lg border border-white/10 bg-[#050505] p-3 space-y-1.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-white">{a.title}</span>
+                  <span className="rounded border border-white/15 px-2 py-0.5 font-mono text-[9px] text-white">
+                    {a.state} · {a.severity}
+                  </span>
+                </div>
+                <p className="text-[11px] text-[#B8B8B8]">{a.description}</p>
+                <p className="font-mono text-[9px] text-[#B8B8B8]">
+                  {SECURITY_DOMAINS.find((d) => d.id === a.domain)?.label ?? a.domain} · SYSTEM {a.affectedSystem} ·
+                  SOURCE {a.source} · DETECTED {a.detectedAt.slice(0, 10)} · {a.history.length} HISTORY ENTRIES
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {ALERT_TRANSITIONS[a.state].map((to) => (
+                    <button
+                      key={to}
+                      type="button"
+                      onClick={() => doTransitionAlert(a.id, to)}
+                      className="flex min-h-[44px] items-center rounded border border-white/15 px-2.5 font-mono text-[9px] text-[#B8B8B8] hover:text-white"
+                    >
+                      → {to}
+                    </button>
+                  ))}
+                  {ALERT_TRANSITIONS[a.state].length === 0 && (
+                    <span className="font-mono text-[9px] text-[#B8B8B8]">TERMINAL — NO FURTHER TRANSITIONS</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+          ALERTS ARE OWNER RECORDS WITH PROVENANCE (SOURCE + DETECTED-AT). THERE IS NO DISMISSED
+          STATE AND NO SHORTCUT PAST VERIFYING AND CONFIRMED. THE MAP TURNS RED ONLY FOR A
+          CONFIRMED, ACTIVE ALERT — AN EMPTY REGISTER CLAIMS NOTHING.
+        </p>
       </div>
     </div>
   );
