@@ -57,6 +57,7 @@ import { DEX_CHECKLIST, dexCoverage } from '../classification';
 import { loadDexCandidates, loadRelationshipCandidates } from '../dex-registry';
 import { loadBridgeCandidates } from '../bridge-registry';
 import { loadPoolCandidates, loadVaultCandidates } from '../pool-vault-registry';
+import { loadApprovalPackage } from '../approval-packages';
 import { ASSET_FAMILIES_NOT_SYMBOLS, assetUniverse, assetUniverseSummary } from '../asset-universe';
 
 type ConsoleTab =
@@ -176,6 +177,24 @@ export const BotOperations: React.FC = () => {
     }
   };
   const radar = moneyRadarSummary();
+  /* Approval Package (v203) — the placement pipeline's review
+   * step: one tap assembles every placed candidate into the
+   * package Daniel reviews at the gate. */
+  const [pkgBusy, setPkgBusy] = useState(false);
+  const [pkgVersion, setPkgVersion] = useState(0);
+  const doPackageRun = async () => {
+    if (pkgBusy) return;
+    setPkgBusy(true);
+    try {
+      const rec = await runAdHocTask('approval-package', 'Approval package generation');
+      setTasks(loadTasks());
+      setRunLog((log) => [rec, ...log].slice(0, 10));
+      setPkgVersion((v) => v + 1);
+    } finally {
+      setPkgBusy(false);
+    }
+  };
+  void pkgVersion;
   /* Contract Discovery Registry (v185): a keyless explorer
    * checker over the registry store. */
   const [regNetwork, setRegNetwork] = useState('ethereum');
@@ -1310,6 +1329,58 @@ export const BotOperations: React.FC = () => {
             <p className="mt-2 font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
               STAR CREATES CANDIDATES, NEVER TRUTH. PROMOTION BELONGS TO THE OWNER'S GATE ALONE.
               EXECUTION STAYS DISABLED.
+            </p>
+          </div>
+        );
+      })()}
+
+      {/* APPROVAL PACKAGE (v203) — the placement pipeline's
+          review step: everything placed, assembled for Daniel's
+          review. Generating it promotes nothing. */}
+      {(() => {
+        const pkg = loadApprovalPackage();
+        return (
+          <div className="mt-4 rounded-2xl border border-white/10 bg-[#0A0A0A] p-4">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-xs text-[#8B5CFF]">APPROVAL PACKAGE · FOR DANIEL'S REVIEW</span>
+              <span className="font-mono text-[10px] text-white">
+                {pkg ? `${pkg.totalCandidates} CANDIDATES · ${pkg.relationshipCount} RELATIONSHIPS` : 'NOT GENERATED'}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void doPackageRun()}
+                disabled={pkgBusy}
+                className="flex min-h-[44px] items-center rounded border border-[#8B5CFF]/60 px-3 font-mono text-[10px] text-white disabled:opacity-50"
+              >
+                {pkgBusy ? 'ASSEMBLING…' : '▶ GENERATE APPROVAL PACKAGE'}
+              </button>
+              <span className="font-mono text-[9px] text-[#B8B8B8]">
+                {pkg
+                  ? `LATEST PACKAGE: ${new Date(pkg.generatedAt).toLocaleString()}`
+                  : 'NO PACKAGE YET — GENERATE ONE AFTER THE PLACEMENT SCANS HAVE RUN.'}
+              </span>
+            </div>
+            {pkg && (
+              <div className="mt-2 space-y-1.5">
+                {pkg.sections.map((s) => (
+                  <p key={s.registry} className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    <span className="text-white">{s.registry}</span> · {s.count} candidate(s) ·{' '}
+                    {s.chainsCovered} chain(s)
+                    {s.bySubclass.length > 0
+                      ? ` · ${s.bySubclass.map((b) => `${b.subclass} ${b.count}`).join(', ')}`
+                      : ''}
+                    {s.candidates.length > 0
+                      ? ` · first: ${s.candidates.slice(0, 4).map((c) => c.name).join(', ')}${s.count > 4 ? ', …' : ''}`
+                      : ''}
+                  </p>
+                ))}
+              </div>
+            )}
+            <p className="mt-2 font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+              A PACKAGE IS PAPERWORK FOR THE GATE, NOT A DECISION. EVERY CANDIDATE IN IT IS
+              UNVERIFIED; ONLY DANIEL'S REVIEW MOVES A CANDIDATE TOWARD CANONICAL.
             </p>
           </div>
         );

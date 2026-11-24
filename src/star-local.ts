@@ -21,6 +21,7 @@ import { EXECUTORS, runtimeStoreSummary } from './worker-runtime';
 import { dexRegistrySummary } from './dex-registry';
 import { bridgeRegistrySummary } from './bridge-registry';
 import { poolVaultSummary } from './pool-vault-registry';
+import { approvalPackageText, loadApprovalPackage } from './approval-packages';
 import { assetUniverseSummary } from './asset-universe';
 import { moneyRadarSummaryText } from './money-radar';
 import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
@@ -150,6 +151,13 @@ export function answerLocally(raw: string): string | null {
       return `${FROM_RECORDS}the Pool and Vault Registries are empty — no pool + vault scan has run yet. Say "run a pool scan" and the runtime classifies the DefiLlama protocol index and places POOL-class and VAULT-class entries into their own registries as UNVERIFIED candidates. Only the owner's gate promotes a candidate.`;
     }
     return `${FROM_RECORDS}the Pool Registry holds ${s.poolCount} candidate(s) and the Vault Registry ${s.vaultCount}, across ${s.chainsCovered} chains in total. Two separate stores — a pool is not a vault. All UNVERIFIED candidates from DefiLlama Protocols; only the owner's gate promotes.`;
+  }
+  if (/(approval package)/.test(q)) {
+    const pkg = loadApprovalPackage();
+    if (!pkg) {
+      return `${FROM_RECORDS}no approval package has been generated yet. Say "run an approval package" and I assemble every placed candidate — DEX, Bridge, Pool, Vault registries plus the relationship candidates — into one package for Daniel's review. Generating it promotes nothing; the gate is Daniel's alone.`;
+    }
+    return `${FROM_RECORDS}${approvalPackageText(pkg)}`;
   }
 
   if (/(asset universe|tier 1|tier one|which assets|asset tiers)/.test(q)) {
