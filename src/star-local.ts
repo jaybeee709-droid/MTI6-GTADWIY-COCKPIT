@@ -15,6 +15,7 @@ import { ENTITY_COUNTS, ENTITY_UNIVERSE } from './entity-data';
 import { WORKSPACE_COVERAGE } from './workspace-coverage-data';
 import { CRYPTO_WORLD_CONTENTS, EARNINGS_CATEGORIES, TRIBE_PRINCIPALS } from './worlds-data';
 import { getProvenanceLog } from './live-data';
+import { memorySummary } from './bot-memory';
 
 const FROM_RECORDS = 'From the platform\u2019s own records: ';
 
@@ -99,6 +100,13 @@ export function answerLocally(raw: string): string | null {
   if (/opportunit/.test(q)) return opportunitySummary();
 
   if (/(gap|missing|incomplete|not built|what's missing|what is missing)/.test(q)) return gapSummary();
+
+  if (/(bot memory|bots remember|bot-memory|memory engine)/.test(q)) {
+    const mem = memorySummary();
+    if (mem.totalRetained === 0)
+      return `${FROM_RECORDS}the Bot Memory layer is built and governed — provenance on every record, truth states kept for life, corrections and owner-only deletion — and it is EMPTY. It ships empty by design: no seeding, no automatic capture, and no producer has written to it yet.`;
+    return `${FROM_RECORDS}Bot Memory holds ${mem.total} active records (${mem.totalRetained} retained including ${mem.supersededCount} superseded and ${mem.deletedCount} deleted tombstones). Active truth states: ${mem.byTruthState.UNVERIFIED ?? 0} UNVERIFIED, ${mem.byTruthState.REJECTED ?? 0} REJECTED, ${mem.staleCount} stale by their review dates. Nothing in it is VERIFIED — this layer cannot write VERIFIED at all.`;
+  }
 
   if (/(workspace)/.test(q)) {
     const rows = Object.values(WORKSPACE_COVERAGE);

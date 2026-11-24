@@ -32,6 +32,7 @@ import {
   type WorkerTask,
 } from '../worker-tasks';
 import { RESOURCE_COUNTS, RESOURCE_GAPS, RESOURCE_PROVIDERS } from '../resource-catalog-data';
+import { MEMORY_KINDS, memorySummary } from '../bot-memory';
 
 type ConsoleTab =
   | 'Overview'
@@ -639,6 +640,55 @@ export const BotOperations: React.FC = () => {
           CHIPS. NO CREDENTIAL VALUE EXISTS IN ANY CATALOG RECORD — EXISTENCE AND CUSTODY ONLY.
         </p>
       </div>
+
+      {/* BOT MEMORY (v165) — the controlled memory layer, ported
+          from the v102 package at the owner's word. Read-only
+          summary derivation (src/bot-memory.ts, mirroring the
+          canonical js/bot-memory.js): the engine ships EMPTY — no
+          seeding, no automatic capture, no producers wired — so
+          the honest state at zero records is what renders. */}
+      {(() => {
+        const mem = memorySummary();
+        return (
+          <div className="rounded-xl border border-white/10 p-4 space-y-3" style={SPACE_BG}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-mono text-xs text-[#8B5CFF]">BOT MEMORY — CONTROLLED MEMORY LAYER</span>
+              <span className="font-mono text-[10px] text-[#B8B8B8]">
+                RECORDS: {mem.total} ACTIVE · {mem.totalRetained} RETAINED
+              </span>
+            </div>
+            {mem.total === 0 && mem.totalRetained === 0 ? (
+              <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                THE MEMORY IS EMPTY — NOTHING HAS BEEN RECORDED INTO IT. IT SHIPS EMPTY BY DESIGN:
+                NO SEEDING, NO AUTOMATIC CAPTURE. RECORDS ENTER ONLY THROUGH GOVERNED WRITES WITH
+                PROVENANCE, AND NOTHING HAS WRITTEN YET.
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                <p className="font-mono text-[10px] text-[#B8B8B8]">
+                  BY KIND: {MEMORY_KINDS.map((k) => `${k} ${mem.byKind[k] ?? 0}`).join(' · ')}
+                </p>
+                <p className="font-mono text-[10px] text-[#B8B8B8]">
+                  TRUTH (ACTIVE ONLY): UNVERIFIED {mem.byTruthState.UNVERIFIED ?? 0} · REJECTED{' '}
+                  {mem.byTruthState.REJECTED ?? 0} · STALE (DERIVED) {mem.staleCount} · SUPERSEDED{' '}
+                  {mem.supersededCount} · DELETED TOMBSTONES {mem.deletedCount}
+                </p>
+                {mem.recent.map((r) => (
+                  <p key={r.id} className="font-mono text-[10px] text-white">
+                    · [{r.kind}] {r.subject} — {r.summary} ({r.truthState})
+                  </p>
+                ))}
+              </div>
+            )}
+            <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+              CONTROLLED MEMORY, NOT REMEMBER-EVERYTHING-FOREVER: EVERY RECORD CARRIES PROVENANCE
+              AND A TRUTH STATE IT KEEPS FOR LIFE; VERIFIED CANNOT BE WRITTEN BY THIS LAYER AT ALL;
+              CORRECTIONS SUPERSEDE WITH THE ORIGINAL PRESERVED; DELETION IS AN OWNER ACT THAT
+              LEAVES A TOMBSTONE WITH ITS REASON. SECRET-SHAPED KEYS ARE REFUSED AT THE WRITE PATH.
+            </p>
+          </div>
+        );
+      })()}
     </div>
   );
 };
