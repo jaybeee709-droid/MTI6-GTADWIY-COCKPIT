@@ -26,7 +26,15 @@
  * (freshness, evidenceCount, sourceCount, support status) —
  * never a confidence percentage.
  */
-import { fetchPrice, fetchProtocolIndex, fetchYields, fmtTime, fmtUsd, type PoolYield } from './live-data';
+import {
+  fetchGovernanceProposals,
+  fetchPrice,
+  fetchProtocolIndex,
+  fetchYields,
+  fmtTime,
+  fmtUsd,
+  type PoolYield,
+} from './live-data';
 import { classifyCategory } from './classification';
 import { loadAssignments } from './principal-assignments';
 import { TRIBE_PRINCIPALS } from './worlds-data';
@@ -93,7 +101,7 @@ export const RADAR_CATEGORY_STATES: { name: string; state: 'ACTIVE' | 'NO_DATA';
   { name: 'Lending', state: 'ACTIVE', note: 'Aave / Compound / Kamino watched pools' },
   { name: 'Staking', state: 'ACTIVE', note: 'Lido watched pools' },
   { name: 'Restaking', state: 'NO_DATA', note: 'EigenLayer and Babylon are absent from the yields source' },
-  { name: 'Governance', state: 'NO_DATA', note: 'no governance source connected (Snapshot is registered, not wired to the radar)' },
+  { name: 'Governance', state: 'ACTIVE', note: 'Snapshot GraphQL — new proposals across 8 API-verified watched spaces' },
   { name: 'Airdrop / Points / Campaign', state: 'NO_DATA', note: 'no incentive source connected' },
   { name: 'DePIN / AI / RWA', state: 'NO_DATA', note: 'no category source connected' },
   { name: 'Bridge / Arbitrage / Treasury', state: 'NO_DATA', note: 'no flow source connected' },
@@ -127,6 +135,9 @@ interface RadarBaseline {
    * silently — a baseline, not thousands of false discoveries;
    * later scans diff against it. */
   protocolSlugs?: string[];
+  /** Seen Snapshot proposal ids (v195) — same baseline law:
+   * the first scan records them silently; later scans diff. */
+  governanceIds?: string[];
 }
 
 const poolKeyOf = (p: { project: string; symbol: string; chain: string }): string =>
@@ -481,6 +492,50 @@ export async function runMoneyRadarScan(): Promise<RadarScanResult> {
     /* a failed index fetch mints nothing and keeps the old baseline set */
   }
 
+  /* Governance (v195) — Snapshot proposals across the watched
+   * spaces, diffed against the baseline id set. A new proposal
+   * is a Governance signal; voting itself is never touched —
+   * the radar observes governance, it does not participate. */
+  let governanceIds: string[] | undefined = baseline?.governanceIds;
+  const newProposals: { spaceName: string; title: string }[] = [];
+  try {
+    const gov = await fetchGovernanceProposals();
+    if (gov.value && gov.value.length > 0) {
+      const currentIds = gov.value.map((p) => p.id);
+      if (governanceIds !== undefined) {
+        const seen = new Set(governanceIds);
+        const fresh = gov.value.filter((p) => !seen.has(p.id)).slice(0, 12);
+        for (const p of fresh) {
+          newProposals.push({ spaceName: p.spaceName, title: p.title });
+          signals.push({
+            id: `radar-governance-${slug(p.spaceId)}-${p.id.slice(0, 16)}`,
+            signalType: 'GOVERNANCE_PROPOSAL',
+            source: gov.source ?? 'Snapshot GraphQL',
+            entity: `${p.spaceName} — ${p.title}`,
+            asset: null,
+            protocol: p.spaceName,
+            network: null,
+            poolKey: null,
+            radarType: 'Governance',
+            boardState: 'NEW',
+            observedAt: p.created * 1000,
+            evidence: [
+              `Snapshot proposal "${p.title}" in the ${p.spaceName} space (${p.spaceId}), state ${p.state}, created ${fmtTime(p.created * 1000)}, voting ends ${fmtTime(p.end * 1000)}`,
+              'Governance intelligence for the owner\u2019s review — the platform observes proposals; it never votes or signs',
+            ],
+            evidenceCount: 2,
+            sourceCount: 1,
+            supportStatus: 'OBSERVED',
+            freshness: gov.status === 'STALE' ? 'STALE' : gov.status === 'LIVE' || gov.status === 'CACHED' ? 'CURRENT' : 'UNKNOWN',
+          });
+        }
+      }
+      governanceIds = [...currentIds, ...(governanceIds ?? []).filter((id) => !currentIds.includes(id))].slice(0, 600);
+    }
+  } catch {
+    /* a failed governance fetch mints nothing and keeps the old baseline set */
+  }
+
   /* Record the signals (deduped by id — a re-scan of the same
    * observation mints nothing twice). */
   const stored = loadSignals();
@@ -600,8 +655,11 @@ export async function runMoneyRadarScan(): Promise<RadarScanResult> {
       'Research',
     );
   }
+  for (const p of newProposals) {
+    dispatch(`Money Radar: governance review ${p.spaceName} — ${p.title.slice(0, 48)}`, 'Analysis');
+  }
 
-  saveBaseline({ observedAt, source, status: obs.status, pools: current, prices: priceObs, protocolSlugs });
+  saveBaseline({ observedAt, source, status: obs.status, pools: current, prices: priceObs, protocolSlugs, governanceIds });
   return {
     status: obs.status,
     source,
@@ -701,5 +759,5 @@ export function moneyRadarSummaryText(): string {
   const latest = s.latest
     .map((x) => `${x.signalType} — ${x.entity} (${boardStateAt(x, Date.now())}, evidence ${x.evidenceCount}, ${x.supportStatus})`)
     .join(' · ');
-  return `From the platform's own records: Money Radar holds ${s.totalSignals} signal(s) over ${s.poolsTracked} tracked watched pools — board: ${board}. ${s.radarCandidates} radar opportunity candidate(s) sit in the opportunity store at DISCOVERED / UNVERIFIED for your review, and ${s.dispatchedOpen} radar work order(s) are open in the Bot Work Queue for the Tribe. Latest signals: ${latest}. Signals come only from governed observations (DefiLlama Yields, the BTC/ETH/SOL price chains, and the DefiLlama protocol index diffed scan-over-scan); categories without a source read NO_DATA. The radar ranks and explains — acting on a candidate is your step, outside the platform.`;
+  return `From the platform's own records: Money Radar holds ${s.totalSignals} signal(s) over ${s.poolsTracked} tracked watched pools — board: ${board}. ${s.radarCandidates} radar opportunity candidate(s) sit in the opportunity store at DISCOVERED / UNVERIFIED for your review, and ${s.dispatchedOpen} radar work order(s) are open in the Bot Work Queue for the Tribe. Latest signals: ${latest}. Signals come only from governed observations (DefiLlama Yields, the BTC/ETH/SOL price chains, the DefiLlama protocol index, and Snapshot governance — the last three diffed scan-over-scan); categories without a source read NO_DATA. The radar ranks and explains — acting on a candidate is your step, outside the platform.`;
 }

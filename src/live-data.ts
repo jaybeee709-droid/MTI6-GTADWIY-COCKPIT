@@ -437,6 +437,85 @@ export function fetchProtocolIndex(): Promise<Observation<ProtocolIndexEntry[]>>
   });
 }
 
+/* ---------------- governance (Snapshot — keyless GraphQL) ------------- */
+
+/** POST sibling of fetchJson — same timeout discipline and the
+ * same Raw Archive record, for GraphQL endpoints. */
+async function fetchJsonPost(url: string, body: unknown, timeoutMs = 15000): Promise<unknown> {
+  if (typeof fetch !== 'function') throw new Error('fetch unavailable');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    try {
+      recordRawArchive(new URL(url).hostname, url, JSON.stringify(data) ?? '');
+    } catch {
+      /* archiving yields; the fetch never does */
+    }
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export interface GovernanceProposal {
+  id: string;
+  title: string;
+  spaceId: string;
+  spaceName: string;
+  state: string;
+  created: number; // epoch seconds, as the source reports
+  end: number; // epoch seconds
+}
+
+/** Watched Snapshot spaces — every id here was verified against
+ * the Snapshot API itself on 2026-11-24 (the space query returned
+ * its name). Ids that answered null (aave.eth, makerdao.eth,
+ * comp-voting.eth, pendlefinance.eth, optimismgov.eth, …) are
+ * EXCLUDED — a watched space is never guessed. */
+export const GOVERNANCE_SPACES: { id: string; name: string }[] = [
+  { id: 'uniswapgovernance.eth', name: 'Uniswap' },
+  { id: 'lido-snapshot.eth', name: 'Lido' },
+  { id: 'balancer.eth', name: 'Balancer' },
+  { id: 'curve.eth', name: 'Curve Finance' },
+  { id: 'ens.eth', name: 'ENS' },
+  { id: 'arbitrumfoundation.eth', name: 'Arbitrum DAO' },
+  { id: 'safe.eth', name: 'SafeDAO' },
+  { id: 'gmx.eth', name: 'GMX' },
+];
+
+export function fetchGovernanceProposals(): Promise<Observation<GovernanceProposal[]>> {
+  return governed<GovernanceProposal[]>('governance:snapshot', 600_000, ['Snapshot GraphQL'], async () => {
+    const query = `{ proposals(first: 30, skip: 0, where: { space_in: [${GOVERNANCE_SPACES.map(
+      (s) => `"${s.id}"`,
+    ).join(', ')}] }, orderBy: "created", orderDirection: desc) { id title state created end space { id name } } }`;
+    const data = await fetchJsonPost('https://hub.snapshot.org/graphql', { query });
+    if (!isRecord(data) || !isRecord(data.data) || !Array.isArray(data.data.proposals)) return null;
+    const out: GovernanceProposal[] = [];
+    for (const raw of data.data.proposals as Record<string, unknown>[]) {
+      if (!raw || typeof raw.id !== 'string' || typeof raw.title !== 'string') continue;
+      const space = isRecord(raw.space) ? raw.space : {};
+      out.push({
+        id: raw.id,
+        title: raw.title,
+        spaceId: typeof space.id === 'string' ? space.id : '',
+        spaceName: typeof space.name === 'string' ? space.name : '',
+        state: typeof raw.state === 'string' ? raw.state : 'unknown',
+        created: typeof raw.created === 'number' ? raw.created : 0,
+        end: typeof raw.end === 'number' ? raw.end : 0,
+      });
+    }
+    return out.length > 0 ? { value: out, source: 'Snapshot GraphQL' } : null;
+  });
+}
+
 /* ---------------- React hook ---------------- */
 
 export function useObservation<T>(
