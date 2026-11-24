@@ -40,6 +40,19 @@ import {
 } from '../angel-security';
 import { PROXY_ACTIONS, PROXY_ENV_NAMES, PROXY_METHOD, PROXY_PROVIDERS } from '../security-posture-data';
 import { RESOURCE_PROVIDERS } from '../resource-catalog-data';
+import {
+  POSITION_STATUSES,
+  POSITION_TYPES,
+  computedPnl,
+  loadPositions,
+  makePositionId,
+  savePositions,
+  tokenBalanceFor,
+  validatePosition,
+  type MoneyRecord,
+  type PositionRecord,
+} from '../positions';
+import { RISK_DIMENSIONS } from '../cost-risk-data';
 
 /* ============================================================================
  * 1. OpportunitiesWorld — honest: the pipeline ends at PREPARED with
@@ -345,6 +358,248 @@ export const OpportunitiesWorld: React.FC = () => {
  * 2. PositionsAssetsWorld — honest: every value UNAVAILABLE, never zero.
  * No net worth, allocation, PnL, or Sharpe figure is claimed.
  * ============================================================================ */
+
+/* OWNER POSITION RECORDS (v159; CW-0 Gap 8) — the surface of the
+ * canonical Position Intelligence contract (mirrored in
+ * src/positions.ts). The connected-feed state above stays
+ * UNAVAILABLE / NO_DATA: these are the owner's own recorded
+ * positions, a separate record system. References are recorded,
+ * never verified here (UNVERIFIED); money is sourced-or-UNKNOWN;
+ * P/L is computed only from same-currency sourced inputs. */
+const MONEY_FIELDS = [
+  { key: 'size', label: 'SIZE' },
+  { key: 'costBasis', label: 'COST BASIS' },
+  { key: 'currentValue', label: 'CURRENT VALUE' },
+  { key: 'fees', label: 'FEES' },
+] as const;
+type MoneyKey = (typeof MONEY_FIELDS)[number]['key'];
+type MoneyDraft = Record<MoneyKey, { value: string; currency: string; source: string }>;
+const emptyMoneyDraft = (): MoneyDraft => ({
+  size: { value: '', currency: 'USD', source: '' },
+  costBasis: { value: '', currency: 'USD', source: '' },
+  currentValue: { value: '', currency: 'USD', source: '' },
+  fees: { value: '', currency: 'USD', source: '' },
+});
+const fmtMoney = (m: MoneyRecord | null): string =>
+  m ? `${m.value} ${m.currency} · src: ${m.source}` : 'UNKNOWN';
+
+const PositionRecordsSection: React.FC = () => {
+  const [records, setRecords] = useState<PositionRecord[]>(() => loadPositions());
+  const [walletId, setWalletId] = useState('');
+  const [accountId, setAccountId] = useState('');
+  const [networkId, setNetworkId] = useState('');
+  const [assetIds, setAssetIds] = useState<string[]>([]);
+  const [protocolId, setProtocolId] = useState('');
+  const [activityId, setActivityId] = useState('');
+  const [type, setType] = useState<string>('staking');
+  const [status, setStatus] = useState<string>('OPEN');
+  const [money, setMoney] = useState<MoneyDraft>(emptyMoneyDraft);
+  const [riskDims, setRiskDims] = useState<string[]>([]);
+  const [riskNote, setRiskNote] = useState('');
+  const [error, setError] = useState('');
+
+  const chains = ENTITY_UNIVERSE.filter((e) => e.registry === 'chains');
+  const assets = ENTITY_UNIVERSE.filter((e) => e.registry === 'assets');
+  const protocols = ENTITY_UNIVERSE.filter((e) => e.registry === 'protocols');
+  const inputCls =
+    'rounded border border-white/15 bg-[#151515] px-2 py-1.5 text-xs text-white placeholder:text-[#777]';
+  const toggleIn = (list: string[], v: string, set: (l: string[]) => void) =>
+    set(list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
+
+  const buildMoney = (d: { value: string; currency: string; source: string }): MoneyRecord | null => {
+    if (d.value.trim() === '' && d.source.trim() === '') return null;
+    return {
+      value: Number(d.value),
+      currency: d.currency.trim().toUpperCase(),
+      source: d.source.trim(),
+      checkedAt: new Date().toISOString(),
+    };
+  };
+
+  const submit = () => {
+    const rec: PositionRecord = {
+      positionId: makePositionId(`${type}-${protocolId || 'position'}`),
+      walletId: walletId.trim(),
+      accountId: accountId.trim(),
+      networkId,
+      assetIds,
+      protocolId,
+      activityId,
+      strategyId: null,
+      type,
+      status,
+      size: buildMoney(money.size),
+      costBasis: buildMoney(money.costBasis),
+      currentValue: buildMoney(money.currentValue),
+      fees: buildMoney(money.fees),
+      risk: riskDims.length > 0 || riskNote.trim() ? { dimensions: riskDims, note: riskNote.trim() } : null,
+      isTokenBalance: tokenBalanceFor(type),
+      verificationStatus: 'UNVERIFIED',
+      opportunityIds: [],
+      createdAt: new Date().toISOString(),
+    };
+    const errors = validatePosition(rec);
+    if (errors.length > 0) {
+      setError(errors[0]);
+      return;
+    }
+    const next = [rec, ...records];
+    setRecords(next);
+    savePositions(next);
+    setError('');
+    setMoney(emptyMoneyDraft());
+    setRiskDims([]);
+    setRiskNote('');
+  };
+
+  const remove = (id: string) => {
+    const next = records.filter((r) => r.positionId !== id);
+    setRecords(next);
+    savePositions(next);
+  };
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-[#101010] p-5 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-sm font-semibold">Owner Position Records</span>
+        <span className="font-mono text-[10px] text-[#B8B8B8]">
+          RECORDED: {records.length} · EVERY RECORD UNVERIFIED · NO FEED CONNECTED
+        </span>
+      </div>
+
+      <div className="grid gap-2 md:grid-cols-3">
+        <input aria-label="Wallet reference" placeholder="Wallet reference (your label)" value={walletId} onChange={(e) => setWalletId(e.target.value)} className={inputCls} />
+        <input aria-label="Account reference" placeholder="Account reference (your label)" value={accountId} onChange={(e) => setAccountId(e.target.value)} className={inputCls} />
+        <select aria-label="Network" value={networkId} onChange={(e) => setNetworkId(e.target.value)} className={inputCls}>
+          <option value="">Network — choose</option>
+          {chains.map((c) => (
+            <option key={c.id} value={c.id}>{c.title}</option>
+          ))}
+        </select>
+        <select aria-label="Protocol" value={protocolId} onChange={(e) => setProtocolId(e.target.value)} className={inputCls}>
+          <option value="">Protocol — choose</option>
+          {protocols.map((p) => (
+            <option key={p.id} value={p.id}>{p.title}</option>
+          ))}
+        </select>
+        <select aria-label="Backbone activity" value={activityId} onChange={(e) => setActivityId(e.target.value)} className={inputCls}>
+          <option value="">Backbone activity — choose</option>
+          {CANONICAL_60.map((m) => (
+            <option key={m.id} value={m.id}>{m.title}</option>
+          ))}
+        </select>
+        <div className="flex gap-2">
+          <select aria-label="Position type" value={type} onChange={(e) => setType(e.target.value)} className={`${inputCls} flex-1`}>
+            {POSITION_TYPES.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+          <select aria-label="Position status" value={status} onChange={(e) => setStatus(e.target.value)} className={`${inputCls} flex-1`}>
+            {POSITION_STATUSES.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <p className="mb-1 font-mono text-[10px] text-[#B8B8B8]">ASSETS (AT LEAST ONE)</p>
+        <div className="flex flex-wrap gap-1.5">
+          {assets.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              onClick={() => toggleIn(assetIds, a.id, setAssetIds)}
+              className={`rounded border px-2 py-1 font-mono text-[9px] ${assetIds.includes(a.id) ? 'border-[#00B7FF] text-[#00B7FF]' : 'border-white/15 text-[#B8B8B8]'}`}
+            >
+              {a.title}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid gap-2 md:grid-cols-2">
+        {MONEY_FIELDS.map(({ key, label }) => (
+          <div key={key} className="flex items-center gap-2">
+            <span className="w-24 shrink-0 font-mono text-[10px] text-[#B8B8B8]">{label}</span>
+            <input aria-label={`${label} value`} placeholder="value — blank = UNKNOWN" inputMode="decimal" value={money[key].value} onChange={(e) => setMoney({ ...money, [key]: { ...money[key], value: e.target.value } })} className={`${inputCls} w-28`} />
+            <input aria-label={`${label} currency`} value={money[key].currency} onChange={(e) => setMoney({ ...money, [key]: { ...money[key], currency: e.target.value } })} className={`${inputCls} w-16`} />
+            <input aria-label={`${label} source`} placeholder="source" value={money[key].source} onChange={(e) => setMoney({ ...money, [key]: { ...money[key], source: e.target.value } })} className={`${inputCls} flex-1`} />
+          </div>
+        ))}
+      </div>
+
+      <div>
+        <p className="mb-1 font-mono text-[10px] text-[#B8B8B8]">RISK DIMENSIONS (OPTIONAL — DIMENSIONS ONLY, NEVER A SCORE)</p>
+        <div className="flex flex-wrap gap-1.5">
+          {RISK_DIMENSIONS.map((d) => (
+            <button
+              key={d}
+              type="button"
+              onClick={() => toggleIn(riskDims, d, setRiskDims)}
+              className={`rounded border px-2 py-1 font-mono text-[9px] ${riskDims.includes(d) ? 'border-[#FFB020] text-[#FFB020]' : 'border-white/15 text-[#B8B8B8]'}`}
+            >
+              {d}
+            </button>
+          ))}
+        </div>
+        <input aria-label="Risk note" placeholder="Risk note (optional)" value={riskNote} onChange={(e) => setRiskNote(e.target.value)} className={`${inputCls} mt-2 w-full`} />
+      </div>
+
+      {error && <p className="font-mono text-[11px] text-[#FFB020]">{error}</p>}
+      <button type="button" onClick={submit} className="rounded-lg bg-[#00B7FF] px-4 py-2 text-xs font-semibold text-black">
+        RECORD POSITION
+      </button>
+
+      <div className="space-y-2">
+        {records.length === 0 ? (
+          <p className="font-mono text-[11px] text-[#B8B8B8]">
+            NO POSITIONS RECORDED. NOTHING IS INVENTED TO FILL THIS LIST — RECORD ONE ABOVE, OR
+            CONNECT A READ-ONLY FEED (NOT CONNECTED).
+          </p>
+        ) : (
+          records.map((r) => {
+            const pnl = computedPnl(r);
+            return (
+              <div key={r.positionId} className="rounded-lg bg-[#151515] px-3 py-2 space-y-1">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-mono text-xs text-white">
+                    {r.type} · {r.status} · {r.networkId} · {r.protocolId}
+                  </span>
+                  <button type="button" onClick={() => remove(r.positionId)} className="font-mono text-[9px] text-[#FFB020]">
+                    REMOVE RECORD
+                  </button>
+                </div>
+                <p className="font-mono text-[10px] text-[#B8B8B8]">
+                  WALLET {r.walletId} · ACCOUNT {r.accountId} · ASSETS {r.assetIds.join(', ')} · ACTIVITY {r.activityId} ·
+                  TOKEN BALANCE: {r.isTokenBalance ? 'YES (PLAIN HOLDING)' : 'NO — A POSITION, NOT A BALANCE'} · UNVERIFIED
+                </p>
+                <p className="font-mono text-[10px] text-[#B8B8B8]">
+                  SIZE {fmtMoney(r.size)} · COST BASIS {fmtMoney(r.costBasis)} · CURRENT VALUE {fmtMoney(r.currentValue)} ·
+                  FEES {fmtMoney(r.fees)} · P/L {pnl ? `${pnl.value} ${pnl.currency} (computed from sourced inputs)` : 'UNKNOWN'}
+                </p>
+                {r.risk && (
+                  <p className="font-mono text-[10px] text-[#B8B8B8]">
+                    RISK: {r.risk.dimensions.join(', ') || 'NO DIMENSIONS RECORDED'}
+                    {r.risk.note ? ` — ${r.risk.note}` : ''}
+                  </p>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+        RECORDS MIRROR THE POSITION INTELLIGENCE CONTRACT AND PERSIST ONLY IN THIS BROWSER
+        (mti6_positions_v1). A MONEY FIELD LEFT BLANK IS UNKNOWN — NEVER ZERO. P/L APPEARS ONLY
+        WHEN COST BASIS AND CURRENT VALUE ARE BOTH SOURCED IN ONE CURRENCY. RECORDING A POSITION
+        AUTHORIZES NOTHING AND MOVES NOTHING.
+      </p>
+    </div>
+  );
+};
+
 const ASSET_TABS = ['Crypto', 'Cash', 'Cards', 'Points', 'Performance', 'Allocation'] as const;
 type AssetTab = (typeof ASSET_TABS)[number];
 
@@ -415,6 +670,8 @@ export const PositionsAssetsWorld: React.FC = () => {
         </p>
         <p className="mt-2 font-mono text-[11px] text-[#B8B8B8]">POSITIONS: NO_DATA · ALLOCATION: NO_DATA · PERFORMANCE: NO_DATA</p>
       </div>
+
+      <PositionRecordsSection />
     </div>
   );
 };
