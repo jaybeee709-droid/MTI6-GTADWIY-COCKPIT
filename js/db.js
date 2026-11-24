@@ -80,7 +80,27 @@
         });
       };
 
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => {
+        const db = req.result;
+        // CockpitDB fix (owner-authorized 2026-11-23; diagnosis:
+        // COCKPITDB-DIAGNOSIS-2026-11-23.md, Option A). The cached
+        // promise used to outlive its connection: when the browser
+        // closed the connection (another same-origin context
+        // requesting an upgrade/deletion, storage pressure), every
+        // later transaction threw "The database connection is
+        // closing" permanently until reload. Now, when the
+        // connection closes — by versionchange or by force — the
+        // cache is dropped so the next operation reopens cleanly.
+        // No version or schema change: DB_VERSION stays 3.
+        db.onversionchange = () => {
+          try { db.close(); } catch (e) { /* already closing */ }
+          if (dbPromise) dbPromise = null;
+        };
+        db.onclose = () => {
+          dbPromise = null;
+        };
+        resolve(db);
+      };
       req.onerror = () => reject(req.error);
       req.onblocked = () => console.warn("DB upgrade blocked — close other tabs of this app.");
     });
