@@ -400,6 +400,43 @@ export function fetchYields(): Promise<Observation<PoolYield[]>> {
   });
 }
 
+/* DefiLlama protocol index (v190) — the discovery feed for the
+ * classification engine. Only the identity fields the classifier
+ * uses are carried; no figures are stored in candidates (TVL is
+ * read live on surfaces, never copied into a candidate record). */
+export interface ProtocolIndexEntry {
+  name: string;
+  slug: string;
+  symbol: string | null;
+  category: string | null;
+  url: string | null;
+  chains: string[];
+  github: string | null;
+  tokenAddress: string | null;
+}
+
+export function fetchProtocolIndex(): Promise<Observation<ProtocolIndexEntry[]>> {
+  return governed<ProtocolIndexEntry[]>('protocols:defillama', 600_000, ['DefiLlama Protocols'], async () => {
+    const data = await fetchJson('https://api.llama.fi/protocols');
+    if (!Array.isArray(data)) return null;
+    const out: ProtocolIndexEntry[] = [];
+    for (const raw of data as Record<string, unknown>[]) {
+      if (!raw || typeof raw.name !== 'string' || typeof raw.slug !== 'string') continue;
+      out.push({
+        name: raw.name,
+        slug: raw.slug,
+        symbol: typeof raw.symbol === 'string' && raw.symbol !== '-' ? raw.symbol : null,
+        category: typeof raw.category === 'string' ? raw.category : null,
+        url: typeof raw.url === 'string' ? raw.url : null,
+        chains: Array.isArray(raw.chains) ? (raw.chains as unknown[]).filter((c): c is string => typeof c === 'string') : [],
+        github: Array.isArray(raw.github) && typeof raw.github[0] === 'string' ? (raw.github[0] as string) : null,
+        tokenAddress: typeof raw.address === 'string' && raw.address.length > 0 ? raw.address : null,
+      });
+    }
+    return out.length > 0 ? { value: out, source: 'DefiLlama Protocols' } : null;
+  });
+}
+
 /* ---------------- React hook ---------------- */
 
 export function useObservation<T>(

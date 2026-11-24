@@ -18,6 +18,7 @@ import { getProvenanceLog } from './live-data';
 import { memorySummary } from './bot-memory';
 import { contractRegistrySummary } from './contract-registry';
 import { EXECUTORS, runtimeStoreSummary } from './worker-runtime';
+import { dexRegistrySummary } from './dex-registry';
 import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
 
 // §69 WHY? for a named workspace: the recorded chain behind what
@@ -122,6 +123,14 @@ export function answerLocally(raw: string): string | null {
     }
     return `${FROM_RECORDS}the Contract Discovery Registry holds ${reg.total} contract(s), ${reg.verified} with explorer-verified source. Latest: ${reg.latest?.name ?? 'unnamed'} on ${reg.latest?.network} (${reg.latest?.role}), checked ${reg.latest ? new Date(reg.latest.checkedAt).toLocaleString() : ''} via ${reg.latest?.checkedBy}. Entries are evidence for the owner's gate — verification is evidence, not a truth promotion.`;
   }
+  if (/(dex registry|dexes|relationship cand|classification|classified)/.test(q)) {
+    const s = dexRegistrySummary();
+    if (s.dexCount === 0) {
+      return `${FROM_RECORDS}the DEX Registry is empty — no DEX scan has run yet. Say "run a dex scan" and the runtime classifies the DefiLlama protocol index, places every DEX-class entry here as an UNVERIFIED candidate, and derives deployed_on / native-token relationship candidates. Classification is deterministic from the source's own category; placement follows the universal class matrix; only the owner's gate promotes a candidate.`;
+    }
+    return `${FROM_RECORDS}the DEX Registry holds ${s.dexCount} DEX candidate(s) across ${s.chainsCovered} chains, with ${s.relCount} relationship candidate(s) (deployed_on, has_native_token). All are UNVERIFIED candidates from DefiLlama Protocols — coverage is counted only from evidence each record carries (website, GitHub, chains, token contract), and the remaining checklist dimensions read ABSENT. Only the owner's gate promotes.`;
+  }
+
   if (/(bot memory|bots remember|bot-memory|memory engine)/.test(q)) {
     const mem = memorySummary();
     if (mem.totalRetained === 0)

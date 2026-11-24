@@ -51,6 +51,8 @@ import {
   recordContractCheck,
 } from '../contract-registry';
 import { CATALOGUED_CONTRACTS } from '../contract-catalog';
+import { DEX_CHECKLIST, dexCoverage } from '../classification';
+import { loadDexCandidates, loadRelationshipCandidates } from '../dex-registry';
 
 type ConsoleTab =
   | 'Overview'
@@ -975,6 +977,62 @@ export const BotOperations: React.FC = () => {
             <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
               ENTRIES ARE DISCOVERY EVIDENCE FOR THE OWNER'S GATE — NOT CANONICAL ENTITIES, NOT
               VERIFIED TRUTH, AND NEVER EXECUTION AUTHORITY. EXECUTION STAYS DISABLED.
+            </p>
+          </div>
+        );
+      })()}
+
+      {/* DEX REGISTRY + RELATIONSHIP CANDIDATES (v190) — the
+          auto-placement pipeline: classification places DEX-class
+          discoveries here as CANDIDATES (src/classification.ts,
+          src/dex-registry.ts); relationships are candidates too.
+          Nothing here is canonical or verified. */}
+      {(() => {
+        const dexes = loadDexCandidates();
+        const rels = loadRelationshipCandidates();
+        const chainSet = new Set<string>();
+        for (const d of dexes) for (const c of d.chains) chainSet.add(c);
+        const avgCov =
+          dexes.length > 0
+            ? (dexes.reduce((a, d) => a + dexCoverage(d).length, 0) / dexes.length).toFixed(1)
+            : '0';
+        return (
+          <div className="mt-4 rounded-2xl border border-white/10 bg-[#0A0A0A] p-4">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-xs text-[#8B5CFF]">DEX REGISTRY · AUTO-PLACEMENT CANDIDATES</span>
+              <span className="font-mono text-[10px] text-white">
+                {dexes.length} DEX · {rels.length} RELATIONSHIPS · {chainSet.size} CHAINS
+              </span>
+            </div>
+            {dexes.length === 0 ? (
+              <p className="mt-2 font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                NO DEX CANDIDATES YET. RUN THE DEX SCAN (RUNTIME PANEL ABOVE OR ASK STAR) — IT
+                CLASSIFIES THE DEFILLAMA PROTOCOL INDEX AND PLACES EVERY DEX-CLASS ENTRY HERE AS
+                AN UNVERIFIED CANDIDATE WITH ITS RELATIONSHIP CANDIDATES.
+              </p>
+            ) : (
+              <div className="mt-2 space-y-1.5">
+                <p className="font-mono text-[10px] text-[#B8B8B8]">
+                  CHECKLIST EVIDENCE AVERAGES {avgCov}/{DEX_CHECKLIST.length} DIMENSIONS PER DEX —
+                  ONLY WHAT EACH RECORD'S OWN EVIDENCE CARRIES; THE REST READ ABSENT.
+                </p>
+                {dexes.slice(0, 10).map((d) => (
+                  <p key={d.id} className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    <span className="text-white">{d.name}</span> · {d.subclass} ·{' '}
+                    {d.chains.length} chain(s) · token {d.tokenSymbol ?? '—'} · evidence{' '}
+                    {dexCoverage(d).length}/{DEX_CHECKLIST.length} · {d.source}
+                  </p>
+                ))}
+                {rels.slice(0, 5).map((r) => (
+                  <p key={r.id} className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    REL · {r.from} —{r.relation}→ {r.to} · CANDIDATE
+                  </p>
+                ))}
+              </div>
+            )}
+            <p className="mt-2 font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+              STAR CREATES CANDIDATES, NEVER TRUTH. PLACEMENT FOLLOWS THE UNIVERSAL CLASS MATRIX;
+              PROMOTION BELONGS TO THE OWNER'S GATE ALONE. EXECUTION STAYS DISABLED.
             </p>
           </div>
         );

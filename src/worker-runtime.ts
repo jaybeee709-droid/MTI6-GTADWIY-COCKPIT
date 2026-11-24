@@ -22,7 +22,13 @@
  * registry of its own (mti6_runtime_kinds_v1: taskId → executor
  * id), so the canonical task record keeps its exact shape.
  */
-import { fetchHistory, fetchPrice, fetchYields, fmtTime, fmtUsd } from './live-data';
+import { fetchHistory, fetchPrice, fetchProtocolIndex, fetchYields, fmtTime, fmtUsd } from './live-data';
+import { classifyCategory, dexCoverage, DEX_CHECKLIST, type DexCandidate } from './classification';
+import {
+  addRelationshipCandidates,
+  upsertDexCandidates,
+  type RelationshipCandidate,
+} from './dex-registry';
 import { CANONICAL_60, ENCYCLOPEDIA_COUNTS, ENCYCLOPEDIA_FAMILIES, ENCYCLOPEDIA_INDEX } from './encyclopedia-data';
 import { ENTITY_UNIVERSE } from './entity-data';
 import { WORKSPACE_COVERAGE } from './workspace-coverage-data';
@@ -398,6 +404,85 @@ EXECUTORS.push({
   },
 });
 
+/* DEX discovery + classification (v190) — the auto-placement
+ * pipeline's first working slice. The scan reads the governed
+ * DefiLlama protocol index, classifies every entry through the
+ * deterministic category map (src/classification.ts), places
+ * DEX-class entries into the DEX Registry as CANDIDATES, and
+ * derives relationship candidates (deployed_on, has_native_token)
+ * into their own candidate store. Candidates only: nothing is
+ * approved, merged, or written canonical — the gate decides. */
+EXECUTORS.push({
+  id: 'dex-scan',
+  label: 'DEX SCAN',
+  does: 'Classifies the DefiLlama protocol index, places DEX-class entries into the DEX Registry as candidates, and derives deployed_on / native-token relationship candidates.',
+  run: async () => {
+    const obs = await fetchProtocolIndex();
+    if (!obs.value || obs.value.length === 0) {
+      return `DEX scan: the DefiLlama protocol index answered ${obs.status} with no entries — nothing classified, nothing placed.`;
+    }
+    const now = Date.now();
+    const dexFresh: DexCandidate[] = [];
+    const relFresh: RelationshipCandidate[] = [];
+    let classified = 0;
+    let dexClassTotal = 0;
+    /* Placement is capped (registry discipline): the index is
+     * TVL-ranked by the source, so the first DEX-class entries
+     * are the largest; the rest await later scans and the gate. */
+    const DEX_PLACE_CAP = 60;
+    for (const entry of obs.value) {
+      const { cls, subclass } = classifyCategory(entry.category);
+      classified += 1;
+      if (cls !== 'DEX') continue;
+      dexClassTotal += 1;
+      if (dexFresh.length >= DEX_PLACE_CAP) continue;
+      dexFresh.push({
+        id: entry.slug,
+        name: entry.name,
+        cls: 'DEX',
+        subclass,
+        chains: entry.chains,
+        url: entry.url,
+        github: entry.github,
+        tokenSymbol: entry.symbol,
+        tokenAddress: entry.tokenAddress,
+        source: 'DefiLlama Protocols',
+        status: 'CANDIDATE',
+        truthState: 'UNVERIFIED',
+        discoveredAt: now,
+        updatedAt: now,
+      });
+      for (const chain of entry.chains) {
+        relFresh.push({
+          id: `${entry.slug}|deployed_on|${chain}`,
+          from: entry.name,
+          relation: 'deployed_on',
+          to: chain,
+          source: 'DefiLlama Protocols',
+          status: 'CANDIDATE',
+          at: now,
+        });
+      }
+      if (entry.symbol) {
+        relFresh.push({
+          id: `${entry.slug}|has_native_token|${entry.symbol}`,
+          from: entry.name,
+          relation: 'has_native_token',
+          to: entry.symbol,
+          source: 'DefiLlama Protocols',
+          status: 'CANDIDATE',
+          at: now,
+        });
+      }
+    }
+    const dexRes = upsertDexCandidates(dexFresh);
+    const relRes = addRelationshipCandidates(relFresh);
+    const covered = dexFresh.reduce((acc, c) => acc + dexCoverage(c).length, 0);
+    const avgCoverage = dexFresh.length > 0 ? (covered / dexFresh.length).toFixed(1) : '0';
+    return `DEX scan via DefiLlama Protocols (status ${obs.status}): ${classified} protocols classified · ${dexClassTotal} DEX-class found, first ${dexFresh.length} placed as candidates (${dexRes.created} new, ${dexRes.updated} refreshed; registry holds ${dexRes.total}) · ${relRes.created} new relationship candidates (store holds ${relRes.total}) · average checklist evidence ${avgCoverage}/${DEX_CHECKLIST.length} dimensions per DEX — the rest read ABSENT, never guessed. All candidates UNVERIFIED; only the owner's gate promotes.`;
+  },
+});
+
 /* STAR chat command matching (v172): "run a price check" and
  * its kin map to an executor. Deliberately narrow — a run verb
  * plus an executor keyword — so ordinary questions never fire
@@ -412,6 +497,7 @@ export function runtimeCommandFor(text: string): string | null {
   if (q.includes('geocode') || q.includes('place')) return 'geocode-check';
   if (q.includes('memory')) return 'memory-report';
   if (q.includes('posture') || q.includes('security')) return 'posture-check';
+  if (q.includes('dex') && (q.includes('scan') || q.includes('classif') || q.includes('registr'))) return 'dex-scan';
   if (q.includes('opportunit') && (q.includes('scan') || q.includes('discover'))) return 'opportunity-scan';
   if (q.includes('opportunit')) return 'opportunity-digest';
   if (q.includes('explorer') || q.includes('blockscout') || q.includes('contract')) return 'explorer-check';
