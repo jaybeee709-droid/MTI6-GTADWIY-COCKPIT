@@ -782,16 +782,18 @@ export const PositionsAssetsWorld: React.FC = () => {
  * 2026-11-23, owner: "do all" on the 60-backbone audit). The records
  * below are generated mechanically from the frozen canonical data
  * files (src/encyclopedia-data.ts) — nothing retyped, nothing
- * invented. All 826 records are UNVERIFIED (TAXONOMY_IMPORTED is an
- * import status, not verification). Action and Sub-Action levels
- * honestly hold ZERO records — that depth does not exist yet.
+ * invented. All 1,840 records are UNVERIFIED (TAXONOMY_IMPORTED is
+ * an import status, not verification). The Action level holds the
+ * 1,014 Batch C records (owner freeze Option A, imported
+ * 2026-11-24); Sub-Action honestly holds ZERO — that depth does
+ * not exist yet.
  * ============================================================================ */
 const DRILL_LEVELS: { label: string; count: number; note: string }[] = [
   { label: 'Family', count: ENCYCLOPEDIA_COUNTS.families, note: 'BATCH A · IMPORTED' },
   { label: 'Major Activity', count: ENCYCLOPEDIA_COUNTS.majors, note: 'THE CANONICAL 60 BACKBONE' },
   { label: 'Type', count: ENCYCLOPEDIA_COUNTS.types, note: 'BATCH B · IMPORTED' },
   { label: 'Strategy', count: ENCYCLOPEDIA_COUNTS.strategies, note: 'BATCH B · IMPORTED' },
-  { label: 'Action', count: ENCYCLOPEDIA_COUNTS.actions, note: 'NO RECORDS EXIST AT THIS DEPTH YET' },
+  { label: 'Action', count: ENCYCLOPEDIA_COUNTS.actions, note: 'BATCH C · IMPORTED' },
   { label: 'Sub-Action', count: ENCYCLOPEDIA_COUNTS.subActions, note: 'NO RECORDS EXIST AT THIS DEPTH YET' },
 ];
 
@@ -800,6 +802,7 @@ const LEVEL_LABEL: Record<string, string> = {
   MAJOR_ACTIVITY: 'MAJOR ACTIVITY',
   TYPE: 'TYPE',
   STRATEGY: 'STRATEGY',
+  ACTION: 'ACTION',
 };
 
 const ENTITY_REGISTRY_LABEL: Record<string, string> = {
@@ -925,23 +928,24 @@ export const EncyclopediaWorld: React.FC = () => {
         ))}
       </div>
 
-      {/* BATCH C — the frozen Action-layer candidate (owner freeze
-          Option A, 2026-11-24). NOT imported: the canonical counts
-          above stay 826 until the owner's review pass and a
-          separate import action. */}
-      <div className="space-y-3 rounded-2xl border border-[#FFB020]/30 bg-[#101010] p-5">
+      {/* BATCH C — the Action layer (owner freeze Option A,
+          2026-11-24), IMPORTED into the canonical index above:
+          the counts now total 1,840 and the Action level is real.
+          The frozen artifact and its provenance stay on record. */}
+      <div className="space-y-3 rounded-2xl border border-white/10 bg-[#101010] p-5">
         <div>
-          <h3 className="text-sm font-semibold">BATCH C — ACTION LAYER · FROZEN CANDIDATE</h3>
+          <h3 className="text-sm font-semibold">BATCH C — ACTION LAYER · IMPORTED</h3>
           <p className="mt-0.5 font-mono text-[10px] text-[#B8B8B8]">
             OWNER FREEZE: OPTION A (FULL) · {BATCH_C_COUNT} ACTION RECORDS UNDER THE 404 STRATEGIES ·
-            ARTIFACT SHA-256 {BATCH_C_SHA256.slice(0, 16)}… · ALL UNVERIFIED · NOT IMPORTED
+            ARTIFACT SHA-256 {BATCH_C_SHA256.slice(0, 16)}… · ALL UNVERIFIED
           </p>
         </div>
         <p className="text-xs leading-relaxed text-[#B8B8B8]">
           Each strategy decomposes by lifecycle — Initiate and Monitor &amp; Adjust for all 404, plus
           Exit &amp; Settle for the 206 position-bearing ones — generated mechanically from the frozen
-          Batch B definitions (Batch B untouched). The gate passed: every parent resolves, ids unique,
-          count inside the Option A band. Sample:
+          Batch B definitions (Batch B untouched), gate-passed, frozen as an artifact, and imported
+          into the canonical index on 2026-11-24. They are searchable in the full index below.
+          Sample:
         </p>
         <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2">
           {BATCH_C_SAMPLES.map((s) => (
@@ -950,10 +954,6 @@ export const EncyclopediaWorld: React.FC = () => {
             </p>
           ))}
         </div>
-        <p className="font-mono text-[10px] text-[#FFB020]">
-          NEXT STEPS ARE THE OWNER'S: REVIEW PASS → IMPORT. UNTIL THEN THE ACTION LEVEL ABOVE
-          HONESTLY READS ZERO IN THE CANONICAL INDEX.
-        </p>
       </div>
 
       {/* THE 60 BACKBONE — the Canonical 60 Major Activities, grouped
@@ -1066,13 +1066,13 @@ export const EncyclopediaWorld: React.FC = () => {
         ))}
       </div>
 
-      {/* FULL INDEX — search across all 826 canonical records */}
+      {/* FULL INDEX — search across all canonical records */}
       <div className="space-y-3 rounded-2xl border border-white/10 bg-[#101010] p-5">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h3 className="text-sm font-semibold">FULL INDEX — {ENCYCLOPEDIA_COUNTS.total} RECORDS</h3>
             <p className="mt-0.5 font-mono text-[10px] text-[#B8B8B8]">
-              FAMILIES · MAJOR ACTIVITIES · TYPES · STRATEGIES — SEARCH BY NAME
+              FAMILIES · MAJOR ACTIVITIES · TYPES · STRATEGIES · ACTIONS — SEARCH BY NAME
             </p>
           </div>
           <div className="relative w-full md:w-72">
@@ -1081,7 +1081,7 @@ export const EncyclopediaWorld: React.FC = () => {
               type="text"
               value={indexQuery}
               onChange={(e) => setIndexQuery(e.target.value)}
-              placeholder="Search all 826 records..."
+              placeholder={`Search all ${ENCYCLOPEDIA_COUNTS.total} records...`}
               className="w-full rounded-lg border border-white/15 bg-[#050505] py-1.5 pl-8 pr-3 text-xs text-white placeholder-[#B8B8B8]/60 focus:border-[#00B7FF] focus:outline-none"
             />
           </div>

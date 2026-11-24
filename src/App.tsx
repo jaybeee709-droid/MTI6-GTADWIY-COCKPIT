@@ -206,7 +206,7 @@ const MENU_DESC: Record<WorldId, string> = {
   wallet: 'Currencies & rails — no wallet connected',
   opportunities: 'Pipeline ends at PREPARED — none live',
   positions: 'Holdings UNAVAILABLE — nothing connected',
-  encyclopedia: '826 activity records — all UNVERIFIED',
+  encyclopedia: '1,840 activity records — all UNVERIFIED',
   security: 'AngelSecurity — alerts UNMEASURED in this build',
   settings: 'Cockpit preferences & shell options',
   'cockpit-status': 'Shell, data & connection status',
@@ -957,7 +957,7 @@ export function App() {
                 </div>
               </div>
               <div className="font-mono text-[10px] text-[#B8B8B8]">
-                WORLD ENGINE 957 NODES · ENCYCLOPEDIA 826 · ENTITIES 48 · STAR{' '}
+                WORLD ENGINE 957 NODES · ENCYCLOPEDIA 1,840 · ENTITIES 48 · STAR{' '}
                   {starConfigured ? 'CONNECTED' : 'DEMO / NOT_CONNECTED'}
               </div>
             </div>
