@@ -32,6 +32,18 @@
 // model } and errors to static messages. With no key configured,
 // star.chat answers NOT_CONFIGURED and the app keeps STAR in its
 // honest demo mode.
+//
+// PIPELINES (added 2026-11-23, owner's "make the pipelines, get the
+// APIs" direction): two more narrowly scoped actions behind the
+// same discipline — market.prices (CoinGecko: the owner's Demo key
+// from MTI6_COINGECKO_API_KEY when present, the keyless public API
+// when not; the key travels only in the server-to-server
+// x-cg-demo-api-key header) and geo.geocode (a fallback CHAIN:
+// Geoapify via MTI6_GEOAPIFY_KEY first, LocationIQ via
+// MTI6_LOCATIONIQ_KEY second; with neither configured the action
+// answers NOT_CONFIGURED and places nothing). gateway.status now
+// reports per-provider configured booleans — env presence only,
+// never a value.
 
 const MAX_BODY_BYTES = 65536;
 const STAR_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
@@ -374,6 +386,213 @@ async function handleStarChat(payload) {
   return envelope(true, "star", { reply: result.reply, model: result.model }, null, 200);
 }
 
+// ------------------------------------------------------------------
+// Pipelines: market.prices (CoinGecko) + geo.geocode (Geoapify →
+// LocationIQ chain) — same discipline: validate first, keys only
+// from Netlify env, normalized responses, static error strings.
+// ------------------------------------------------------------------
+
+// Literal env reads (one named variable per provider) so the
+// posture generator can mechanically extract every env NAME this
+// file reads — no dynamic lookups.
+function readPipelineKeys() {
+  const env = typeof process !== "undefined" && process.env ? process.env : {};
+  const pick = (v) => (typeof v === "string" && v.length > 0 ? v : null);
+  return {
+    coingecko: pick(env.MTI6_COINGECKO_API_KEY),
+    geoapify: pick(env.MTI6_GEOAPIFY_KEY),
+    locationiq: pick(env.MTI6_LOCATIONIQ_KEY)
+  };
+}
+
+function pipelineFail(source, code, message, status) {
+  return envelope(false, source, null, { code, message }, status);
+}
+
+const COINGECKO_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+function validateMarketPrices(payload) {
+  if (!isPlainObject(payload)) {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "market.prices payload must be an object.", 400) };
+  }
+  const bad = unknownKey(payload, new Set(["ids"]));
+  if (bad) {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "Unknown parameter \"" + bad + "\" for market.prices.", 400) };
+  }
+  const ids = payload.ids;
+  if (!Array.isArray(ids) || ids.length < 1 || ids.length > 25 ||
+      ids.some((i) => typeof i !== "string" || !COINGECKO_ID_RE.test(i))) {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "ids must be an array of 1 to 25 CoinGecko asset ids.", 400) };
+  }
+  return { ids: [...new Set(ids)] };
+}
+
+async function handleMarketPrices(payload) {
+  const validated = validateMarketPrices(payload);
+  if (validated.error) return validated.error;
+  const apiKey = readPipelineKeys().coingecko;
+  const url = new URL("https://api.coingecko.com/api/v3/simple/price");
+  url.searchParams.set("ids", validated.ids.join(","));
+  url.searchParams.set("vs_currencies", "usd");
+  url.searchParams.set("include_24hr_change", "true");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(url.toString(), {
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+        ...(apiKey ? { "x-cg-demo-api-key": apiKey } : {})
+      }
+    });
+  } catch {
+    return pipelineFail("coingecko", "UPSTREAM_ERROR", "CoinGecko could not be reached.", 502);
+  } finally {
+    clearTimeout(timer);
+  }
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  if (res.status === 401) {
+    return pipelineFail("coingecko", "AUTH_REQUIRED", "CoinGecko rejected the API key. Check the MTI6_COINGECKO_API_KEY Netlify variable.", 401);
+  }
+  if (res.status === 429) {
+    return pipelineFail("coingecko", "RATE_LIMITED", "CoinGecko rate limit reached. The client governor will serve its cached or fallback result.", 429);
+  }
+  if (!res.ok || data === null || typeof data !== "object") {
+    return pipelineFail("coingecko", "UPSTREAM_ERROR", "CoinGecko returned an unexpected error.", 502);
+  }
+  const prices = {};
+  for (const id of validated.ids) {
+    const row = data[id];
+    if (row && typeof row.usd === "number" && Number.isFinite(row.usd)) {
+      prices[id] = {
+        usd: row.usd,
+        change24h: typeof row.usd_24h_change === "number" && Number.isFinite(row.usd_24h_change)
+          ? row.usd_24h_change
+          : null
+      };
+    }
+  }
+  return envelope(true, "coingecko", { prices, keyed: apiKey !== null }, null, 200);
+}
+
+function validateGeocode(payload) {
+  if (!isPlainObject(payload)) {
+    return { error: pipelineFail("geoapify", "INVALID_REQUEST", "geo.geocode payload must be an object.", 400) };
+  }
+  const bad = unknownKey(payload, new Set(["q"]));
+  if (bad) {
+    return { error: pipelineFail("geoapify", "INVALID_REQUEST", "Unknown parameter \"" + bad + "\" for geo.geocode.", 400) };
+  }
+  if (typeof payload.q !== "string" || payload.q.trim().length < 1 || payload.q.trim().length > 120) {
+    return { error: pipelineFail("geoapify", "INVALID_REQUEST", "q must be a place search string of 1 to 120 characters.", 400) };
+  }
+  return { q: payload.q.trim() };
+}
+
+async function geocodeViaGeoapify(q, apiKey) {
+  const url = new URL("https://api.geoapify.com/v1/geocode/search");
+  url.searchParams.set("text", q);
+  url.searchParams.set("limit", "5");
+  url.searchParams.set("apiKey", apiKey);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(url.toString(), { signal: controller.signal, headers: { Accept: "application/json" } });
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!res.ok) return null;
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    return null;
+  }
+  const features = data && Array.isArray(data.features) ? data.features : [];
+  const results = [];
+  for (const f of features) {
+    const p = f && f.properties ? f.properties : null;
+    if (p && typeof p.lat === "number" && typeof p.lon === "number" &&
+        Number.isFinite(p.lat) && Number.isFinite(p.lon)) {
+      results.push({ label: typeof p.formatted === "string" ? p.formatted : q, lat: p.lat, lon: p.lon });
+    }
+  }
+  return results;
+}
+
+async function geocodeViaLocationIQ(q, apiKey) {
+  const url = new URL("https://us1.locationiq.com/v1/search");
+  url.searchParams.set("q", q);
+  url.searchParams.set("format", "json");
+  url.searchParams.set("limit", "5");
+  url.searchParams.set("key", apiKey);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(url.toString(), { signal: controller.signal, headers: { Accept: "application/json" } });
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!res.ok) return null;
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    return null;
+  }
+  const rows = Array.isArray(data) ? data : [];
+  const results = [];
+  for (const r of rows) {
+    const lat = r ? Number.parseFloat(r.lat) : NaN;
+    const lon = r ? Number.parseFloat(r.lon) : NaN;
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      results.push({ label: typeof r.display_name === "string" ? r.display_name : q, lat, lon });
+    }
+  }
+  return results;
+}
+
+// The geocoding fallback chain: Geoapify first (the owner's
+// researched primary), LocationIQ second. A provider that errors
+// or returns nothing falls through to the next; the response
+// names the provider that actually answered. Neither configured →
+// NOT_CONFIGURED, and nothing is placed anywhere.
+async function handleGeocode(payload) {
+  const validated = validateGeocode(payload);
+  if (validated.error) return validated.error;
+  const pipelineKeys = readPipelineKeys();
+  const geoapifyKey = pipelineKeys.geoapify;
+  const locationiqKey = pipelineKeys.locationiq;
+  if (!geoapifyKey && !locationiqKey) {
+    return pipelineFail("geoapify", "NOT_CONFIGURED", "No geocoding key is configured on the server (Netlify MTI6_GEOAPIFY_KEY or MTI6_LOCATIONIQ_KEY).", 503);
+  }
+  if (geoapifyKey) {
+    const results = await geocodeViaGeoapify(validated.q, geoapifyKey);
+    if (results && results.length > 0) {
+      return envelope(true, "geoapify", { results, provider: "geoapify" }, null, 200);
+    }
+  }
+  if (locationiqKey) {
+    const results = await geocodeViaLocationIQ(validated.q, locationiqKey);
+    if (results && results.length > 0) {
+      return envelope(true, "locationiq", { results, provider: "locationiq" }, null, 200);
+    }
+  }
+  return pipelineFail("geoapify", "NOT_FOUND", "No geocoding provider found that place.", 404);
+}
+
 export default async (req) => {
   if (req.method !== "POST") {
     return fail("METHOD_NOT_ALLOWED", "POST required.", 405);
@@ -411,10 +630,17 @@ export default async (req) => {
     case "gateway.status": {
       const star = readStarConfig();
       return envelope(true, "gateway", {
-        providers: ["transitland", "star"],
-        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures", "star.chat"],
+        providers: ["transitland", "star", "coingecko", "geoapify", "locationiq"],
+        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures", "star.chat", "market.prices", "geo.geocode"],
+        providersConfigured: {
+          transitland: readTransitlandKey() !== null,
+          star: star.configured,
+          coingecko: readPipelineKeys().coingecko !== null,
+          geoapify: readPipelineKeys().geoapify !== null,
+          locationiq: readPipelineKeys().locationiq !== null
+        },
         star: { configured: star.configured, model: star.configured ? star.model : null },
-        note: "Transitland (World Data → Transit/Transportation) is configured behind the proxy as a Capability Router provider. STAR chat is available when star.configured is true; otherwise STAR remains in demo mode."
+        note: "Providers sit behind the proxy as Capability Router providers; configured means the server's Netlify variable exists (presence only, never a value). CoinGecko also answers keyless at public limits. STAR chat is available when star.configured is true; otherwise STAR remains in demo mode."
       }, null, 200);
     }
     case "gateway.ping":
@@ -427,6 +653,14 @@ export default async (req) => {
     case "star.chat": {
       const payload = body.payload === undefined ? {} : body.payload;
       return handleStarChat(payload);
+    }
+    case "market.prices": {
+      const payload = body.payload === undefined ? {} : body.payload;
+      return handleMarketPrices(payload);
+    }
+    case "geo.geocode": {
+      const payload = body.payload === undefined ? {} : body.payload;
+      return handleGeocode(payload);
     }
     default:
       return fail("UNSUPPORTED_ACTION", "That MTI6 action is not enabled.", 400);

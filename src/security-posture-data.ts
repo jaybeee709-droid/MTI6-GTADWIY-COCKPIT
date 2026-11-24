@@ -4,7 +4,7 @@
  * provider list, and the NAMES of the environment variables it
  * reads. Secret VALUES live only in the Netlify environment and
  * never appear in this repository or this file. */
-export const PROXY_ACTIONS: string[] = ["gateway.status","gateway.ping","transit.stopsNear","transit.departures","star.chat"];
-export const PROXY_PROVIDERS: string[] = ["transitland","star"];
-export const PROXY_ENV_NAMES: string[] = ["MTI6_STAR_API_KEY","MTI6_STAR_BASE_URL","MTI6_STAR_MODEL","TRANSITLAND_API_KEY"];
+export const PROXY_ACTIONS: string[] = ["gateway.status","gateway.ping","transit.stopsNear","transit.departures","star.chat","market.prices","geo.geocode"];
+export const PROXY_PROVIDERS: string[] = ["transitland","star","coingecko","geoapify","locationiq"];
+export const PROXY_ENV_NAMES: string[] = ["MTI6_COINGECKO_API_KEY","MTI6_GEOAPIFY_KEY","MTI6_LOCATIONIQ_KEY","MTI6_STAR_API_KEY","MTI6_STAR_BASE_URL","MTI6_STAR_MODEL","TRANSITLAND_API_KEY"];
 export const PROXY_METHOD = 'POST' as const;

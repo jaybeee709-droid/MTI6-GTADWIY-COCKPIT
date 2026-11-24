@@ -26,7 +26,7 @@ const envNames = [...new Set([...src.matchAll(/(?:process\.env|env)\.([A-Z][A-Z0
 if (!/METHOD_NOT_ALLOWED", "POST required\."/.test(src)) {
   throw new Error('proxy: POST-only gate not found — posture facts changed, review before generating');
 }
-const expectedActions = ['gateway.ping', 'gateway.status', 'star.chat', 'transit.departures', 'transit.stopsNear'];
+const expectedActions = ['gateway.ping', 'gateway.status', 'geo.geocode', 'market.prices', 'star.chat', 'transit.departures', 'transit.stopsNear'];
 if (JSON.stringify([...actions].sort()) !== JSON.stringify(expectedActions)) {
   throw new Error(`proxy allowlist changed: ${JSON.stringify(actions)} — owner review before regenerating`);
 }
