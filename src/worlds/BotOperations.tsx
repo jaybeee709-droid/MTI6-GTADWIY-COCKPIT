@@ -33,6 +33,15 @@ import {
 } from '../worker-tasks';
 import { RESOURCE_COUNTS, RESOURCE_GAPS, RESOURCE_PROVIDERS } from '../resource-catalog-data';
 import { MEMORY_KINDS, memorySummary } from '../bot-memory';
+import {
+  EXECUTORS,
+  executorById,
+  loadKinds,
+  runRuntimeTask,
+  saveKinds,
+  type RunRecord,
+  type RuntimeKindMap,
+} from '../worker-runtime';
 
 type ConsoleTab =
   | 'Overview'
@@ -98,6 +107,22 @@ export const BotOperations: React.FC = () => {
   const [taskTitle, setTaskTitle] = useState('');
   const [taskRole, setTaskRole] = useState<string>(ROLE_LABELS[0]);
   const [taskPrincipal, setTaskPrincipal] = useState<string>('');
+  // Worker runtime (v171) — the in-page engine. kinds maps a
+  // queue task to its executor; runningIds is the REAL in-flight
+  // set (the only honest "workers active" number); runLog is
+  // this session's runs, newest first.
+  const [taskExecutor, setTaskExecutor] = useState<string>('');
+  const [kinds, setKinds] = useState<RuntimeKindMap>(() => loadKinds());
+  const [runningIds, setRunningIds] = useState<string[]>([]);
+  const [runLog, setRunLog] = useState<RunRecord[]>([]);
+  const doRun = async (task: WorkerTask) => {
+    const ex = kinds[task.id];
+    if (!ex || runningIds.includes(task.id)) return;
+    setRunningIds((r) => [...r, task.id]);
+    const rec = await runRuntimeTask(tasks, task.id, ex, (t) => setTasks(t));
+    setRunningIds((r) => r.filter((x) => x !== task.id));
+    setRunLog((log) => [rec, ...log].slice(0, 10));
+  };
   const [taskMsg, setTaskMsg] = useState('');
   const [evidenceText, setEvidenceText] = useState<Record<string, string>>({});
   const principalName = (id: string | null) =>
@@ -168,8 +193,8 @@ export const BotOperations: React.FC = () => {
         </span>
         <span className="text-[#B8B8B8]">
           <span className="font-semibold text-[#8B5CFF]">TASK WORKERS</span> —
-          ACTIVE: 0 · RUNTIME: NOT_CONNECTED · RECORD SYSTEM ONLY, NO
-          WORKER RUNTIME EXISTS
+          IN-PAGE RUNTIME ENGINE (PHASE 1) · ACTIVE NOW: {runningIds.length} · REMOTE
+          RUNTIME: NOT_CONNECTED
         </span>
       </div>
 
@@ -380,8 +405,8 @@ export const BotOperations: React.FC = () => {
             />
             <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
               ASSIGNMENTS ARE OWNER RECORDS IN THE CANONICAL STORE — THEY SET ROLE AND TASK ONLY,
-              NEVER IDENTITY, AND THEY DO NOT MAKE A PRINCIPAL LIVE: WORKERS STAY 0 ACTIVE /
-              NOT_CONNECTED UNTIL A REAL RUNTIME EXISTS.
+              NEVER IDENTITY. THE IN-PAGE RUNTIME (BELOW) EXECUTES RUNTIME TASKS FOR REAL WHILE
+              THIS PAGE IS OPEN; A REMOTE ALWAYS-ON RUNTIME DOES NOT EXIST.
             </p>
           </div>
 
@@ -448,7 +473,8 @@ export const BotOperations: React.FC = () => {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="font-mono text-xs text-[#8B5CFF]">BOT WORK QUEUE</span>
           <span className="font-mono text-[10px] text-[#B8B8B8]">
-            TASKS RECORDED: {tasks.length} · WORKER RUNTIME: NOT_CONNECTED · WORKERS ACTIVE: 0
+            TASKS RECORDED: {tasks.length} · WORKER RUNTIME: IN-PAGE ENGINE · REMOTE RUNTIME:
+            NOT_CONNECTED · WORKERS ACTIVE: {runningIds.length}
           </span>
         </div>
 
@@ -485,17 +511,34 @@ export const BotOperations: React.FC = () => {
               </option>
             ))}
           </select>
+          <select
+            value={taskExecutor}
+            onChange={(e) => setTaskExecutor(e.target.value)}
+            aria-label="Runtime executor (optional)"
+            className="h-9 rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white outline-none focus:border-[#8B5CFF]"
+          >
+            <option value="">Owner-recorded (no runtime)</option>
+            {EXECUTORS.map((e) => (
+              <option key={e.id} value={e.id}>
+                Runtime: {e.label}
+              </option>
+            ))}
+          </select>
           <button
             type="button"
             onClick={() => {
               if (!taskTitle.trim()) return setTaskMsg('A task title is required.');
-              setTasks((prev) =>
-                createTask(prev, {
-                  title: taskTitle,
-                  role: taskRole,
-                  principal: taskPrincipal || null,
-                }),
-              );
+              const next = createTask(tasks, {
+                title: taskTitle,
+                role: taskRole,
+                principal: taskPrincipal || null,
+              });
+              if (taskExecutor && next.length > tasks.length) {
+                const nk = { ...kinds, [next[0].id]: taskExecutor };
+                setKinds(nk);
+                saveKinds(nk);
+              }
+              setTasks(next);
               setTaskTitle('');
               setTaskMsg('');
             }}
@@ -523,6 +566,9 @@ export const BotOperations: React.FC = () => {
                 <p className="font-mono text-[9px] text-[#B8B8B8]">
                   {task.id} · APPROVAL: {task.approvalStatus}
                   {task.approvalRequired ? ' (REQUIRED)' : ''} · CREATED {task.createdAt.slice(0, 10)}
+                  {kinds[task.id]
+                    ? ` · RUNTIME: ${executorById(kinds[task.id])?.label ?? kinds[task.id]}`
+                    : ''}
                   {task.completionEvidence ? ` · EVIDENCE: ${task.completionEvidence}` : ''}
                   {task.blockerReason ? ` · BLOCKER: ${task.blockerReason}` : ''}
                 </p>
@@ -546,6 +592,16 @@ export const BotOperations: React.FC = () => {
                       → {to}
                     </button>
                   ))}
+                  {kinds[task.id] && (task.state === 'UNASSIGNED' || task.state === 'QUEUED') && (
+                    <button
+                      type="button"
+                      onClick={() => void doRun(task)}
+                      disabled={runningIds.includes(task.id)}
+                      className="flex min-h-[44px] items-center rounded border border-[#8B5CFF]/60 px-2.5 font-mono text-[9px] text-white disabled:opacity-50"
+                    >
+                      {runningIds.includes(task.id) ? 'RUNNING…' : '▶ RUN (WORKER RUNTIME)'}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setTasks((prev) => removeTask(prev, task.id))}
@@ -559,9 +615,59 @@ export const BotOperations: React.FC = () => {
           </div>
         )}
         <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
-          STATES ARE OWNER-RECORDED WORKFLOW STATES UNDER THE CANONICAL TRANSITION ALLOWLIST —
-          A TASK MARKED ACTIVE IS A RECORD, NOT A LIVE WORKER. COMPLETING REQUIRES EVIDENCE.
-          EXECUTION IS NOT A TASK STATE AND DOES NOT EXIST HERE.
+          OWNER-RECORDED TASKS MOVE UNDER THE CANONICAL TRANSITION ALLOWLIST AND COMPLETING
+          REQUIRES EVIDENCE. RUNTIME TASKS ARE EXECUTED FOR REAL BY THE IN-PAGE ENGINE BELOW —
+          THEIR EVIDENCE IS THE RUN'S OWN OUTPUT. FINANCIAL EXECUTION IS NOT A TASK STATE AND
+          DOES NOT EXIST HERE.
+        </p>
+      </div>
+
+      {/* WORKER RUNTIME (v171) — the in-page engine, phase 1.
+          It executes the executor kinds below against the
+          platform's own data and pipelines, in this page, only
+          while the page is open. Runs are real: the evidence on
+          a completed task is the run's own output, and each
+          completed run writes one governed Bot Memory record. */}
+      <div className="rounded-xl border border-white/10 p-4 space-y-3" style={SPACE_BG}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-mono text-xs text-[#8B5CFF]">WORKER RUNTIME — IN-PAGE ENGINE</span>
+          <span className="font-mono text-[10px] text-[#B8B8B8]">
+            ENGINE: LOADED · RUNS ONLY WHILE THIS PAGE IS OPEN · ACTIVE NOW: {runningIds.length} ·
+            RUNS THIS SESSION: {runLog.length}
+          </span>
+        </div>
+        <div className="grid gap-2 md:grid-cols-2">
+          {EXECUTORS.map((e) => (
+            <div key={e.id} className="rounded border border-white/10 bg-[#050505] px-3 py-2">
+              <p className="font-mono text-[11px] text-white">{e.label}</p>
+              <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">{e.does}</p>
+            </div>
+          ))}
+        </div>
+        {runLog.length === 0 ? (
+          <p className="font-mono text-[10px] text-[#B8B8B8]">
+            NO RUNS YET THIS SESSION — record a task with a runtime executor above and press RUN.
+            NOTHING RUNS ON ITS OWN, AND NOTHING RUNS WHILE THE PAGE IS CLOSED.
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {runLog.map((r, i) => (
+              <div key={i} className="rounded border border-white/10 bg-[#050505] px-3 py-2">
+                <p className="font-mono text-[10px] text-white">
+                  {r.outcome === 'COMPLETE' ? '✓' : '✗'} {r.title} ·{' '}
+                  {executorById(r.executor)?.label ?? r.executor} · {r.outcome} ·{' '}
+                  {new Date(r.finishedAt).toLocaleTimeString('en-US', { hour12: false })}
+                </p>
+                <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">{r.evidence}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+          EVERY COMPLETED RUN WRITES ONE BOT MEMORY RECORD (ASSIGNMENT_OUTCOME, UNVERIFIED,
+          SOURCE: WORKER-RUNTIME) — THE MEMORY LAYER'S FIRST GOVERNED PRODUCER. THE ENGINE
+          PERFORMS RESEARCH AND CHECKS ONLY; IT SIGNS NOTHING, SENDS NOTHING, AND MOVES NO
+          FUNDS — THE LADDER STILL ENDS AT PREPARED.
         </p>
       </div>
 
