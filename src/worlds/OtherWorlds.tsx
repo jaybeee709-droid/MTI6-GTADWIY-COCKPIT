@@ -53,6 +53,12 @@ import {
   type PositionRecord,
 } from '../positions';
 import { RISK_DIMENSIONS } from '../cost-risk-data';
+import {
+  loadSimulations,
+  saveSimulations,
+  simulate,
+  type SimulationRecord,
+} from '../simulator';
 
 /* ============================================================================
  * 1. OpportunitiesWorld — honest: the pipeline ends at PREPARED with
@@ -194,13 +200,46 @@ export const OpportunitiesWorld: React.FC = () => {
     setFReturnSource('');
   };
 
+  /* CRYPTO SIMULATOR (v160; CW-9 / directive §67 / canonical
+   * §99-19): creating a simulation is the ONLY way a record
+   * reaches SIMULATED — the manual advance below refuses that
+   * step, exactly as the canonical module refuses it. */
+  const [simulations, setSimulations] = useState<SimulationRecord[]>(() => loadSimulations());
+  const [simFor, setSimFor] = useState('');
+  const [simAmount, setSimAmount] = useState('');
+  const [simCurrency, setSimCurrency] = useState('USD');
+  const [simGateMsg, setSimGateMsg] = useState('');
+
+  const runSimulation = (r: OppRecord) => {
+    const sim = simulate(r, simAmount, simCurrency);
+    const nextSims = [sim, ...simulations];
+    setSimulations(nextSims);
+    saveSimulations(nextSims);
+    const simIdx = OPP_STAGES.indexOf('SIMULATED');
+    const curIdx = OPP_STAGES.indexOf(r.pipelineState as (typeof OPP_STAGES)[number]);
+    if (curIdx >= 0 && curIdx < simIdx) {
+      persist(records.map((x) => (x.id === r.id ? { ...x, pipelineState: 'SIMULATED' } : x)));
+    }
+    setSimFor('');
+    setSimAmount('');
+    setSimGateMsg('');
+  };
+
   const advanceOpp = (id: string) => {
+    const target = records.find((r) => r.id === id);
+    if (!target) return;
+    const i = OPP_STAGES.indexOf(target.pipelineState as (typeof OPP_STAGES)[number]);
+    if (i >= 0 && i < OPP_STAGES.length - 1 && OPP_STAGES[i + 1] === 'SIMULATED') {
+      setSimGateMsg(id);
+      return;
+    }
+    setSimGateMsg('');
     persist(
       records.map((r) => {
         if (r.id !== id) return r;
-        const i = OPP_STAGES.indexOf(r.pipelineState as (typeof OPP_STAGES)[number]);
-        if (i < 0 || i >= OPP_STAGES.length - 1) return r;
-        return { ...r, pipelineState: OPP_STAGES[i + 1] };
+        const j = OPP_STAGES.indexOf(r.pipelineState as (typeof OPP_STAGES)[number]);
+        if (j < 0 || j >= OPP_STAGES.length - 1) return r;
+        return { ...r, pipelineState: OPP_STAGES[j + 1] };
       }),
     );
   };
@@ -294,7 +333,9 @@ export const OpportunitiesWorld: React.FC = () => {
         <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
           RECORD RULES (FROM THE CANONICAL SYSTEM): NUMERIC RETURN FIELDS AND RISK SCORES ARE
           FORBIDDEN IN OPPORTUNITY RECORDS — A RETURN STORY IS WORDS PLUS ITS SOURCE. EVERY RECORD
-          STARTS UNVERIFIED AT DISCOVERED AND CAN ADVANCE ONLY TO PREPARED. NOTHING EXECUTES.
+          STARTS UNVERIFIED AT DISCOVERED AND CAN ADVANCE ONLY TO PREPARED. THE SIMULATED STAGE IS
+          REACHED ONLY BY RUNNING A SIMULATION (SIMULATE ON A RECORD) — NEVER BY THE MANUAL
+          ADVANCE. NOTHING EXECUTES.
         </p>
       </div>
 
@@ -344,7 +385,66 @@ export const OpportunitiesWorld: React.FC = () => {
                   >
                     REMOVE RECORD
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setSimFor(simFor === r.id ? '' : r.id)}
+                    className="flex min-h-[44px] items-center rounded-lg border border-[#8B5CFF]/60 px-3 font-mono text-[10px] text-white"
+                  >
+                    SIMULATE
+                  </button>
                 </div>
+                {simGateMsg === r.id && (
+                  <p className="font-mono text-[10px] text-[#FFB020]">
+                    SIMULATED IS REACHED ONLY BY RUNNING A SIMULATION — THE CANONICAL RULE. USE
+                    SIMULATE ON THIS RECORD.
+                  </p>
+                )}
+                {simFor === r.id && (
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <input
+                      aria-label="Simulation amount assumption"
+                      placeholder="Amount assumption — blank = UNKNOWN"
+                      inputMode="decimal"
+                      value={simAmount}
+                      onChange={(e) => setSimAmount(e.target.value)}
+                      className="h-9 w-52 rounded-lg border border-white/15 bg-[#050505] px-2.5 text-xs text-white outline-none placeholder:text-[#B8B8B8]/60"
+                    />
+                    <input
+                      aria-label="Simulation currency"
+                      value={simCurrency}
+                      onChange={(e) => setSimCurrency(e.target.value)}
+                      className="h-9 w-20 rounded-lg border border-white/15 bg-[#050505] px-2.5 text-xs text-white outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => runSimulation(r)}
+                      className="flex min-h-[44px] items-center rounded-lg bg-[#8B5CFF] px-3 font-mono text-[10px] font-semibold text-white"
+                    >
+                      RUN SIMULATION
+                    </button>
+                  </div>
+                )}
+                {simulations
+                  .filter((s) => s.opportunityId === r.id)
+                  .map((s) => (
+                    <div key={s.id} className="rounded-lg border border-[#8B5CFF]/30 bg-[#151515] px-3 py-2 space-y-1">
+                      <p className="font-mono text-[10px] text-white">
+                        SIMULATION · SIMULATED — NOT EXECUTED · SIMULATION_ONLY ·{' '}
+                        {new Date(s.createdAt).toLocaleString()}
+                      </p>
+                      <p className="font-mono text-[10px] text-[#B8B8B8]">
+                        ASSUMED AMOUNT: {s.inputs.amount} {s.inputs.currency} · PRICES:{' '}
+                        {s.pricesUsed.state} · COSTS: {s.costsUsed.state} (ALL{' '}
+                        {s.unknownCosts.length} KINDS UNKNOWN) · EXPECTED OUTCOME:{' '}
+                        {s.expectedOutcome.state} — EXPECTED NET IS NULL WHILE THE GROSS OR ANY
+                        REQUIRED COST IS UNKNOWN.
+                      </p>
+                      <p className="font-mono text-[9px] text-[#B8B8B8]">
+                        A SIMULATION WRITES NOTHING INTO POSITIONS OR EARNINGS AND EXECUTES
+                        NOTHING.
+                      </p>
+                    </div>
+                  ))}
               </div>
             );
           })}
