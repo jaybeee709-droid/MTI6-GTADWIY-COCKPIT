@@ -689,7 +689,7 @@ export const BotOperations: React.FC = () => {
             ▶ RUN ALL QUEUED RUNTIME TASKS
           </button>
           <span className="font-mono text-[9px] text-[#B8B8B8]">
-            OR ASK STAR: “RUN A PRICE CHECK” — SHE RECORDS AND RUNS THE TASK HERSELF.
+            OR ASK STAR: “RUN A PRICE CHECK” — HE RECORDS AND RUNS THE TASK HIMSELF.
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">

@@ -215,7 +215,7 @@ const WorkspaceDetail: React.FC<{ id: string; onBack: () => void; onOpen: (id: s
             : 'BOT ROLES: NONE RECORDED FOR THIS WORKSPACE.'}
         </MonoLine>
         <MonoLine>
-          STAR: ASK STAR ABOUT ANY ENTITY OR MAJOR ABOVE BY NAME — SHE ANSWERS FROM THE SAME
+          STAR: ASK STAR ABOUT ANY ENTITY OR MAJOR ABOVE BY NAME — HE ANSWERS FROM THE SAME
           RECORDS SHOWN HERE.
         </MonoLine>
       </Panel>
