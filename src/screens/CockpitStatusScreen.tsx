@@ -15,6 +15,7 @@
 import React, { useState } from 'react';
 import { LayoutDashboard, Search } from 'lucide-react';
 import { EmptyState, MonoLine, Panel, ScreenHeader, StatusPill } from './shared';
+import { EXECUTORS, runtimeStoreSummary } from '../worker-runtime';
 
 const PANELS: { name: string; state: string; note: string }[] = [
   {
@@ -107,6 +108,40 @@ export const CockpitStatusScreen: React.FC = () => {
             </div>
           ))}
         </div>
+      </Panel>
+
+      <Panel title="Worker Runtime">
+        {(() => {
+          const s = runtimeStoreSummary();
+          return (
+            <div className="space-y-2">
+              <MonoLine>
+                ENGINE: IN-PAGE — RUNS ONLY WHILE THE APP IS OPEN · REMOTE RUNTIME: NOT_CONNECTED
+              </MonoLine>
+              <MonoLine>
+                EXECUTORS: {EXECUTORS.length} — {EXECUTORS.map((e) => e.label).join(' · ')}
+              </MonoLine>
+              <MonoLine>
+                ALL-TIME FROM THE TASK STORE: {s.recorded} RECORDED · {s.completed} COMPLETED ·{' '}
+                {s.failed} FAILED
+              </MonoLine>
+              {s.latestCompleted.length > 0 ? (
+                <p className="text-xs leading-relaxed text-[#B8B8B8]">
+                  Latest completed: {s.latestCompleted[0].title} — {s.latestCompleted[0].evidence}
+                </p>
+              ) : (
+                <p className="text-xs text-[#B8B8B8]">
+                  No completed runs yet — record a runtime task in Bot Operations, or ask STAR to
+                  run one.
+                </p>
+              )}
+              <p className="text-xs text-[#B8B8B8]">
+                The engine performs research and checks only — it signs nothing, sends nothing, and
+                moves no funds. Full run record: Bot Operations.
+              </p>
+            </div>
+          );
+        })()}
       </Panel>
 
       <Panel title="System Widgets">
