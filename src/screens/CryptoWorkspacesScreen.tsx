@@ -66,7 +66,7 @@ function ownerRecordsFor(majorIds: Set<string>): { opportunities: number; positi
   return { opportunities, positions };
 }
 
-const WorkspaceDetail: React.FC<{ id: string; onBack: () => void }> = ({ id, onBack }) => {
+const WorkspaceDetail: React.FC<{ id: string; onBack: () => void; onOpen: (id: string) => void }> = ({ id, onBack, onOpen }) => {
   const w = CRYPTO_WORKSPACES.find((x) => x.id === id);
   const cov = WORKSPACE_COVERAGE[id];
   if (!w || !cov) return null;
@@ -197,6 +197,50 @@ const WorkspaceDetail: React.FC<{ id: string; onBack: () => void }> = ({ id, onB
         </MonoLine>
       </Panel>
 
+      <Panel title="Related workspaces (shared backbone majors, recorded)">
+        {(() => {
+          const related = Object.entries(WORKSPACE_COVERAGE)
+            .filter(([otherId]) => otherId !== id)
+            .map(([otherId, oc]) => ({
+              otherId,
+              shared: [...oc.majors, ...oc.secondaryMajors].filter((m) => majorIds.has(m)),
+            }))
+            .filter((r) => r.shared.length > 0)
+            .sort((a, b) => b.shared.length - a.shared.length)
+            .slice(0, 8);
+          if (related.length === 0)
+            return (
+              <MonoLine>
+                NO OTHER WORKSPACE SHARES A RECORDED MAJOR WITH THIS ONE — IT STANDS ALONE IN THE
+                REGISTRY MAPPING.
+              </MonoLine>
+            );
+          return (
+            <div className="space-y-1.5">
+              {related.map((r) => (
+                <button
+                  key={r.otherId}
+                  type="button"
+                  onClick={() => onOpen(r.otherId)}
+                  className="block w-full rounded border border-white/10 bg-[#050505] px-2.5 py-2 text-left"
+                >
+                  <span className="font-mono text-[11px] text-white">
+                    {CRYPTO_WORKSPACES.find((x) => x.id === r.otherId)?.title ?? r.otherId}
+                  </span>
+                  <span className="block font-mono text-[9px] text-[#B8B8B8]">
+                    SHARES {r.shared.length}: {r.shared.map(majorTitle).join(' · ')}
+                  </span>
+                </button>
+              ))}
+              <MonoLine>
+                RELATIONSHIP = A SHARED RECORDED MAJOR IN THE REGISTRY MAPPING (THE §70 DEPENDENCY
+                READING) — NOT A LIVE LINK.
+              </MonoLine>
+            </div>
+          );
+        })()}
+      </Panel>
+
       <Panel title="Owner context on this device (real joins, owner records only)">
         <MonoLine>
           OPPORTUNITY RECORDS AGAINST THIS WORKSPACE&apos;S MAJORS: {owner.opportunities} ·
@@ -220,6 +264,12 @@ export const CryptoWorkspacesScreen: React.FC<{
   // cost, risk, opportunities, position context, STAR, bots) with
   // honest states for whatever is session data or unrecorded.
   const [detailId, setDetailId] = useState<string | null>(null);
+  // Compare mode (v166; directive §68, recorded there as a
+  // PROPOSED ENHANCEMENT — built as a record-derived comparison:
+  // two workspaces side by side over their recorded coverage,
+  // shared majors marked; nothing computed beyond the records).
+  const [compareA, setCompareA] = useState<string>('');
+  const [compareB, setCompareB] = useState<string>('');
 
   // Search tap-through (v149): when the top bar sends a workspace id,
   // show all groups, expand that row, and scroll it into view.
@@ -251,7 +301,9 @@ export const CryptoWorkspacesScreen: React.FC<{
   const total = CRYPTO_WORKSPACES.length;
 
   if (detailId) {
-    return <WorkspaceDetail id={detailId} onBack={() => setDetailId(null)} />;
+    return (
+      <WorkspaceDetail id={detailId} onBack={() => setDetailId(null)} onOpen={(id) => setDetailId(id)} />
+    );
   }
 
   return (
@@ -320,6 +372,76 @@ export const CryptoWorkspacesScreen: React.FC<{
           {frameMode === 'ALL' &&
             'ALL — ADDS THE RECORDED COST/RISK VOCABULARY: COST-CLASS AND RISK-DIMENSION CODES EXACTLY AS THE REGISTRY RECORDS THEM. AMOUNTS STAY UNKNOWN UNTIL A LIVE SOURCE PRICES THEM; RISK IS PROFILED BY DIMENSION, NEVER AS ONE SCORE.'}
         </p>
+      </Panel>
+
+      <Panel title="Compare workspaces (§68 — recorded coverage, side by side)">
+        <div className="flex flex-wrap gap-2">
+          {([['A', compareA, setCompareA], ['B', compareB, setCompareB]] as const).map(([label, val, set]) => (
+            <label key={label} className="flex min-h-[44px] flex-1 items-center gap-2 rounded border border-white/15 bg-[#050505] px-2">
+              <span className="font-mono text-[10px] text-[#00B7FF]">{label}</span>
+              <select
+                value={val}
+                onChange={(e) => set(e.target.value)}
+                className="min-h-[44px] w-full bg-transparent font-mono text-[11px] text-white outline-none"
+              >
+                <option value="" className="bg-[#151515]">CHOOSE A WORKSPACE…</option>
+                {CRYPTO_WORKSPACES.map((w) => (
+                  <option key={w.id} value={w.id} className="bg-[#151515]">
+                    {w.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
+        {compareA && compareB && compareA !== compareB && (() => {
+          const a = WORKSPACE_COVERAGE[compareA];
+          const b = WORKSPACE_COVERAGE[compareB];
+          const wa = CRYPTO_WORKSPACES.find((w) => w.id === compareA);
+          const wb = CRYPTO_WORKSPACES.find((w) => w.id === compareB);
+          if (!a || !b || !wa || !wb) return null;
+          const aMajors = new Set([...a.majors, ...a.secondaryMajors]);
+          const bMajors = new Set([...b.majors, ...b.secondaryMajors]);
+          const shared = [...aMajors].filter((m) => bMajors.has(m));
+          const row = (label: string, va: string, vb: string) => (
+            <div className="grid grid-cols-[110px_1fr_1fr] gap-2 border-b border-white/5 py-1.5">
+              <span className="font-mono text-[9px] text-[#00B7FF]">{label}</span>
+              <span className="font-mono text-[10px] text-white">{va}</span>
+              <span className="font-mono text-[10px] text-white">{vb}</span>
+            </div>
+          );
+          const titles = (ids: string[]) => (ids.length ? ids.map(majorTitle).join(' · ') : 'NONE RECORDED');
+          return (
+            <div className="mt-3">
+              <div className="grid grid-cols-[110px_1fr_1fr] gap-2 pb-1">
+                <span />
+                <span className="text-xs font-semibold">{wa.title}</span>
+                <span className="text-xs font-semibold">{wb.title}</span>
+              </div>
+              {row('STATUS', wa.status, wb.status)}
+              {row('LADDER TOP', a.ladderTop || wa.ladderTop, b.ladderTop || wb.ladderTop)}
+              {row('WORLD LAYER', a.worldLayer || 'NOT RECORDED', b.worldLayer || 'NOT RECORDED')}
+              {row('GATED', wa.gated ? 'YES — OWNER-GATED SEAT' : 'NO', wb.gated ? 'YES — OWNER-GATED SEAT' : 'NO')}
+              {row('PRIMARY MAJORS', titles(a.majors), titles(b.majors))}
+              {row('SECONDARY', titles(a.secondaryMajors), titles(b.secondaryMajors))}
+              {row('FAMILIES', a.families.length ? a.families.map(familyTitle).join(' · ') : 'NONE RECORDED', b.families.length ? b.families.map(familyTitle).join(' · ') : 'NONE RECORDED')}
+              {row('ENTITY KINDS', a.entityKinds.join(' · ').toUpperCase() || 'NONE RECORDED', b.entityKinds.join(' · ').toUpperCase() || 'NONE RECORDED')}
+              {row('COST CODES', a.costClasses.join(' · ') || 'NONE RECORDED', b.costClasses.join(' · ') || 'NONE RECORDED')}
+              {row('RISK CODES', a.riskDimensions.join(' · ') || 'NONE RECORDED', b.riskDimensions.join(' · ') || 'NONE RECORDED')}
+              {row('SIMULATOR', a.simulatorTemplate, b.simulatorTemplate)}
+              <MonoLine>
+                SHARED MAJORS ({shared.length}): {shared.length ? shared.map(majorTitle).join(' · ') : 'NONE — THE TWO WORKSPACES COVER DIFFERENT PARTS OF THE BACKBONE.'}
+              </MonoLine>
+              <MonoLine>
+                COMPARISON READS THE RECORDED REGISTRY COVERAGE ONLY — IT RANKS NOTHING AND SCORES
+                NOTHING.
+              </MonoLine>
+            </div>
+          );
+        })()}
+        {compareA && compareB && compareA === compareB && (
+          <MonoLine>THE SAME WORKSPACE IS CHOSEN TWICE — PICK TWO DIFFERENT ONES TO COMPARE.</MonoLine>
+        )}
       </Panel>
 
       {visibleGroups.map((g) => (
