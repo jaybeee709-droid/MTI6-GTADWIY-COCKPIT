@@ -24,7 +24,9 @@ export interface BridgeCandidate {
 }
 
 export const BRIDGE_REGISTRY_KEY = 'mti6_bridge_registry_v1';
-export const BRIDGE_REGISTRY_MAX = 200;
+/* Bound (v205 deepening): holds the full measured BRIDGE
+ * class (367 at the v190 classification run) — cap 500. */
+export const BRIDGE_REGISTRY_MAX = 500;
 
 export function loadBridgeCandidates(): BridgeCandidate[] {
   try {

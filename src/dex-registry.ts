@@ -10,8 +10,13 @@ import type { DexCandidate } from './classification';
 
 export const DEX_REGISTRY_KEY = 'mti6_dex_registry_v1';
 export const REL_CANDIDATES_KEY = 'mti6_relationship_candidates_v1';
-export const DEX_REGISTRY_MAX = 200;
-export const REL_CANDIDATES_MAX = 400;
+/* Bounds (v205 deepening): the DEX registry holds the full
+ * measured DEX class (2,405 at the v190 classification run),
+ * so the cap sits above it at 3,000; the shared relationship
+ * store holds the derived head at 1,200. Bounds are stated in
+ * the scan evidence, never silent. */
+export const DEX_REGISTRY_MAX = 3000;
+export const REL_CANDIDATES_MAX = 1200;
 
 export function loadDexCandidates(): DexCandidate[] {
   try {

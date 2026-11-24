@@ -483,16 +483,19 @@ EXECUTORS.push({
     const relFresh: RelationshipCandidate[] = [];
     let classified = 0;
     let dexClassTotal = 0;
-    /* Placement is capped (registry discipline): the index is
-     * TVL-ranked by the source, so the first DEX-class entries
-     * are the largest; the rest await later scans and the gate. */
-    const DEX_PLACE_CAP = 60;
+    /* Placement deepened (v205): EVERY DEX-class entry the
+     * index carries is placed — the owner's goal is complete
+     * DEX coverage, and the registry cap (3,000) sits above the
+     * measured class (2,405). Relationship derivation stays
+     * bounded to the first 200 placed (the source's TVL-ranked
+     * head): the shared relationship store is finite, and the
+     * bound is stated in the evidence, never silent. */
+    const REL_DERIVE_CAP = 200;
     for (const entry of obs.value) {
       const { cls, subclass } = classifyCategory(entry.category);
       classified += 1;
       if (cls !== 'DEX') continue;
       dexClassTotal += 1;
-      if (dexFresh.length >= DEX_PLACE_CAP) continue;
       dexFresh.push({
         id: entry.slug,
         name: entry.name,
@@ -509,34 +512,36 @@ EXECUTORS.push({
         discoveredAt: now,
         updatedAt: now,
       });
-      for (const chain of entry.chains) {
-        relFresh.push({
-          id: `${entry.slug}|deployed_on|${chain}`,
-          from: entry.name,
-          relation: 'deployed_on',
-          to: chain,
-          source: 'DefiLlama Protocols',
-          status: 'CANDIDATE',
-          at: now,
-        });
-      }
-      if (entry.symbol) {
-        relFresh.push({
-          id: `${entry.slug}|has_native_token|${entry.symbol}`,
-          from: entry.name,
-          relation: 'has_native_token',
-          to: entry.symbol,
-          source: 'DefiLlama Protocols',
-          status: 'CANDIDATE',
-          at: now,
-        });
+      if (dexFresh.length <= REL_DERIVE_CAP) {
+        for (const chain of entry.chains) {
+          relFresh.push({
+            id: `${entry.slug}|deployed_on|${chain}`,
+            from: entry.name,
+            relation: 'deployed_on',
+            to: chain,
+            source: 'DefiLlama Protocols',
+            status: 'CANDIDATE',
+            at: now,
+          });
+        }
+        if (entry.symbol) {
+          relFresh.push({
+            id: `${entry.slug}|has_native_token|${entry.symbol}`,
+            from: entry.name,
+            relation: 'has_native_token',
+            to: entry.symbol,
+            source: 'DefiLlama Protocols',
+            status: 'CANDIDATE',
+            at: now,
+          });
+        }
       }
     }
     const dexRes = upsertDexCandidates(dexFresh);
     const relRes = addRelationshipCandidates(relFresh);
     const covered = dexFresh.reduce((acc, c) => acc + dexCoverage(c).length, 0);
     const avgCoverage = dexFresh.length > 0 ? (covered / dexFresh.length).toFixed(1) : '0';
-    return `DEX scan via DefiLlama Protocols (status ${obs.status}): ${classified} protocols classified · ${dexClassTotal} DEX-class found, first ${dexFresh.length} placed as candidates (${dexRes.created} new, ${dexRes.updated} refreshed; registry holds ${dexRes.total}) · ${relRes.created} new relationship candidates (store holds ${relRes.total}) · average checklist evidence ${avgCoverage}/${DEX_CHECKLIST.length} dimensions per DEX — the rest read ABSENT, never guessed. All candidates UNVERIFIED; only the owner's gate promotes.`;
+    return `DEX scan via DefiLlama Protocols (status ${obs.status}): ${classified} protocols classified · ${dexClassTotal} DEX-class found, all ${dexFresh.length} placed as candidates (${dexRes.created} new, ${dexRes.updated} refreshed; registry holds ${dexRes.total}) · relationship candidates derived for the first ${Math.min(dexFresh.length, REL_DERIVE_CAP)} placed (bounded store; ${relRes.created} new, store holds ${relRes.total}) · average checklist evidence ${avgCoverage}/${DEX_CHECKLIST.length} dimensions per DEX — the rest read ABSENT, never guessed. All candidates UNVERIFIED; only the owner's gate promotes.`;
   },
 });
 
@@ -557,13 +562,12 @@ EXECUTORS.push({
     const relFresh: RelationshipCandidate[] = [];
     let classified = 0;
     let bridgeClassTotal = 0;
-    const BRIDGE_PLACE_CAP = 60;
+    const REL_DERIVE_CAP = 200;
     for (const entry of obs.value) {
       const { cls, subclass } = classifyCategory(entry.category);
       classified += 1;
       if (cls !== 'BRIDGE') continue;
       bridgeClassTotal += 1;
-      if (bridgeFresh.length >= BRIDGE_PLACE_CAP) continue;
       bridgeFresh.push({
         id: entry.slug,
         name: entry.name,
@@ -580,34 +584,36 @@ EXECUTORS.push({
         discoveredAt: now,
         updatedAt: now,
       });
-      for (const chain of entry.chains) {
-        relFresh.push({
-          id: `${entry.slug}|deployed_on|${chain}`,
-          from: entry.name,
-          relation: 'deployed_on',
-          to: chain,
-          source: 'DefiLlama Protocols',
-          status: 'CANDIDATE',
-          at: now,
-        });
-      }
-      if (entry.symbol) {
-        relFresh.push({
-          id: `${entry.slug}|has_native_token|${entry.symbol}`,
-          from: entry.name,
-          relation: 'has_native_token',
-          to: entry.symbol,
-          source: 'DefiLlama Protocols',
-          status: 'CANDIDATE',
-          at: now,
-        });
+      if (bridgeFresh.length <= REL_DERIVE_CAP) {
+        for (const chain of entry.chains) {
+          relFresh.push({
+            id: `${entry.slug}|deployed_on|${chain}`,
+            from: entry.name,
+            relation: 'deployed_on',
+            to: chain,
+            source: 'DefiLlama Protocols',
+            status: 'CANDIDATE',
+            at: now,
+          });
+        }
+        if (entry.symbol) {
+          relFresh.push({
+            id: `${entry.slug}|has_native_token|${entry.symbol}`,
+            from: entry.name,
+            relation: 'has_native_token',
+            to: entry.symbol,
+            source: 'DefiLlama Protocols',
+            status: 'CANDIDATE',
+            at: now,
+          });
+        }
       }
     }
     const bridgeRes = upsertBridgeCandidates(bridgeFresh);
     const relRes = addRelationshipCandidates(relFresh);
     const spans = bridgeFresh.reduce((acc, c) => acc + c.chains.length, 0);
     const avgSpan = bridgeFresh.length > 0 ? (spans / bridgeFresh.length).toFixed(1) : '0';
-    return `Bridge scan via DefiLlama Protocols (status ${obs.status}): ${classified} protocols classified · ${bridgeClassTotal} BRIDGE-class found, first ${bridgeFresh.length} placed as candidates (${bridgeRes.created} new, ${bridgeRes.updated} refreshed; registry holds ${bridgeRes.total}) · average chain span ${avgSpan} chains per bridge · ${relRes.created} new relationship candidates (store holds ${relRes.total}). All candidates UNVERIFIED; only the owner's gate promotes.`;
+    return `Bridge scan via DefiLlama Protocols (status ${obs.status}): ${classified} protocols classified · ${bridgeClassTotal} BRIDGE-class found, all ${bridgeFresh.length} placed as candidates (${bridgeRes.created} new, ${bridgeRes.updated} refreshed; registry holds ${bridgeRes.total}) · average chain span ${avgSpan} chains per bridge · relationship candidates derived for the first ${Math.min(bridgeFresh.length, REL_DERIVE_CAP)} placed (bounded store; ${relRes.created} new, store holds ${relRes.total}). All candidates UNVERIFIED; only the owner's gate promotes.`;
   },
 });
 
@@ -632,18 +638,14 @@ EXECUTORS.push({
     let classified = 0;
     let poolTotal = 0;
     let vaultTotal = 0;
-    const POOL_CAP = 60;
-    const VAULT_CAP = 60;
     for (const entry of obs.value) {
       const { cls, subclass } = classifyCategory(entry.category);
       classified += 1;
       if (cls !== 'POOL' && cls !== 'VAULT') continue;
       if (cls === 'POOL') {
         poolTotal += 1;
-        if (poolFresh.length >= POOL_CAP) continue;
       } else {
         vaultTotal += 1;
-        if (vaultFresh.length >= VAULT_CAP) continue;
       }
       const candidate: PlacementCandidate = {
         id: entry.slug,
