@@ -252,6 +252,38 @@ EXECUTORS.push(
   },
 );
 
+/* Phase 3 (v181) — the opportunity digest: what the pipeline
+ * holds for the owner, by stage, with whatever sits at PREPARED
+ * named. A pure read of the owner's opportunity store; the
+ * pipeline ends at PREPARED and never executes. */
+EXECUTORS.push({
+  id: 'opportunity-digest',
+  label: 'OPPORTUNITY DIGEST',
+  does: 'Reads the owner\u2019s opportunity store and reports the pipeline by stage, naming anything at PREPARED awaiting the owner\u2019s decision.',
+  run: async () => {
+    let records: { title?: unknown; pipelineState?: unknown }[] = [];
+    try {
+      const raw = localStorage.getItem('mti6_opportunities_v1');
+      const parsed = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(parsed)) records = parsed;
+    } catch {
+      records = [];
+    }
+    if (records.length === 0) {
+      return '0 opportunity records. The discovery feed is NOT_CONNECTED; opportunities are owner-recorded on the Opportunities screen. Nothing is at PREPARED, and nothing can be earned from an empty pipeline.';
+    }
+    const byStage = new Map<string, number>();
+    const preparedTitles: string[] = [];
+    for (const r of records) {
+      const stage = typeof r.pipelineState === 'string' ? r.pipelineState : 'DISCOVERED';
+      byStage.set(stage, (byStage.get(stage) ?? 0) + 1);
+      if (stage === 'PREPARED' && typeof r.title === 'string') preparedTitles.push(r.title);
+    }
+    const stages = [...byStage.entries()].map(([s, n]) => `${s} ${n}`).join(' · ');
+    return `${records.length} opportunity record(s) · ${stages} · ${preparedTitles.length} at PREPARED${preparedTitles.length ? `: ${preparedTitles.join(' · ')}` : ''} — PREPARED is the end of the line: acting on one is the owner's own step, outside the platform`;
+  },
+});
+
 /* STAR chat command matching (v172): "run a price check" and
  * its kin map to an executor. Deliberately narrow — a run verb
  * plus an executor keyword — so ordinary questions never fire
@@ -266,6 +298,7 @@ export function runtimeCommandFor(text: string): string | null {
   if (q.includes('geocode') || q.includes('place')) return 'geocode-check';
   if (q.includes('memory')) return 'memory-report';
   if (q.includes('posture') || q.includes('security')) return 'posture-check';
+  if (q.includes('opportunit')) return 'opportunity-digest';
   if (q.includes('provider') || q.includes('connection')) return 'provider-status';
   if (q.includes('coverage')) return 'coverage-report';
   if (q.includes('link') || q.includes('integrity')) return 'link-integrity';
