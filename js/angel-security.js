@@ -588,12 +588,27 @@
     if (alert.flowTrail !== undefined && !Array.isArray(alert.flowTrail)) {
       errors.push("flowTrail must be an array of flow-step records.");
     }
+    // Every free-text field a writer can put on an alert is scanned,
+    // not only the intake fields: mitigation / resolution text,
+    // STAR-notification summaries, history notes and flow-trail
+    // details are all written through public APIs (recordMitigation,
+    // recordResolution, notifyStar, transitionAlert) that funnel
+    // through saveAlert -> validateAlert, so scanning them here
+    // closes the bypass where a secret-shaped value entered through
+    // a later write after a clean intake.
     var secretField = findSecretField([
       ["title", alert.title],
       ["description", alert.description],
-      ["source", alert.source]
+      ["source", alert.source],
+      ["mitigation.text", alert.mitigation && alert.mitigation.text],
+      ["resolution.text", alert.resolution && alert.resolution.text],
+      ["starNotification.summary", alert.starNotification && alert.starNotification.summary]
     ].concat((Array.isArray(alert.evidence) ? alert.evidence : []).map(function (e, i) {
       return ["evidence[" + i + "].reference", e && e.reference];
+    })).concat((Array.isArray(alert.history) ? alert.history : []).map(function (h, i) {
+      return ["history[" + i + "].note", h && h.note];
+    })).concat((Array.isArray(alert.flowTrail) ? alert.flowTrail : []).map(function (f, i) {
+      return ["flowTrail[" + i + "].detail", f && f.detail];
     })));
     if (secretField) {
       errors.push("Field " + secretField + " looks like a secret or credential and must not be stored in an alert.");

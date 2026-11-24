@@ -62,7 +62,11 @@
       var value = input.value.trim();
       if (!value) return;
       log("Bot starting: " + value.slice(0, 80));
-      if (isVideoLink(value)) {
+      // A video link must be a web address too: the video pattern
+      // matches anywhere in the text, so without the scheme check a
+      // pasted "javascript:..." string containing a video URL would
+      // land in the anchor href and execute on tap.
+      if (isVideoLink(value) && /^https?:\/\//i.test(value)) {
         log("Video link — no embedded player; opening via default browser link (web search finds the video).");
         windowEl.innerHTML = "";
         windowEl.appendChild(U.el("p", {}, "Video links open in your phone's default browser. Use the global search bar to find videos on the web."));

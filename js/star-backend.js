@@ -75,6 +75,22 @@
     try { return global.localStorage || null; } catch (e) { return null; }
   }
 
+  // A configured endpoint must be a path on this origin, nothing
+  // else. A leading "/" alone is not sufficient: "//host/path" is a
+  // protocol-relative URL that fetch() resolves OFF-origin, "/\host"
+  // is its backslash twin, and tab/newline characters are stripped
+  // by URL parsing, which would smuggle the same "//host" shape past
+  // a naive prefix check ("/\t/host"). All three are rejected here,
+  // at both acceptance points (saved-config load and configure()).
+  function isSameOriginPath(p) {
+    if (typeof p !== "string" || p.length === 0) return false;
+    if (/[\t\n\r]/.test(p)) return false;
+    if (p.charAt(0) !== "/") return false;
+    var second = p.charAt(1);
+    if (second === "/" || second === "\\") return false;
+    return true;
+  }
+
   function loadPersisted() {
     var ls = storage();
     if (!ls) return;
@@ -83,7 +99,7 @@
       if (!raw) return;
       var saved = JSON.parse(raw);
       if (!saved || typeof saved !== "object") return;
-      if (typeof saved.endpoint === "string" && saved.endpoint.indexOf("/") === 0) {
+      if (isSameOriginPath(saved.endpoint)) {
         config.endpoint = saved.endpoint;
         config.mode = "remote";
       }
@@ -149,7 +165,7 @@
         config.mode = "demo";
         verifiedLive = false;
         dirty = true;
-      } else if (next.endpoint.indexOf("/") === 0) {
+      } else if (isSameOriginPath(next.endpoint)) {
         // Only a relative, same-origin proxy path is accepted.
         config.endpoint = next.endpoint;
         config.mode = "remote";

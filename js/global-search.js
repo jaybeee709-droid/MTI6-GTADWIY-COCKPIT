@@ -732,10 +732,15 @@
       return m ? m[1] : "";
     }
     function resultCard(o) {
+      // External titles link only when the URL is a web address:
+      // result URLs arrive from remote providers (a Hacker News
+      // story URL is user-submitted upstream), and esc() cannot
+      // neutralise a "javascript:" scheme inside an href — the card
+      // still renders, unlinked, with the title as plain text.
       var titleHtml;
       if (o.url && o.internal) {
         titleHtml = '<a href="' + esc(o.url) + '" class="global-result-link search-card-title" data-hide="1">' + esc(o.title) + "</a>";
-      } else if (o.url) {
+      } else if (o.url && isUrl(o.url)) {
         titleHtml = '<a href="' + esc(o.url) + '" class="search-card-title" target="_blank" rel="noopener noreferrer">' + esc(o.title) + "</a>";
       } else {
         titleHtml = '<span class="search-card-title">' + esc(o.title) + "</span>";
@@ -1673,7 +1678,7 @@
         return;
       }
       if (picked.mode === "page") {
-        if (isYouTube(query)) { finish(head + "<div class=\"api-meta\">YouTube link — no embedded player; open it in your default browser.</div><ul class=\"price-offer-list\"><li><a href=\"" + esc(query) + "\" target=\"_blank\" rel=\"noopener\">Open video in default browser</a></li></ul>"); return; }
+        if (isUrl(query) && isYouTube(query)) { finish(head + "<div class=\"api-meta\">YouTube link — no embedded player; open it in your default browser.</div><ul class=\"price-offer-list\"><li><a href=\"" + esc(query) + "\" target=\"_blank\" rel=\"noopener\">Open video in default browser</a></li></ul>"); return; }
         if (!isUrl(query)) { finish(head + "<div class=\"api-meta\">Page mode needs a full URL starting with https://.</div>"); return; }
         if (!global.KnowledgeScout) { finish(head + "<div class=\"api-meta\">Scouts layer did not load.</div>"); return; }
         global.KnowledgeScout.scrapePublicPage(query).then(function (r) {
