@@ -16,8 +16,10 @@
 // re-listed here. Assignments are read from the canonical store
 // (src/principal-assignments.ts, wired v150): principals start
 // UNASSIGNED and show whatever the owner has recorded in Bot
-// Operations. There is no worker runtime in this build, so no
-// principal is ever displayed as live. STAR is shown only as
+// Operations. The in-page worker runtime (v171+) executes
+// recorded runtime tasks while the app is open; a principal's
+// executed work is shown from the task store, never as a
+// standing "live" state. STAR is shown only as
 // demo / NOT_CONNECTED and is never assignable.
 
 import React, { useState } from 'react';
@@ -61,7 +63,7 @@ export const BotProfileScreen: React.FC = () => {
         icon={Bot}
         title="Bot Profiles"
         subtitle="STAR, the 12 Tribe principals, and every recorded worker — identity, recorded work, and graphs of recorded activity only"
-        note="A profile is intelligence, not authority — it assigns, executes, and approves nothing. No worker runtime is live in this build."
+        note="A profile is intelligence, not authority — it assigns, executes, and approves nothing. Runtime work shown here was executed by the in-page engine in Bot Operations while the app was open."
       />
 
       <Panel title="Bot index">
@@ -121,7 +123,7 @@ export const BotProfileScreen: React.FC = () => {
             <span className="text-[#B8B8B8]">Current task</span>
             <span className="font-semibold">
               {selected === 'star'
-                ? 'NO_DATA — no worker runtime'
+                ? 'NO STANDING TASK — STAR runs runtime tasks on command'
                 : selectedAssignment?.currentTask ?? 'NONE RECORDED — no task assigned'}
             </span>
           </div>

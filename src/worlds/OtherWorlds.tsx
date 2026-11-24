@@ -1368,7 +1368,7 @@ export const SecurityWorld: React.FC = () => {
           {[
             { key: 'allExecution', label: 'Halt All Order Execution', desc: 'Execution is already disabled by design' },
             { key: 'railATransfer', label: 'Lock RAIL-A USD/JPY', desc: 'Enforce Read-Only on RAIL-A' },
-            { key: 'botAutonomy', label: 'Revoke Bot Autonomy', desc: 'No worker runtime is live in this build' },
+            { key: 'botAutonomy', label: 'Revoke Bot Autonomy', desc: 'The in-page runtime runs research/check executors only — it holds no financial authority' },
           ].map((sw) => {
             const engaged = killSwitches[sw.key];
             return (
@@ -1414,7 +1414,7 @@ export const SecurityWorld: React.FC = () => {
         )}
         {tab === 'Bot Permissions' && (
           <div className="flex items-center gap-2 text-[#B8B8B8]">
-            <Bot className="h-4 w-4 text-[#8B5CFF]" /> Bot permissions: NO_DATA — no worker runtime is live; execution is disabled by design.
+            <Bot className="h-4 w-4 text-[#8B5CFF]" /> Bot permissions: the in-page runtime runs research/check executors only, while the app is open; financial execution is disabled by design.
           </div>
         )}
         {tab === 'Devices' && (

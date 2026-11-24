@@ -16,8 +16,10 @@
 //
 // The 12 Tribe principals (TRIBE_PRINCIPALS) mirror js/tribe-principals.js
 // verbatim (owner ruling 05:56 EST Nov 14, 2026, Revelation 7 order).
-// All 12 start UNASSIGNED with no role/task: there is no worker runtime
-// in this build, so no principal is ever displayed as live.
+// All 12 start UNASSIGNED with no role/task. The in-page worker
+// runtime (v171+) executes recorded tasks while the app is open,
+// but no principal is ever displayed as a standing "live" state —
+// only their recorded, executed work is shown.
 
 export const DIRECTIVE_DATE = '2026-11-22';
 
