@@ -26,7 +26,8 @@
  * (freshness, evidenceCount, sourceCount, support status) —
  * never a confidence percentage.
  */
-import { fetchYields, fmtTime, fmtUsd, type PoolYield } from './live-data';
+import { fetchPrice, fetchProtocolIndex, fetchYields, fmtTime, fmtUsd, type PoolYield } from './live-data';
+import { classifyCategory } from './classification';
 import { loadAssignments } from './principal-assignments';
 import { TRIBE_PRINCIPALS } from './worlds-data';
 import { createTask, loadTasks } from './worker-tasks';
@@ -66,7 +67,11 @@ export interface MoneySignal {
   protocol: string | null;
   network: string | null;
   poolKey: string | null;
-  radarType: RadarType;
+  /** An opportunity type from the owner's 19-type vocabulary, or
+   * 'Market' (price movement) / 'Discovery' (new protocol) for
+   * signals that feed the radar without naming an opportunity
+   * type of their own. */
+  radarType: RadarType | 'Market' | 'Discovery';
   boardState: RadarBoardState;
   observedAt: number;
   evidence: string[];
@@ -81,6 +86,8 @@ export interface MoneySignal {
  * no connected source yet, so the radar reports nothing rather
  * than inventing activity. */
 export const RADAR_CATEGORY_STATES: { name: string; state: 'ACTIVE' | 'NO_DATA'; note: string }[] = [
+  { name: 'Market Prices', state: 'ACTIVE', note: 'BTC/ETH/SOL governed price chains — source-reported 24h move signals' },
+  { name: 'Protocol Discovery', state: 'ACTIVE', note: 'DefiLlama protocol index diffed scan-over-scan — new protocols surface as signals' },
   { name: 'Yield', state: 'ACTIVE', note: 'DefiLlama Yields watched pools' },
   { name: 'Liquidity', state: 'ACTIVE', note: 'Curve / Uniswap watched pools in the yields feed' },
   { name: 'Lending', state: 'ACTIVE', note: 'Aave / Compound / Kamino watched pools' },
@@ -112,6 +119,14 @@ interface RadarBaseline {
   source: string | null;
   status: string;
   pools: PoolObs[];
+  /** Last price observation per symbol (v194) — a price signal
+   * mints only when the source-reported 24h change itself moved
+   * by a full point since the baseline, so re-scans stay quiet. */
+  prices?: Record<string, { price: number; change24h: number | null }>;
+  /** Protocol index slug set (v194). The first scan records it
+   * silently — a baseline, not thousands of false discoveries;
+   * later scans diff against it. */
+  protocolSlugs?: string[];
 }
 
 const poolKeyOf = (p: { project: string; symbol: string; chain: string }): string =>
@@ -276,7 +291,7 @@ export async function runMoneyRadarScan(): Promise<RadarScanResult> {
     signalType: string,
     pool: PoolObs | null,
     project: string,
-    radarType: RadarType,
+    radarType: MoneySignal['radarType'],
     boardState: RadarBoardState,
     evidence: string[],
   ): MoneySignal => ({
@@ -378,6 +393,92 @@ export async function runMoneyRadarScan(): Promise<RadarScanResult> {
         ],
       ),
     );
+  }
+
+  /* Price movement (v194) — the governed BTC/ETH/SOL chains.
+   * The signal rests on the source's own reported 24h change in
+   * a single observation; the baseline guard keeps re-scans
+   * quiet unless the reported change itself moved a full point. */
+  const priceObs: Record<string, { price: number; change24h: number | null }> = { ...(baseline?.prices ?? {}) };
+  for (const sym of ['BTC', 'ETH', 'SOL']) {
+    try {
+      const p = await fetchPrice(sym);
+      if (!p.value) continue;
+      const change = p.value.change24h;
+      priceObs[sym] = { price: p.value.price, change24h: change };
+      if (change === null || Math.abs(change) < 5) continue;
+      const prevChange = baseline?.prices?.[sym]?.change24h;
+      if (prevChange !== undefined && prevChange !== null && Math.abs(change - prevChange) < 1) continue;
+      const at = p.fetchedAt ?? observedAt;
+      signals.push({
+        id: `radar-${change >= 0 ? 'price-surge' : 'price-drop'}-${slug(sym)}-${at}`,
+        signalType: change >= 0 ? 'PRICE_SURGE' : 'PRICE_DROP',
+        source: p.source ?? 'price chain',
+        entity: sym,
+        asset: sym,
+        protocol: null,
+        network: null,
+        poolKey: null,
+        radarType: 'Market',
+        boardState: Math.abs(change) >= 10 ? 'HOT' : change >= 0 ? 'GROWING' : 'DECLINING',
+        observedAt: at,
+        evidence: [
+          `${p.source ?? 'Price chain'} reports ${sym} at ${fmtUsd(p.value.price)} with a 24h change of ${change >= 0 ? '+' : ''}${change.toFixed(2)}% (${p.status}, fetched ${fmtTime(p.fetchedAt)})`,
+          'A source-reported market move — intelligence for review, never a trade signal the platform acts on',
+        ],
+        evidenceCount: 2,
+        sourceCount: 1,
+        supportStatus: 'OBSERVED',
+        freshness: p.status === 'STALE' ? 'STALE' : p.status === 'LIVE' || p.status === 'CACHED' ? 'CURRENT' : 'UNKNOWN',
+      });
+    } catch {
+      /* a failed price chain mints nothing */
+    }
+  }
+
+  /* Protocol discovery (v194) — the governed DefiLlama protocol
+   * index diffed against the baseline slug set. New protocols
+   * surface as Discovery signals carrying their deterministic
+   * classification as evidence; the first scan only baselines. */
+  let protocolSlugs: string[] | undefined = baseline?.protocolSlugs;
+  let newDexNames: string[] = [];
+  try {
+    const idx = await fetchProtocolIndex();
+    if (idx.value && idx.value.length > 0) {
+      const currentSlugs = idx.value.map((e) => e.slug);
+      if (protocolSlugs !== undefined) {
+        const knownSlugs = new Set(protocolSlugs);
+        const fresh = idx.value.filter((e) => !knownSlugs.has(e.slug)).slice(0, 20);
+        for (const entry of fresh) {
+          const cls = classifyCategory(entry.category);
+          if (cls.cls === 'DEX') newDexNames.push(entry.name);
+          signals.push({
+            id: `radar-new-protocol-${slug(entry.slug)}-${idx.fetchedAt ?? observedAt}`,
+            signalType: 'NEW_PROTOCOL',
+            source: idx.source ?? 'DefiLlama Protocols',
+            entity: entry.name,
+            asset: entry.symbol,
+            protocol: entry.name,
+            network: entry.chains[0] ?? null,
+            poolKey: null,
+            radarType: 'Discovery',
+            boardState: 'NEW',
+            observedAt: idx.fetchedAt ?? observedAt,
+            evidence: [
+              `${entry.name} appears in the ${idx.source ?? 'DefiLlama Protocols'} index at ${fmtTime(idx.fetchedAt ?? observedAt)} and was absent from the radar baseline slug set`,
+              `Source category "${entry.category ?? 'not reported'}" classifies deterministically as ${cls.cls}${cls.subclass ? ` / ${cls.subclass}` : ''} — a candidate for the placement pipeline, not canonical truth`,
+            ],
+            evidenceCount: 2,
+            sourceCount: 1,
+            supportStatus: 'OBSERVED',
+            freshness: idx.status === 'STALE' ? 'STALE' : idx.status === 'LIVE' || idx.status === 'CACHED' ? 'CURRENT' : 'UNKNOWN',
+          });
+        }
+      }
+      protocolSlugs = currentSlugs;
+    }
+  } catch {
+    /* a failed index fetch mints nothing and keeps the old baseline set */
   }
 
   /* Record the signals (deduped by id — a re-scan of the same
@@ -488,8 +589,19 @@ export async function runMoneyRadarScan(): Promise<RadarScanResult> {
       dispatch(`Money Radar: capital flow review ${s.protocol}`, 'Analysis');
     }
   }
+  for (const s of freshSignals) {
+    if ((s.signalType === 'PRICE_SURGE' || s.signalType === 'PRICE_DROP') && s.boardState === 'HOT') {
+      dispatch(`Money Radar: price move review ${s.asset}`, 'Analysis');
+    }
+  }
+  if (newDexNames.length > 0) {
+    dispatch(
+      `Money Radar: classify + place new DEX candidate(s): ${newDexNames.slice(0, 4).join(', ')}${newDexNames.length > 4 ? ', …' : ''}`,
+      'Research',
+    );
+  }
 
-  saveBaseline({ observedAt, source, status: obs.status, pools: current });
+  saveBaseline({ observedAt, source, status: obs.status, pools: current, prices: priceObs, protocolSlugs });
   return {
     status: obs.status,
     source,
@@ -589,5 +701,5 @@ export function moneyRadarSummaryText(): string {
   const latest = s.latest
     .map((x) => `${x.signalType} — ${x.entity} (${boardStateAt(x, Date.now())}, evidence ${x.evidenceCount}, ${x.supportStatus})`)
     .join(' · ');
-  return `From the platform's own records: Money Radar holds ${s.totalSignals} signal(s) over ${s.poolsTracked} tracked watched pools — board: ${board}. ${s.radarCandidates} radar opportunity candidate(s) sit in the opportunity store at DISCOVERED / UNVERIFIED for your review, and ${s.dispatchedOpen} radar work order(s) are open in the Bot Work Queue for the Tribe. Latest signals: ${latest}. Signals come only from governed observations (DefiLlama Yields today); categories without a source read NO_DATA. The radar ranks and explains — acting on a candidate is your step, outside the platform.`;
+  return `From the platform's own records: Money Radar holds ${s.totalSignals} signal(s) over ${s.poolsTracked} tracked watched pools — board: ${board}. ${s.radarCandidates} radar opportunity candidate(s) sit in the opportunity store at DISCOVERED / UNVERIFIED for your review, and ${s.dispatchedOpen} radar work order(s) are open in the Bot Work Queue for the Tribe. Latest signals: ${latest}. Signals come only from governed observations (DefiLlama Yields, the BTC/ETH/SOL price chains, and the DefiLlama protocol index diffed scan-over-scan); categories without a source read NO_DATA. The radar ranks and explains — acting on a candidate is your step, outside the platform.`;
 }
