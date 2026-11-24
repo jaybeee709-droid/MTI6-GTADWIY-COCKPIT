@@ -19,6 +19,7 @@ import { memorySummary } from './bot-memory';
 import { contractRegistrySummary } from './contract-registry';
 import { EXECUTORS, runtimeStoreSummary } from './worker-runtime';
 import { dexRegistrySummary } from './dex-registry';
+import { bridgeRegistrySummary } from './bridge-registry';
 import { assetUniverseSummary } from './asset-universe';
 import { moneyRadarSummaryText } from './money-radar';
 import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
@@ -134,6 +135,13 @@ export function answerLocally(raw: string): string | null {
       return `${FROM_RECORDS}the DEX Registry is empty — no DEX scan has run yet. Say "run a dex scan" and the runtime classifies the DefiLlama protocol index, places every DEX-class entry here as an UNVERIFIED candidate, and derives deployed_on / native-token relationship candidates. Classification is deterministic from the source's own category; placement follows the universal class matrix; only the owner's gate promotes a candidate.`;
     }
     return `${FROM_RECORDS}the DEX Registry holds ${s.dexCount} DEX candidate(s) across ${s.chainsCovered} chains, with ${s.relCount} relationship candidate(s) (deployed_on, has_native_token). All are UNVERIFIED candidates from DefiLlama Protocols — coverage is counted only from evidence each record carries (website, GitHub, chains, token contract), and the remaining checklist dimensions read ABSENT. Only the owner's gate promotes.`;
+  }
+  if (/(bridge registry|bridges|bridge scan)/.test(q)) {
+    const s = bridgeRegistrySummary();
+    if (s.bridgeCount === 0) {
+      return `${FROM_RECORDS}the Bridge Registry is empty — no bridge scan has run yet. Say "run a bridge scan" and the runtime classifies the DefiLlama protocol index and places every BRIDGE-class entry here as an UNVERIFIED candidate with its chain span. Only the owner's gate promotes a candidate.`;
+    }
+    return `${FROM_RECORDS}the Bridge Registry holds ${s.bridgeCount} bridge candidate(s) spanning ${s.chainsCovered} chains in total. All are UNVERIFIED candidates from DefiLlama Protocols — a bridge's placement evidence is its chain span, carried by deployed_on relationship candidates. Only the owner's gate promotes.`;
   }
 
   if (/(asset universe|tier 1|tier one|which assets|asset tiers)/.test(q)) {

@@ -55,6 +55,7 @@ import {
 import { CATALOGUED_CONTRACTS } from '../contract-catalog';
 import { DEX_CHECKLIST, dexCoverage } from '../classification';
 import { loadDexCandidates, loadRelationshipCandidates } from '../dex-registry';
+import { loadBridgeCandidates } from '../bridge-registry';
 import { ASSET_FAMILIES_NOT_SYMBOLS, assetUniverse, assetUniverseSummary } from '../asset-universe';
 
 type ConsoleTab =
@@ -1165,6 +1166,45 @@ export const BotOperations: React.FC = () => {
             <p className="mt-2 font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
               STAR CREATES CANDIDATES, NEVER TRUTH. PLACEMENT FOLLOWS THE UNIVERSAL CLASS MATRIX;
               PROMOTION BELONGS TO THE OWNER'S GATE ALONE. EXECUTION STAYS DISABLED.
+            </p>
+          </div>
+        );
+      })()}
+
+      {/* BRIDGE REGISTRY (v200) — auto-placement slice 2:
+          BRIDGE-class candidates with their chain spans. Same
+          law as the DEX Registry: candidates, never truth. */}
+      {(() => {
+        const bridges = loadBridgeCandidates();
+        const bChains = new Set<string>();
+        for (const b of bridges) for (const c of b.chains) bChains.add(c);
+        return (
+          <div className="mt-4 rounded-2xl border border-white/10 bg-[#0A0A0A] p-4">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-xs text-[#8B5CFF]">BRIDGE REGISTRY · AUTO-PLACEMENT CANDIDATES</span>
+              <span className="font-mono text-[10px] text-white">
+                {bridges.length} BRIDGES · {bChains.size} CHAINS SPANNED
+              </span>
+            </div>
+            {bridges.length === 0 ? (
+              <p className="mt-2 font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                NO BRIDGE CANDIDATES YET. RUN THE BRIDGE SCAN (RUNTIME PANEL ABOVE OR ASK STAR) —
+                IT CLASSIFIES THE DEFILLAMA PROTOCOL INDEX AND PLACES EVERY BRIDGE-CLASS ENTRY
+                HERE AS AN UNVERIFIED CANDIDATE WITH ITS CHAIN SPAN.
+              </p>
+            ) : (
+              <div className="mt-2 space-y-1.5">
+                {bridges.slice(0, 10).map((b) => (
+                  <p key={b.id} className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    <span className="text-white">{b.name}</span> · {b.subclass} · spans{' '}
+                    {b.chains.length} chain(s) · token {b.tokenSymbol ?? '—'} · {b.source}
+                  </p>
+                ))}
+              </div>
+            )}
+            <p className="mt-2 font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+              STAR CREATES CANDIDATES, NEVER TRUTH. PROMOTION BELONGS TO THE OWNER'S GATE ALONE.
+              EXECUTION STAYS DISABLED.
             </p>
           </div>
         );

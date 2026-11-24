@@ -31,6 +31,7 @@ import {
   upsertDexCandidates,
   type RelationshipCandidate,
 } from './dex-registry';
+import { loadBridgeCandidates, upsertBridgeCandidates, type BridgeCandidate } from './bridge-registry';
 import { CANONICAL_60, ENCYCLOPEDIA_COUNTS, ENCYCLOPEDIA_FAMILIES, ENCYCLOPEDIA_INDEX } from './encyclopedia-data';
 import { ENTITY_UNIVERSE } from './entity-data';
 import { WORKSPACE_COVERAGE } from './workspace-coverage-data';
@@ -530,6 +531,77 @@ EXECUTORS.push({
   },
 });
 
+/* Auto-placement slice 2 (v200): BRIDGE-class placement, the
+ * DEX scan's sibling. A bridge's placement evidence is its
+ * chain span, carried by the same relationship store. */
+EXECUTORS.push({
+  id: 'bridge-scan',
+  label: 'BRIDGE SCAN',
+  does: 'Classifies the DefiLlama protocol index, places BRIDGE-class entries into the Bridge Registry as candidates, and derives their deployed_on / native-token relationship candidates.',
+  run: async () => {
+    const obs = await fetchProtocolIndex();
+    if (!obs.value || obs.value.length === 0) {
+      return `Bridge scan: the DefiLlama protocol index answered ${obs.status} with no entries — nothing classified, nothing placed.`;
+    }
+    const now = Date.now();
+    const bridgeFresh: BridgeCandidate[] = [];
+    const relFresh: RelationshipCandidate[] = [];
+    let classified = 0;
+    let bridgeClassTotal = 0;
+    const BRIDGE_PLACE_CAP = 60;
+    for (const entry of obs.value) {
+      const { cls, subclass } = classifyCategory(entry.category);
+      classified += 1;
+      if (cls !== 'BRIDGE') continue;
+      bridgeClassTotal += 1;
+      if (bridgeFresh.length >= BRIDGE_PLACE_CAP) continue;
+      bridgeFresh.push({
+        id: entry.slug,
+        name: entry.name,
+        cls: 'BRIDGE',
+        subclass,
+        chains: entry.chains,
+        url: entry.url,
+        github: entry.github,
+        tokenSymbol: entry.symbol,
+        tokenAddress: entry.tokenAddress,
+        source: 'DefiLlama Protocols',
+        status: 'CANDIDATE',
+        truthState: 'UNVERIFIED',
+        discoveredAt: now,
+        updatedAt: now,
+      });
+      for (const chain of entry.chains) {
+        relFresh.push({
+          id: `${entry.slug}|deployed_on|${chain}`,
+          from: entry.name,
+          relation: 'deployed_on',
+          to: chain,
+          source: 'DefiLlama Protocols',
+          status: 'CANDIDATE',
+          at: now,
+        });
+      }
+      if (entry.symbol) {
+        relFresh.push({
+          id: `${entry.slug}|has_native_token|${entry.symbol}`,
+          from: entry.name,
+          relation: 'has_native_token',
+          to: entry.symbol,
+          source: 'DefiLlama Protocols',
+          status: 'CANDIDATE',
+          at: now,
+        });
+      }
+    }
+    const bridgeRes = upsertBridgeCandidates(bridgeFresh);
+    const relRes = addRelationshipCandidates(relFresh);
+    const spans = bridgeFresh.reduce((acc, c) => acc + c.chains.length, 0);
+    const avgSpan = bridgeFresh.length > 0 ? (spans / bridgeFresh.length).toFixed(1) : '0';
+    return `Bridge scan via DefiLlama Protocols (status ${obs.status}): ${classified} protocols classified · ${bridgeClassTotal} BRIDGE-class found, first ${bridgeFresh.length} placed as candidates (${bridgeRes.created} new, ${bridgeRes.updated} refreshed; registry holds ${bridgeRes.total}) · average chain span ${avgSpan} chains per bridge · ${relRes.created} new relationship candidates (store holds ${relRes.total}). All candidates UNVERIFIED; only the owner's gate promotes.`;
+  },
+});
+
 /* Bot coverage expansion (v192) — the owner's direction: the
  * bots get in anywhere they can help — every registry, store,
  * and surface — building the platform up and keeping it updated
@@ -565,6 +637,7 @@ EXECUTORS.push({
       return `STALE (newest ${(ageH / 24).toFixed(1)}d old)`;
     };
     const dex = loadDexCandidates();
+    const bridges = loadBridgeCandidates();
     const rels = loadRelationshipCandidates();
     const contracts = loadContractEntries();
     const archive = loadRawArchive();
@@ -573,6 +646,7 @@ EXECUTORS.push({
     return [
       `Freshness assignment (thresholds: <24h CURRENT · <7d AGING · else STALE):`,
       `DEX Registry (${dex.length}): ${stateOf(newest(dex.map((d) => d.updatedAt)))}`,
+      `Bridge Registry (${bridges.length}): ${stateOf(newest(bridges.map((b) => b.updatedAt)))}`,
       `Relationship candidates (${rels.length}): ${stateOf(newest(rels.map((r) => r.at)))}`,
       `Contract Registry (${contracts.length}): ${stateOf(newest(contracts.map((c) => c.checkedAt)))}`,
       `Raw Archive (${archive.length}): ${stateOf(newest(archive.map((a) => a.at)))}`,
@@ -652,6 +726,7 @@ export function runtimeCommandFor(text: string): string | null {
   if (q.includes('sweep')) return 'security-sweep';
   if (q.includes('catalog')) return 'catalog-check';
   if (q.includes('universe')) return 'universe-check';
+  if (q.includes('bridge')) return 'bridge-scan';
   if (q.includes('dex') && (q.includes('scan') || q.includes('classif') || q.includes('registr'))) return 'dex-scan';
   if (q.includes('money radar') || q.includes('radar') || q.includes('capital flow') || q.includes('money move')) return 'money-radar';
   if (q.includes('opportunit') && (q.includes('scan') || q.includes('discover'))) return 'opportunity-scan';
