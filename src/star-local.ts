@@ -16,6 +16,7 @@ import { WORKSPACE_COVERAGE } from './workspace-coverage-data';
 import { CRYPTO_WORLD_CONTENTS, EARNINGS_CATEGORIES, TRIBE_PRINCIPALS } from './worlds-data';
 import { getProvenanceLog } from './live-data';
 import { memorySummary } from './bot-memory';
+import { EXECUTORS, runtimeStoreSummary } from './worker-runtime';
 import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
 
 // §69 WHY? for a named workspace: the recorded chain behind what
@@ -116,8 +117,23 @@ export function answerLocally(raw: string): string | null {
   if (/(bot memory|bots remember|bot-memory|memory engine)/.test(q)) {
     const mem = memorySummary();
     if (mem.totalRetained === 0)
-      return `${FROM_RECORDS}the Bot Memory layer is built and governed — provenance on every record, truth states kept for life, corrections and owner-only deletion — and it is EMPTY. It ships empty by design: no seeding, no automatic capture, and no producer has written to it yet.`;
+      return `${FROM_RECORDS}the Bot Memory layer is built and governed — provenance on every record, truth states kept for life, corrections and owner-only deletion — and it is EMPTY. It ships empty by design: no seeding, no automatic capture. Its first producer is the worker runtime — one record per completed run — and no run has completed yet.`;
     return `${FROM_RECORDS}Bot Memory holds ${mem.total} active records (${mem.totalRetained} retained including ${mem.supersededCount} superseded and ${mem.deletedCount} deleted tombstones). Active truth states: ${mem.byTruthState.UNVERIFIED ?? 0} UNVERIFIED, ${mem.byTruthState.REJECTED ?? 0} REJECTED, ${mem.staleCount} stale by their review dates. Nothing in it is VERIFIED — this layer cannot write VERIFIED at all.`;
+  }
+
+  if (/(what have the bots run|completed runs|runs completed|what did the runtime|what has the runtime|bot work done|runs done)/.test(q)) {
+    const s = runtimeStoreSummary();
+    if (s.recorded === 0)
+      return `${FROM_RECORDS}the worker runtime has no recorded runs yet. Record a task with a runtime executor in Bot Operations and press RUN — or tell me "run a price check" and I will record and run it myself.`;
+    const latest = s.latestCompleted
+      .map((r) => `"${r.title}" — ${r.evidence.slice(0, 160)}`)
+      .join(' · ');
+    return `${FROM_RECORDS}the runtime has ${s.recorded} recorded run(s): ${s.completed} completed, ${s.failed} failed.${latest ? ` Latest completed: ${latest}.` : ''} Every completed run also wrote its Bot Memory record. The full record lives in Bot Operations.`;
+  }
+
+  if (/(worker runtime|the runtime|executors|what can the bots do|bots do for real|are the bots active|bots working)/.test(q)) {
+    const s = runtimeStoreSummary();
+    return `${FROM_RECORDS}the worker runtime is an in-page engine: it executes recorded tasks for real, but only while this app page is open — a closed page runs nothing, and a remote always-on runtime does not exist (NOT_CONNECTED). It has ${EXECUTORS.length} executors: ${EXECUTORS.map((e) => e.label).join(', ')}. Runs start from Bot Operations (RUN, RUN ALL, or auto-dispatch) or from me — say "run a price check". All-time: ${s.completed} completed of ${s.recorded} recorded. It does research and checks only: it signs nothing, sends nothing, and moves no funds.`;
   }
 
   const why = workspaceWhy(q);

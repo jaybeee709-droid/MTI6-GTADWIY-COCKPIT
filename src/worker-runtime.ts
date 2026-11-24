@@ -375,6 +375,30 @@ export async function runRuntimeTask(
   }
 }
 
+/* Store-derived runtime summary (v177) — counts and the latest
+ * completed runs, read from the canonical stores. Shared by
+ * STAR's local answers and any surface that needs the runtime's
+ * all-time state without rendering Bot Operations. */
+export function runtimeStoreSummary(): {
+  recorded: number;
+  completed: number;
+  failed: number;
+  latestCompleted: { title: string; evidence: string }[];
+} {
+  const tasks = loadTasks();
+  const kinds = loadKinds();
+  const runtime = tasks.filter((t) => kinds[t.id]);
+  return {
+    recorded: runtime.length,
+    completed: runtime.filter((t) => t.state === 'COMPLETE').length,
+    failed: runtime.filter((t) => t.state === 'FAILED').length,
+    latestCompleted: runtime
+      .filter((t) => t.state === 'COMPLETE')
+      .slice(0, 3)
+      .map((t) => ({ title: t.title, evidence: t.completionEvidence ?? '' })),
+  };
+}
+
 /* Run an executor as a fresh queue task (v172) — the path STAR
  * commands take. The task is created in the canonical store,
  * registered with its kind, executed, and left in Bot
