@@ -24,6 +24,8 @@ import React, { useState } from 'react';
 import { Bot, Star } from 'lucide-react';
 import { TRIBE_PRINCIPALS } from '../worlds-data';
 import { loadAssignments } from '../principal-assignments';
+import { loadTasks } from '../worker-tasks';
+import { executorById, loadKinds } from '../worker-runtime';
 import { EmptyState, MonoLine, Panel, ScreenHeader, StatusPill } from './shared';
 
 type SelectedRef = 'star' | string;
@@ -37,6 +39,13 @@ export const BotProfileScreen: React.FC = () => {
   // store the owner writes in Bot Operations. Identity still comes
   // from the roster only; an assignment is a record, not activity.
   const [assignments] = useState(() => loadAssignments());
+  // Runtime work (v174) — this principal's runtime tasks, read
+  // from the canonical task store + the runtime kind registry.
+  const [allTasks] = useState(() => loadTasks());
+  const [runtimeKinds] = useState(() => loadKinds());
+  const runtimeWork = allTasks.filter(
+    (t) => t.principal === selected && runtimeKinds[t.id] && (t.state === 'COMPLETE' || t.state === 'FAILED'),
+  );
   const assignedCount = TRIBE_PRINCIPALS.filter(
     (p) => assignments[p.id]?.currentRole || assignments[p.id]?.currentTask,
   ).length;
@@ -133,7 +142,7 @@ export const BotProfileScreen: React.FC = () => {
           <strong className="text-white">Why?</strong>{' '}
           {selected === 'star'
             ? 'STAR\u2019s state comes from the gateway status check, not the assignment store. Provenance chain: result \u2192 source \u2192 derivation \u2192 freshness.'
-            : 'Identity comes from the canonical roster (js/tribe-principals.js); role, task and history come from the owner\u2019s assignment records in the canonical store (mti6_principal_assignments_v1), written in Bot Operations. An assignment is a record of the owner\u2019s intent — it is not bot activity, and no runtime acts on it yet.'}
+            : 'Identity comes from the canonical roster (js/tribe-principals.js); role, task and history come from the owner\u2019s assignment records in the canonical store (mti6_principal_assignments_v1), written in Bot Operations. An assignment is a record of the owner\u2019s intent — it is not bot activity. Runtime work is a separate record: tasks with a runtime executor, below, are executed for real by the in-page engine while the app is open.'}
         </p>
       </Panel>
 
@@ -149,7 +158,7 @@ export const BotProfileScreen: React.FC = () => {
             ))}
             <p className="pt-1 text-xs text-[#B8B8B8]">
               Recorded assignment history only — the owner&apos;s assignment record, not live bot activity.
-              No worker runtime acts on these assignments yet.
+              The runtime does not act on assignments; it acts on runtime tasks (next section).
             </p>
           </div>
         ) : (
@@ -167,6 +176,38 @@ export const BotProfileScreen: React.FC = () => {
           <p className="mt-3 text-xs text-[#B8B8B8]">
             Workers under {selectedName}: no workers recorded under this principal yet.
           </p>
+        )}
+        {selected !== 'star' && (
+          <div className="mt-3 border-t border-white/10 pt-3">
+            <p className="mb-2 font-mono text-[10px] text-[#8B5CFF]">
+              RUNTIME WORK — EXECUTED BY THE IN-PAGE ENGINE
+            </p>
+            {runtimeWork.length > 0 ? (
+              <div className="space-y-1.5">
+                {runtimeWork.slice(0, 5).map((t) => (
+                  <p key={t.id} className="font-mono text-[11px] text-[#B8B8B8]">
+                    <span className="text-white">
+                      {t.state === 'COMPLETE' ? '✓' : '✗'} {t.title}
+                    </span>{' '}
+                    — {executorById(runtimeKinds[t.id])?.label ?? runtimeKinds[t.id]} ·{' '}
+                    {t.updatedAt.slice(0, 10)}
+                    {t.completionEvidence ? (
+                      <span className="block truncate text-[10px]">{t.completionEvidence}</span>
+                    ) : null}
+                  </p>
+                ))}
+                <p className="pt-1 text-xs text-[#B8B8B8]">
+                  Real runs: the evidence is each run&apos;s own output, recorded on its task in Bot
+                  Operations.
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-[#B8B8B8]">
+                No runtime work recorded for {selectedName} yet — record a task with a runtime
+                executor under this principal in Bot Operations and run it.
+              </p>
+            )}
+          </div>
         )}
       </Panel>
 

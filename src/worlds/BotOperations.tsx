@@ -133,6 +133,9 @@ export const BotOperations: React.FC = () => {
       await doRun(t);
     }
   };
+  // All-time completed runtime runs, derived from the task
+  // store itself (the session log below is only this page's).
+  const completedRuns = tasks.filter((t) => kinds[t.id] && t.state === 'COMPLETE');
   // Auto-dispatch (v173) — a page-session switch, OFF by default
   // and never persisted: while ON and this page is open, queued
   // runtime tasks run on their own (checked every minute).
@@ -711,6 +714,12 @@ export const BotOperations: React.FC = () => {
             </div>
           ))}
         </div>
+        <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+          COMPLETED RUNS — ALL TIME, FROM THE TASK STORE: {completedRuns.length}
+          {completedRuns.length > 0 && completedRuns[0].completionEvidence
+            ? ` · LATEST: ${completedRuns[0].title} — ${completedRuns[0].completionEvidence}`
+            : ''}
+        </p>
         {runLog.length === 0 ? (
           <p className="font-mono text-[10px] text-[#B8B8B8]">
             NO RUNS YET THIS SESSION — record a task with a runtime executor above and press RUN.
