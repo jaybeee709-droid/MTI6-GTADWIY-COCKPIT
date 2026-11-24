@@ -28,6 +28,7 @@ import {
   ENCYCLOPEDIA_INDEX,
 } from '../encyclopedia-data';
 import { ENTITY_COUNTS, ENTITY_UNIVERSE } from '../entity-data';
+import { BATCH_C_COUNT, BATCH_C_SAMPLES, BATCH_C_SHA256 } from '../batch-c-data';
 import {
   ALERT_SEVERITIES,
   ALERT_TRANSITIONS,
@@ -922,6 +923,37 @@ export const EncyclopediaWorld: React.FC = () => {
             <p className="mt-1 text-[11px] font-mono text-[#B8B8B8]">{lvl.note}</p>
           </div>
         ))}
+      </div>
+
+      {/* BATCH C — the frozen Action-layer candidate (owner freeze
+          Option A, 2026-11-24). NOT imported: the canonical counts
+          above stay 826 until the owner's review pass and a
+          separate import action. */}
+      <div className="space-y-3 rounded-2xl border border-[#FFB020]/30 bg-[#101010] p-5">
+        <div>
+          <h3 className="text-sm font-semibold">BATCH C — ACTION LAYER · FROZEN CANDIDATE</h3>
+          <p className="mt-0.5 font-mono text-[10px] text-[#B8B8B8]">
+            OWNER FREEZE: OPTION A (FULL) · {BATCH_C_COUNT} ACTION RECORDS UNDER THE 404 STRATEGIES ·
+            ARTIFACT SHA-256 {BATCH_C_SHA256.slice(0, 16)}… · ALL UNVERIFIED · NOT IMPORTED
+          </p>
+        </div>
+        <p className="text-xs leading-relaxed text-[#B8B8B8]">
+          Each strategy decomposes by lifecycle — Initiate and Monitor &amp; Adjust for all 404, plus
+          Exit &amp; Settle for the 206 position-bearing ones — generated mechanically from the frozen
+          Batch B definitions (Batch B untouched). The gate passed: every parent resolves, ids unique,
+          count inside the Option A band. Sample:
+        </p>
+        <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2">
+          {BATCH_C_SAMPLES.map((s) => (
+            <p key={s.title} className="font-mono text-[10px] text-[#B8B8B8]">
+              <span className="text-white">{s.title}</span> · under {s.strategy}
+            </p>
+          ))}
+        </div>
+        <p className="font-mono text-[10px] text-[#FFB020]">
+          NEXT STEPS ARE THE OWNER'S: REVIEW PASS → IMPORT. UNTIL THEN THE ACTION LEVEL ABOVE
+          HONESTLY READS ZERO IN THE CANONICAL INDEX.
+        </p>
       </div>
 
       {/* THE 60 BACKBONE — the Canonical 60 Major Activities, grouped
