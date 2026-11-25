@@ -133,6 +133,28 @@ const STAR_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
 // a guarantee the limit lifts. MTI6_STAR_MODEL still overrides
 // it when set.
 const STAR_DEFAULT_MODEL = "nvidia/nemotron-3.5-lightning:free";
+// v246 (2026-11-25): STAR fallback chain — Claude first, then
+// Gemini. The owner confirmed both keys sit in Netlify as
+// secrets (dashboard check, names only) but nothing in the app
+// calls them. Model IDs verified live against the providers'
+// public docs the same day: claude-sonnet-5-5 is Anthropic's
+// current Sonnet (models overview checked Nov 22, 2026;
+// Messages API POST /v1/messages, anthropic-version 2026-10-21
+// per the official quickstart — that version rejects
+// temperature/top_p/top_k, so none is sent); gemini-3.8-flash
+// is Google's current stable Flash on the Gemini API models
+// page (ai.google.dev, crawled Nov 25, 2026; generateContent
+// v1beta, key in the documented ?key= parameter). Whether the
+// Anthropic/Gemini accounts have credits or quota is UNKNOWN
+// until a real call goes through one of them — the chain fails
+// honestly per provider and reports what it actually did.
+const ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
+const ANTHROPIC_VERSION = "2026-10-21";
+const ANTHROPIC_MODEL = "claude-sonnet-5-5";
+const ANTHROPIC_MAX_TOKENS = 1024;
+const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
+const GEMINI_MODEL = "gemini-3.8-flash";
+const GEMINI_MAX_OUTPUT_TOKENS = 1024;
 const STAR_TIMEOUT_MS = 30000;
 const STAR_MAX_MESSAGES = 12;
 const STAR_MAX_CONTENT_CHARS = 2000;
@@ -433,10 +455,14 @@ function validateStarChat(payload) {
   return { messages: messages.map((m) => ({ role: m.role, content: m.content })) };
 }
 
-// One provider chat-completions call. Returns { reply, model } on
-// success or { error } (a Response) on failure. The upstream body is
-// read only to extract the reply text; it is never echoed onward, and
-// error messages are static strings.
+// Provider calls return a plain result, never a Response, so the
+// chain in handleStarChat can fall through to the next provider:
+// { ok: true, reply, model } on success, { ok: false, status } on
+// failure, where status is the upstream HTTP status (a number) or
+// null for a network/timeout/invalid response. Upstream bodies are
+// read only to extract the reply text; they are never echoed
+// onward, and error messages are static strings built by the
+// handler, never from the upstream.
 async function callStar(config, messages) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), STAR_TIMEOUT_MS);
@@ -454,7 +480,7 @@ async function callStar(config, messages) {
       body: JSON.stringify({ model: config.model, messages })
     });
   } catch {
-    return { error: starFail("UPSTREAM_ERROR", "The STAR AI provider could not be reached.", 502) };
+    return { ok: false, status: null };
   } finally {
     clearTimeout(timer);
   }
@@ -464,40 +490,235 @@ async function callStar(config, messages) {
   } catch {
     data = null;
   }
-  if (res.status === 401) {
-    return { error: starFail("AUTH_REQUIRED", "The STAR AI provider rejected the API key. Check the MTI6_STAR_API_KEY Netlify variable.", 401) };
-  }
-  if (res.status === 429) {
-    const retryAfter = res.headers ? res.headers.get("retry-after") : null;
-    const extra = retryAfter ? { retryAfter } : undefined;
-    return { error: starFail("RATE_LIMITED", "The STAR AI provider rate limit was reached. Wait and try again.", 429, extra) };
-  }
   if (!res.ok) {
-    // v242: carry the upstream HTTP status (a number only — the
-    // body is never echoed) so a dead model, a bad route, or a
-    // provider outage can be told apart without guessing.
-    return { error: starFail("UPSTREAM_ERROR", "The STAR AI provider returned an unexpected error.", 502, { upstreamStatus: res.status }) };
+    return { ok: false, status: res.status };
   }
   const reply = data && Array.isArray(data.choices) && data.choices[0] && data.choices[0].message
     ? data.choices[0].message.content
     : null;
   if (typeof reply !== "string" || reply.length === 0) {
-    return { error: starFail("UPSTREAM_ERROR", "The STAR AI provider returned an invalid response.", 502, { upstreamStatus: res.status }) };
+    return { ok: false, status: res.status };
   }
   const model = data && typeof data.model === "string" && data.model.length > 0 ? data.model : config.model;
-  return { reply, model };
+  return { ok: true, reply, model };
 }
 
+// Literal env reads (one named variable per provider) so the
+// posture generator can mechanically extract every env NAME this
+// file reads — no dynamic lookups.
+function readStarProviderKeys() {
+  const env = typeof process !== "undefined" && process.env ? process.env : {};
+  const pick = (v) => (typeof v === "string" && v.length > 0 ? v : null);
+  return {
+    openrouter: pick(env.MTI6_STAR_API_KEY),
+    anthropic: pick(env.ANTHROPIC_API_KEY),
+    gemini: pick(env.GEMINI_API_KEY)
+  };
+}
+
+// Claude via the Anthropic Messages API. The STAR messages use
+// OpenAI-style roles; Anthropic takes the system prompt as a
+// top-level `system` field and requires the messages array to
+// alternate user/assistant starting with user, so same-role runs
+// are merged and system turns are lifted out. No temperature /
+// top_p / top_k is sent: API version 2026-10-21 rejects them.
+function toAnthropicMessages(messages) {
+  const systemParts = [];
+  const turns = [];
+  for (const m of messages) {
+    if (m.role === "system") {
+      systemParts.push(m.content);
+      continue;
+    }
+    const last = turns.length > 0 ? turns[turns.length - 1] : null;
+    if (last && last.role === m.role) {
+      last.content += "\n\n" + m.content;
+    } else {
+      turns.push({ role: m.role, content: m.content });
+    }
+  }
+  if (turns.length === 0 || turns[0].role !== "user") return null;
+  return {
+    system: systemParts.length > 0 ? systemParts.join("\n\n") : null,
+    messages: turns
+  };
+}
+
+async function callAnthropic(apiKey, messages) {
+  const converted = toAnthropicMessages(messages);
+  if (!converted) return { ok: false, status: null };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), STAR_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(ANTHROPIC_BASE_URL + "/messages", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": ANTHROPIC_VERSION
+      },
+      body: JSON.stringify({
+        model: ANTHROPIC_MODEL,
+        max_tokens: ANTHROPIC_MAX_TOKENS,
+        ...(converted.system ? { system: converted.system } : {}),
+        messages: converted.messages
+      })
+    });
+  } catch {
+    return { ok: false, status: null };
+  } finally {
+    clearTimeout(timer);
+  }
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  if (!res.ok) {
+    return { ok: false, status: res.status };
+  }
+  const blocks = data && Array.isArray(data.content) ? data.content : [];
+  let reply = "";
+  for (const b of blocks) {
+    if (b && b.type === "text" && typeof b.text === "string") reply += b.text;
+  }
+  if (reply.length === 0) {
+    return { ok: false, status: res.status };
+  }
+  const model = data && typeof data.model === "string" && data.model.length > 0 ? data.model : ANTHROPIC_MODEL;
+  return { ok: true, reply, model };
+}
+
+// Gemini via the Generative Language API (v1beta generateContent).
+// The API key travels in the documented ?key= query parameter,
+// server-to-server only. Roles map user → "user" and assistant →
+// "model"; the system prompt becomes a top-level
+// systemInstruction. Contents must alternate user/model starting
+// with user, so same-role runs are merged.
+function toGeminiContents(messages) {
+  const systemParts = [];
+  const contents = [];
+  for (const m of messages) {
+    if (m.role === "system") {
+      systemParts.push(m.content);
+      continue;
+    }
+    const role = m.role === "assistant" ? "model" : "user";
+    const last = contents.length > 0 ? contents[contents.length - 1] : null;
+    if (last && last.role === role) {
+      last.parts[0].text += "\n\n" + m.content;
+    } else {
+      contents.push({ role, parts: [{ text: m.content }] });
+    }
+  }
+  if (contents.length === 0 || contents[0].role !== "user") return null;
+  return {
+    systemInstruction: systemParts.length > 0
+      ? { parts: [{ text: systemParts.join("\n\n") }] }
+      : null,
+    contents
+  };
+}
+
+async function callGemini(apiKey, messages) {
+  const converted = toGeminiContents(messages);
+  if (!converted) return { ok: false, status: null };
+  const url = GEMINI_BASE_URL + "/models/" + GEMINI_MODEL + ":generateContent?key=" + encodeURIComponent(apiKey);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), STAR_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        ...(converted.systemInstruction ? { systemInstruction: converted.systemInstruction } : {}),
+        contents: converted.contents,
+        generationConfig: { maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS }
+      })
+    });
+  } catch {
+    return { ok: false, status: null };
+  } finally {
+    clearTimeout(timer);
+  }
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  if (!res.ok) {
+    return { ok: false, status: res.status };
+  }
+  const candidates = data && Array.isArray(data.candidates) ? data.candidates : [];
+  let reply = "";
+  const first = candidates.length > 0 ? candidates[0] : null;
+  const parts = first && first.content && Array.isArray(first.content.parts) ? first.content.parts : [];
+  for (const p of parts) {
+    if (p && typeof p.text === "string") reply += p.text;
+  }
+  if (reply.length === 0) {
+    return { ok: false, status: res.status };
+  }
+  const model = data && typeof data.modelVersion === "string" && data.modelVersion.length > 0 ? data.modelVersion : GEMINI_MODEL;
+  return { ok: true, reply, model };
+}
+
+// The STAR fallback chain (v246): OpenRouter first (current
+// behaviour, MTI6_STAR_MODEL env override still wins), then
+// Claude (ANTHROPIC_API_KEY) as the first fallback — Claude is
+// the best conversational model for STAR — then Gemini
+// (GEMINI_API_KEY) as the second fallback. Any provider failure
+// (network, 401, 429, 5xx, invalid response) falls through to
+// the next configured provider; a provider with no key is
+// skipped, not attempted. If every configured provider fails,
+// the honest UPSTREAM_ERROR (upstream status only, no body) is
+// returned so the client falls back to the local DEMO brain,
+// exactly as v242 designed. The reply names the provider that
+// actually answered, so a later probe can see which one served
+// it. Honest caveat: the fallback trigger itself can only be
+// proven live when OpenRouter actually fails — a successful
+// OpenRouter call never exercises the chain — and whether the
+// Anthropic/Gemini accounts have credits or quota is unknown
+// until a real call goes through one of them.
 async function handleStarChat(payload) {
   const validated = validateStarChat(payload);
   if (validated.error) return validated.error;
-  const config = readStarConfig();
-  if (!config.configured) {
-    return starFail("NOT_CONFIGURED", "No STAR AI key is configured on the server (Netlify MTI6_STAR_API_KEY). STAR stays in demo mode.", 503);
+  const keys = readStarProviderKeys();
+  if (!keys.openrouter && !keys.anthropic && !keys.gemini) {
+    return starFail("NOT_CONFIGURED", "No STAR AI key is configured on the server (Netlify MTI6_STAR_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY). STAR stays in demo mode.", 503);
   }
-  const result = await callStar(config, validated.messages);
-  if (result.error) return result.error;
-  return envelope(true, "star", { reply: result.reply, model: result.model }, null, 200);
+  let lastStatus = null;
+  if (keys.openrouter) {
+    const config = readStarConfig();
+    const result = await callStar(config, validated.messages);
+    if (result.ok) {
+      return envelope(true, "star", { reply: result.reply, model: result.model, provider: "openrouter" }, null, 200);
+    }
+    lastStatus = result.status;
+  }
+  if (keys.anthropic) {
+    const result = await callAnthropic(keys.anthropic, validated.messages);
+    if (result.ok) {
+      return envelope(true, "star", { reply: result.reply, model: result.model, provider: "anthropic" }, null, 200);
+    }
+    lastStatus = result.status;
+  }
+  if (keys.gemini) {
+    const result = await callGemini(keys.gemini, validated.messages);
+    if (result.ok) {
+      return envelope(true, "star", { reply: result.reply, model: result.model, provider: "gemini" }, null, 200);
+    }
+    lastStatus = result.status;
+  }
+  const extra = typeof lastStatus === "number" ? { upstreamStatus: lastStatus } : undefined;
+  return starFail("UPSTREAM_ERROR", "The STAR AI provider returned an unexpected error.", 502, extra);
 }
 
 // ------------------------------------------------------------------
@@ -1330,10 +1551,12 @@ export default async (req) => {
       const star = readStarConfig();
       return envelope(true, "gateway", {
         providers: ["transitland", "star", "coingecko", "geoapify", "locationiq", "adsb.lol", "nycdot", "gdacs", "caltrans", "maryland", "louisiana", "utah"],
-        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures", "star.chat", "market.prices", "geo.geocode", "flights.nearby", "cameras.nyc", "disasters.gdacs", "cameras.california", "cameras.maryland", "cameras.louisiana", "cameras.utah"],
+        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures", "star.chat", "star.providers", "market.prices", "geo.geocode", "flights.nearby", "cameras.nyc", "disasters.gdacs", "cameras.california", "cameras.maryland", "cameras.louisiana", "cameras.utah"],
         providersConfigured: {
           transitland: readTransitlandKey() !== null,
           star: star.configured,
+          anthropic: readStarProviderKeys().anthropic !== null,
+          gemini: readStarProviderKeys().gemini !== null,
           coingecko: readPipelineKeys().coingecko !== null,
           geoapify: readPipelineKeys().geoapify !== null,
           locationiq: readPipelineKeys().locationiq !== null,
@@ -1359,6 +1582,19 @@ export default async (req) => {
     case "star.chat": {
       const payload = body.payload === undefined ? {} : body.payload;
       return handleStarChat(payload);
+    }
+    // v246: star.providers — diagnostics only. Reports booleans
+    // for which STAR provider keys are configured (env presence
+    // only, never a value, never a partial value).
+    case "star.providers": {
+      const keys = readStarProviderKeys();
+      return envelope(true, "star", {
+        providers: {
+          openrouter: keys.openrouter !== null,
+          anthropic: keys.anthropic !== null,
+          gemini: keys.gemini !== null
+        }
+      }, null, 200);
     }
     case "market.prices": {
       const payload = body.payload === undefined ? {} : body.payload;
