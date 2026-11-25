@@ -65,12 +65,18 @@ export const HARVEST_GAP_MS = 1000;
 /** Auto-harvest cadence while Bot Operations stays open. */
 export const HARVEST_INTERVAL_MS = 15 * 60 * 1000;
 
-/* The first three Scouts, seeded only when the owner has no
- * assignments yet. All three sources were verified live from
- * this host (2026-11-25): HTTP 200 with
- * Access-Control-Allow-Origin: *, so a browser read works.
- * The owner adds every other source through the form — any
- * https URL, any kind. */
+/* The twelve Scouts, seeded only when the owner has no
+ * assignments yet — one per Tribe principal, one source each,
+ * covering the platform's registered keyless sources. Every
+ * seed URL was verified live from this host (2026-11-25):
+ * HTTP 200 with Access-Control-Allow-Origin: *, so a browser
+ * read works. NOT seeded, on the same probe: CoinPaprika
+ * tickers, GeckoTerminal token price and Beefy vaults all
+ * answer 200 with NO CORS header (a browser read is refused
+ * — they record FAILED, never silently), and GitHub commits
+ * answers 403 from this host (rate-limited). The owner adds
+ * any other source through the form — any https URL, any
+ * kind. */
 const SEED_ASSIGNMENTS: Omit<HarvestAssignment, 'id' | 'createdAt'>[] = [
   {
     principalId: 'tribe-judah',
@@ -96,7 +102,92 @@ const SEED_ASSIGNMENTS: Omit<HarvestAssignment, 'id' | 'createdAt'>[] = [
     kind: 'PAIRS',
     active: true,
   },
+  {
+    principalId: 'tribe-reuben',
+    principalName: 'REUBEN',
+    sourceName: 'Coinbase ETH Spot',
+    url: 'https://api.coinbase.com/v2/prices/ETH-USD/spot',
+    kind: 'PRICES',
+    active: true,
+  },
+  {
+    principalId: 'tribe-gad',
+    principalName: 'GAD',
+    sourceName: 'DefiLlama Protocols',
+    url: 'https://api.llama.fi/protocols',
+    kind: 'OTHER',
+    active: true,
+  },
+  {
+    principalId: 'tribe-asher',
+    principalName: 'ASHER',
+    sourceName: 'DefiLlama Chains',
+    url: 'https://api.llama.fi/v2/chains',
+    kind: 'OTHER',
+    active: true,
+  },
+  {
+    principalId: 'tribe-naphtali',
+    principalName: 'NAPHTALI',
+    sourceName: 'DefiLlama Stablecoins',
+    url: 'https://stablecoins.llama.fi/stablecoins',
+    kind: 'PRICES',
+    active: true,
+  },
+  {
+    principalId: 'tribe-manasseh',
+    principalName: 'MANASSEH',
+    sourceName: 'DefiLlama Fees',
+    url: 'https://api.llama.fi/overview/fees',
+    kind: 'OTHER',
+    active: true,
+  },
+  {
+    principalId: 'tribe-simeon',
+    principalName: 'SIMEON',
+    sourceName: 'Pendle Markets ETH',
+    url: 'https://api-v2.pendle.finance/core/v1/1/markets/active',
+    kind: 'YIELDS',
+    active: true,
+  },
+  {
+    principalId: 'tribe-levi',
+    principalName: 'LEVI',
+    sourceName: 'Hacker News Top Stories',
+    url: 'https://hacker-news.firebaseio.com/v0/topstories.json',
+    kind: 'NEWS',
+    active: true,
+  },
+  {
+    principalId: 'tribe-joseph',
+    principalName: 'JOSEPH',
+    sourceName: 'Fear & Greed Index',
+    url: 'https://api.alternative.me/fng/',
+    kind: 'OTHER',
+    active: true,
+  },
+  {
+    principalId: 'tribe-benjamin',
+    principalName: 'BENJAMIN',
+    sourceName: 'Honeypot.is WETH Check',
+    url: 'https://api.honeypot.is/v2/IsHoneypot?address=0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2&chainID=1',
+    kind: 'OTHER',
+    active: true,
+  },
 ];
+
+/** Seed schema version. v229 wrote no version key (treated as 0);
+ * v232 adds seeds 4–12. Bump when the seed list grows again. */
+export const HARVEST_SEED_VERSION_KEY = 'mti6_harvest_seed_v1';
+export const HARVEST_SEED_VERSION = 2;
+
+function stampHarvestSeedVersion(): void {
+  try {
+    localStorage.setItem(HARVEST_SEED_VERSION_KEY, String(HARVEST_SEED_VERSION));
+  } catch {
+    /* storage blocked — the migration simply re-runs next load */
+  }
+}
 
 export function loadHarvestAssignments(): HarvestAssignment[] {
   try {
@@ -108,10 +199,32 @@ export function loadHarvestAssignments(): HarvestAssignment[] {
         createdAt: Date.now(),
       }));
       saveHarvestAssignments(seeded);
+      stampHarvestSeedVersion();
       return seeded;
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as HarvestAssignment[]) : [];
+    if (!Array.isArray(parsed)) return [];
+    const list = parsed as HarvestAssignment[];
+    /* v232 migration: devices seeded by v229 hold only seeds 1–3.
+     * Append the new seeds (4–12) once. Seeds 1–3 the owner
+     * removed are never re-added, and the owner's own
+     * assignments are never touched. */
+    const storedVersion = Number(localStorage.getItem(HARVEST_SEED_VERSION_KEY) ?? '0') || 0;
+    if (storedVersion < HARVEST_SEED_VERSION) {
+      const have = new Set(list.map((a) => a.id));
+      const added: HarvestAssignment[] = [];
+      SEED_ASSIGNMENTS.forEach((s, i) => {
+        if (i < 3) return;
+        const id = `harvest-seed-${i + 1}`;
+        if (!have.has(id)) added.push({ ...s, id, createdAt: Date.now() });
+      });
+      stampHarvestSeedVersion();
+      if (added.length === 0) return list;
+      const merged = [...list, ...added];
+      saveHarvestAssignments(merged);
+      return merged;
+    }
+    return list;
   } catch {
     return [];
   }

@@ -419,8 +419,10 @@ try {
   );
   check(
     'harvest scout assignments seeded',
-    botOpsText.includes('JUDAH') && botOpsText.includes('ISSACHAR') && botOpsText.includes('ZEBULUN'),
-    'three seeded Scout assignments render (v229)',
+    ['JUDAH', 'REUBEN', 'GAD', 'ASHER', 'NAPHTALI', 'MANASSEH', 'SIMEON', 'LEVI', 'ISSACHAR', 'ZEBULUN', 'JOSEPH', 'BENJAMIN'].every(
+      (p) => botOpsText.includes(p),
+    ),
+    'twelve seeded Scout assignments render, one per principal (v232)',
   );
   check(
     'harvest raw-store honesty line',
