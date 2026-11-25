@@ -174,12 +174,14 @@ async function fetchWithTimeout(url: string, timeoutMs = 12000): Promise<Respons
  * silence. The governed raw archive gets the same fetch. */
 export async function runHarvestAssignments(
   assignments: HarvestAssignment[],
+  onProgress?: (a: HarvestAssignment, index: number, total: number) => void,
 ): Promise<HarvestRecord[]> {
   const active = assignments.filter((a) => a.active);
   const made: HarvestRecord[] = [];
   for (let i = 0; i < active.length; i += 1) {
     if (i > 0) await new Promise((r) => window.setTimeout(r, HARVEST_GAP_MS));
     const a = active[i];
+    onProgress?.(a, i, active.length);
     let host = a.url;
     try {
       host = new URL(a.url).host;

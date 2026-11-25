@@ -44,6 +44,8 @@ import {
   type RuntimeKindMap,
 } from '../worker-runtime';
 import { RADAR_CATEGORY_STATES, moneyRadarSummary } from '../money-radar';
+import { BotTheater } from './BotTheater';
+import { loadTakeovers, recordTakeover, type TakeoverRecord } from '../bot-theater';
 import {
   HARVEST_EXCERPT_CHARS,
   HARVEST_INTERVAL_MS,
@@ -148,14 +150,23 @@ export const BotOperations: React.FC = () => {
   const [kinds, setKinds] = useState<RuntimeKindMap>(() => loadKinds());
   const [runningIds, setRunningIds] = useState<string[]>([]);
   const [runLog, setRunLog] = useState<RunRecord[]>([]);
+  // v230 — theater: when each in-flight run started, so the floor
+  // can show live elapsed seconds.
+  const [runStarts, setRunStarts] = useState<Record<string, number>>({});
   const doRun = async (task: WorkerTask) => {
     const ex = kinds[task.id];
     if (!ex || runningIds.includes(task.id)) return;
     setRunningIds((r) => [...r, task.id]);
+    setRunStarts((m) => ({ ...m, [task.id]: Date.now() }));
     // Always run from the freshest store read — every transition
     // saves, so a run never overwrites a sibling run's result.
     const rec = await runRuntimeTask(loadTasks(), task.id, ex, (t) => setTasks(t));
     setRunningIds((r) => r.filter((x) => x !== task.id));
+    setRunStarts((m) => {
+      const n = { ...m };
+      delete n[task.id];
+      return n;
+    });
     setRunLog((log) => [rec, ...log].slice(0, 10));
   };
   const doRunAll = async () => {
@@ -320,6 +331,7 @@ export const BotOperations: React.FC = () => {
   const [harvestRecords, setHarvestRecords] = useState<HarvestRecord[]>(() => loadHarvestRecords());
   const [harvestAuto, setHarvestAutoState] = useState<boolean>(() => loadHarvestAuto());
   const [harvestBusy, setHarvestBusy] = useState(false);
+  const [harvestCurrentId, setHarvestCurrentId] = useState<string | null>(null);
   const [harvestMsg, setHarvestMsg] = useState<string | null>(null);
   const [lastHarvestAt, setLastHarvestAt] = useState<number | null>(null);
   const [nextHarvestAt, setNextHarvestAt] = useState<number | null>(null);
@@ -334,7 +346,7 @@ export const BotOperations: React.FC = () => {
     harvestBusyRef.current = true;
     setHarvestBusy(true);
     try {
-      const made = await runHarvestAssignments(loadHarvestAssignments());
+      const made = await runHarvestAssignments(loadHarvestAssignments(), (a) => setHarvestCurrentId(a.id));
       setHarvestRecords(loadHarvestRecords());
       setLastHarvestAt(Date.now());
       setNextHarvestAt(Date.now() + HARVEST_INTERVAL_MS);
@@ -347,6 +359,7 @@ export const BotOperations: React.FC = () => {
     } finally {
       harvestBusyRef.current = false;
       setHarvestBusy(false);
+      setHarvestCurrentId(null);
     }
   };
   useEffect(() => {
@@ -372,6 +385,48 @@ export const BotOperations: React.FC = () => {
       setTasks(res.tasks);
       setTaskMsg('');
     }
+  };
+  // v230 — TAKE OVER: Daniel takes a step himself (a sign-in, a
+  // verification click, a password). The takeover is recorded
+  // the moment it happens, and the task is BLOCKED until he
+  // hands it back. A run already in flight finishes on its own
+  // and its evidence is kept — the bot starts nothing new.
+  const [takeovers, setTakeovers] = useState<TakeoverRecord[]>(() => loadTakeovers());
+  const takeOverTask = (task: WorkerTask) => {
+    const res = transitionTask(tasks, task.id, 'BLOCKED', {
+      note: 'Daniel took over — he will do this step himself.',
+      blockerReason: 'OWNER TAKEOVER — Daniel took the step himself (sign-in or human step).',
+    });
+    if (res.error) {
+      setTaskMsg(res.error);
+      return;
+    }
+    setTasks(res.tasks);
+    setTakeovers(
+      recordTakeover({
+        kind: 'TASK',
+        refId: task.id,
+        title: task.title,
+        principal: principalName(task.principal),
+        reason: 'OWNER TAKEOVER — Daniel took the step himself (sign-in or human step).',
+      }),
+    );
+    setTaskMsg('');
+  };
+  const takeOverHarvest = (a: HarvestAssignment) => {
+    const next = harvestAssignments.map((x) => (x.id === a.id ? { ...x, active: false } : x));
+    setHarvestAssignments(next);
+    saveHarvestAssignments(next);
+    setTakeovers(
+      recordTakeover({
+        kind: 'HARVEST',
+        refId: a.id,
+        title: `${a.sourceName} (${a.principalName} scout)`,
+        principal: a.principalName,
+        reason:
+          'OWNER TAKEOVER — scout paused; Daniel will fetch this source himself. A fetch already in flight finishes and is recorded.',
+      }),
+    );
   };
   // Demo console only: no AI backend is connected. Entries are logged
   // locally and nothing is executed.
@@ -1143,6 +1198,25 @@ export const BotOperations: React.FC = () => {
           BROWSER THE APP CANNOT READ STAYS UNREAD UNTIL DANIEL OPENS THAT DOOR HIMSELF.
         </p>
       </div>
+
+      {/* BOT THEATER (v230) — the lab floor: posted bots in
+          task-matched scenes, live work screens, TAKE OVER,
+          STAR narrating from the real state. */}
+      <BotTheater
+        tasks={tasks}
+        kinds={kinds}
+        runningIds={runningIds}
+        runStarts={runStarts}
+        runLog={runLog}
+        harvestAssignments={harvestAssignments}
+        harvestRecords={harvestRecords}
+        harvestBusy={harvestBusy}
+        harvestCurrentId={harvestCurrentId}
+        takeovers={takeovers}
+        principalName={principalName}
+        onTakeOverTask={takeOverTask}
+        onTakeOverHarvest={takeOverHarvest}
+      />
 
       {/* MONEY RADAR (v193) — the Opportunity Intelligence layer
           (owner spec 2026-11-24). STAR's workers go out to the

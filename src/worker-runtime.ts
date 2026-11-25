@@ -1005,9 +1005,24 @@ export async function runRuntimeTask(
       note: `Completed by the worker runtime (${executor.label}).`,
       evidence,
     });
-    if (r.error) throw new Error(r.error);
-    cur = r.tasks;
-    apply(cur);
+    // v230 — handover: if Daniel took the task over mid-run (it
+    // moved to BLOCKED or PAUSED), the COMPLETE transition is
+    // correctly refused — but the run's evidence is real and
+    // must not come back as a FAILED record. The run completes
+    // with a handover note; the bot simply starts nothing new
+    // on that task.
+    let handedOver = false;
+    if (r.error) {
+      const nowState = cur.find((t) => t.id === taskId)?.state;
+      if (nowState === 'BLOCKED' || nowState === 'PAUSED') {
+        handedOver = true;
+      } else {
+        throw new Error(r.error);
+      }
+    } else {
+      cur = r.tasks;
+      apply(cur);
+    }
     try {
       recordMemory(
         {
@@ -1030,7 +1045,9 @@ export async function runRuntimeTask(
       startedAt,
       finishedAt: new Date().toISOString(),
       outcome: 'COMPLETE',
-      evidence,
+      evidence: handedOver
+        ? `${evidence} — handed to Daniel mid-run (task ${cur.find((t) => t.id === taskId)?.state ?? 'BLOCKED'} by takeover); no further bot action.`
+        : evidence,
     };
   } catch (err) {
     const reason = err instanceof Error ? err.message : 'The run failed.';

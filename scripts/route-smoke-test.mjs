@@ -423,6 +423,21 @@ try {
     'harvest store is labelled RAW and unverified (v229)',
   );
   check(
+    'bot theater on Bot Operations',
+    botOpsText.includes('BOT THEATER') && botOpsText.includes('STAR NARRATES'),
+    'theater renders with STAR narration (v230)',
+  );
+  check(
+    'theater scene legend present',
+    botOpsText.includes('SCENES: LAB'),
+    'theater names its four scenes (v230)',
+  );
+  check(
+    'takeover log present',
+    botOpsText.includes('TAKEOVERS') && botOpsText.includes('NO TAKEOVERS YET'),
+    'takeover records section renders empty honestly (v230)',
+  );
+  check(
     'honest state NOT_CONNECTED appears',
     allSeen.includes('NOT_CONNECTED'),
     'NOT_CONNECTED present across visited routes',
