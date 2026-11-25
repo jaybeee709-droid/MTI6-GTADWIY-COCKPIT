@@ -36,6 +36,7 @@ import {
   type AddressBalances,
 } from '../live-data';
 import { ProvenanceChip } from '../ProvenanceChip';
+import { CapabilityLadderPanel } from './CapabilityLadderPanel';
 
 const micro = 'font-mono text-[10px] tracking-widest text-[#8A93A3]';
 const btn =
@@ -336,8 +337,13 @@ export const SwapDeskPanel: React.FC = () => {
 
       <p className="text-[11px] leading-relaxed text-[#B8B8B8]">{SWAP_DESK_LAW}</p>
       <p className={micro}>
-        CAPITAL BOUNDARY (D3): ${DESK_CAPITAL_BOUNDARY_USD} STARTING CAPITAL, SET BY DANIEL 2026-11-24 — A SINGLE STABLECOIN-DENOMINATED PREPARATION ABOVE IT IS REFUSED; EVERY SWAP STILL NEEDS ITS OWN OWNER APPROVAL, AND SIGNING HAPPENS ONLY IN HIS WALLET. QUOTE CHAINS (KEYLESS, PROBED LIVE 2026-11-24): ETHEREUM PARASWAP → KYBERSWAP → COW SWAP · BASE PARASWAP → KYBERSWAP. SECURITY GATE: EVERY HANDOFF RUNS A LIVE HONEYPOT.IS CHECK ON THE TOKEN YOU WOULD RECEIVE — A HONEYPOT FLAG REFUSES THE HANDOFF.
+        CAPITAL BOUNDARY (D3): ${DESK_CAPITAL_BOUNDARY_USD} STARTING CAPITAL, SET BY DANIEL 2026-11-24 — A SINGLE STABLECOIN-DENOMINATED PREPARATION ABOVE IT IS REFUSED; EVERY SWAP STILL NEEDS ITS OWN OWNER APPROVAL, AND SIGNING HAPPENS ONLY IN HIS WALLET. QUOTE CHAINS (KEYLESS, PROBED LIVE 2026-11-24): ETHEREUM PARASWAP → KYBERSWAP → COW SWAP · BASE PARASWAP → KYBERSWAP → COW SWAP. SECURITY GATE: EVERY HANDOFF RUNS A LIVE HONEYPOT.IS CHECK ON THE TOKEN YOU WOULD RECEIVE — A HONEYPOT FLAG REFUSES THE HANDOFF.
       </p>
+
+      {/* Capability ladder (v217) — the six-rung permission
+          progression from the wallet-infrastructure branch,
+          rendered fresh with live states */}
+      <CapabilityLadderPanel />
     </section>
   );
 };
