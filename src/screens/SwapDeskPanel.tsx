@@ -67,7 +67,7 @@ export const SwapDeskPanel: React.FC = () => {
     setBalances(null);
     setMsg(
       n === 'base'
-        ? 'Base — the low-fee leg. Same wallet address, same safety gate; quotes run Paraswap → KyberSwap, balances read from the public Base RPC.'
+        ? 'Base — the low-fee leg. Same wallet address, same safety gate; quotes run Paraswap → KyberSwap → CoW Swap, balances read from the public Base RPC.'
         : 'Ethereum mainnet — quotes run Paraswap → KyberSwap → CoW Swap; balances read from Blockscout.',
     );
   };

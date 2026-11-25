@@ -597,12 +597,14 @@ export function fetchSwapQuote(
   fromAddress?: string,
   network: 'ethereum' | 'base' = 'ethereum',
 ): Promise<Observation<SwapQuote>> {
-  /* Base leg (v213): Paraswap + KyberSwap probed LIVE on Base
+  /* Base leg: Paraswap + KyberSwap probed LIVE on Base
    * 2026-11-24 (100 USDbC -> ~0.05986 WETH from both, agreeing).
-   * CoW's Base endpoint did not answer the probe — CoW stays
-   * in the Ethereum chain only, where it was proven. */
-  const chain =
-    network === 'base' ? ['Paraswap', 'KyberSwap Aggregator'] : ['Paraswap', 'KyberSwap Aggregator', 'CoW Swap'];
+   * CoW's Base endpoint returned EMPTY on the first probe
+   * (2026-11-24) but answered LIVE on re-probe the same night
+   * (v215: 100 USDbC -> 0.0601452 WETH, eip712 shape) — CoW
+   * joins the Base chain. LI.FI re-probed the same night:
+   * still 429 code 1005 at first contact — stays excluded. */
+  const chain = ['Paraswap', 'KyberSwap Aggregator', 'CoW Swap'];
   return governed<SwapQuote>(
     `swapquote:${network}:${from.address.toLowerCase()}:${to.address.toLowerCase()}:${fromAmountRaw}`,
     30_000,
@@ -644,10 +646,9 @@ export function fetchSwapQuote(
           };
         }
       } catch { /* fall through to the next source */ }
-      if (network === 'base') return null;
       try {
         const addr = fromAddress ?? '0x0000000000000000000000000000000000000000';
-        const j = (await fetchJsonPost('https://api.cow.fi/mainnet/api/v1/quote', {
+        const j = (await fetchJsonPost(`https://api.cow.fi/${network === 'base' ? 'base' : 'mainnet'}/api/v1/quote`, {
           sellToken: from.address, buyToken: to.address, from: addr, receiver: addr,
           sellAmountBeforeFee: fromAmountRaw, kind: 'sell', signingScheme: 'eip712',
         })) as { quote?: { buyAmount?: unknown; validTo?: unknown } } | null;
