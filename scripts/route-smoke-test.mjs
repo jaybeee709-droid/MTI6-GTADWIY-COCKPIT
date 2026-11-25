@@ -343,6 +343,8 @@ try {
     'relationship panel stays hidden until a place or stop is focused',
   );
   check('places toggle present', worldMapText.includes('PLACES'), 'MAP VIEW bar has PLACES');
+  check('flights toggle present', worldMapText.includes('FLIGHTS'), 'MAP VIEW bar has FLIGHTS');
+  check('weather toggle present', worldMapText.includes('WEATHER'), 'MAP VIEW bar has WEATHER');
 
   // Honest states, checked across the whole rendered document after visiting
   // every route (last route visited is Crypto Workspaces; re-visit Globe and

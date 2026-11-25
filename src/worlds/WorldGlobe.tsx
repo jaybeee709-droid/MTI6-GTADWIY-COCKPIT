@@ -175,11 +175,11 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // (Coverage = every layer's data state at once). Persisted —
   // the choice survives reloads.
   type MapLens = 'world' | 'crypto' | 'earnings' | 'security' | 'transit' | 'coverage';
-  const readViewSel = (): { base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean } => {
+  const readViewSel = (): { base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean } => {
     try {
       const raw = localStorage.getItem(MAP_VIEW_SEL_KEY);
-      if (!raw) return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false };
-      const parsed = JSON.parse(raw) as Partial<{ base: string; terrain: string; lens: string; night: unknown; places: unknown }>;
+      if (!raw) return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false };
+      const parsed = JSON.parse(raw) as Partial<{ base: string; terrain: string; lens: string; night: unknown; places: unknown; flights: unknown; weather: unknown }>;
       return {
         base: parsed.base === 'satellite' || parsed.base === 'floor' ? (parsed.base as MapBaseStyle) : 'streets',
         terrain: parsed.terrain === 'hillshade' ? 'hillshade' : 'off',
@@ -192,13 +192,16 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
         // v226 — POI/business layer, off by default. An old saved
         // selection without the key reads OFF.
         places: parsed.places === true,
+        // v227 — flights + weather, off by default.
+        flights: parsed.flights === true,
+        weather: parsed.weather === true,
       };
     } catch {
-      return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false };
+      return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false };
     }
   };
   const [viewSel, setViewSelState] = useState(readViewSel);
-  const setViewSel = (next: Partial<{ base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean }>) => {
+  const setViewSel = (next: Partial<{ base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean }>) => {
     setViewSelState((prev) => {
       const merged = { ...prev, ...next };
       try {
@@ -313,6 +316,63 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     message: string;
     fetchedAt: number | null;
   }>({ state: 'idle', message: 'NOT QUERIED — Nominatim is ready; nothing has been polled.', fetchedAt: null });
+  // v227 — Living World atmosphere: live flights (adsb.lol via the
+  // gateway — the API sends no CORS header, so a browser fetch
+  // cannot read it) and weather (Met Norway, direct: it sends
+  // ACAO * and was verified live). OpenSky was probed twice and is
+  // unreachable from this host (000/timeout both times); adsb.lol
+  // was verified live (27–28 aircraft near NYC). Open-Meteo hit a
+  // 429 from this host — stopped, never re-probed.
+  interface FlightRecord {
+    id: string;
+    label: string;
+    lat: number;
+    lon: number;
+    alt: number | 'ground' | null;
+    speed: number | null;
+    heading: number | null;
+  }
+  interface WeatherData {
+    tempC: number;
+    symbol: string | null;
+    windSpeed: number | null;
+    windDir: number | null;
+    pressure: number | null;
+    humidity: number | null;
+    cloud: number | null;
+  }
+  const WEATHER_SYMBOLS: Record<string, string> = {
+    clearsky_day: 'CLEAR SKY',
+    clearsky_night: 'CLEAR SKY',
+    fair_day: 'FAIR',
+    fair_night: 'FAIR',
+    partlycloudy_day: 'PARTLY CLOUDY',
+    partlycloudy_night: 'PARTLY CLOUDY',
+    cloudy: 'CLOUDY',
+    fog: 'FOG',
+    rain: 'RAIN',
+    rainshowers_day: 'RAIN SHOWERS',
+    rainshowers_night: 'RAIN SHOWERS',
+    snow: 'SNOW',
+    snowshowers_day: 'SNOW SHOWERS',
+    snowshowers_night: 'SNOW SHOWERS',
+    thunderstorm: 'THUNDERSTORM',
+    sleet: 'SLEET',
+  };
+  const [flightMarkers, setFlightMarkers] = useState<MapMarker[]>([]);
+  const [flightRecords, setFlightRecords] = useState<Record<string, FlightRecord>>({});
+  const [selectedFlight, setSelectedFlight] = useState<FlightRecord | null>(null);
+  const [flightQuery, setFlightQuery] = useState<{
+    state: 'idle' | 'loading' | 'ok' | 'error';
+    message: string;
+    fetchedAt: number | null;
+  }>({ state: 'idle', message: 'NOT QUERIED — adsb.lol is ready; nothing has been polled.', fetchedAt: null });
+  const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
+  const [weatherQuery, setWeatherQuery] = useState<{
+    state: 'idle' | 'loading' | 'ok' | 'error';
+    message: string;
+    fetchedAt: number | null;
+  }>({ state: 'idle', message: 'NOT QUERIED — Met Norway is ready; nothing has been polled.', fetchedAt: null });
   const [transitQuery, setTransitQuery] = useState<{
     state: 'idle' | 'loading' | 'ok' | 'error';
     message: string;
@@ -352,7 +412,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // the map draws a link line from the focus to each one. Alerts
   // match only when an alert's recorded area names this place —
   // area is null unless the owner sets it at intake.
-  const focusPoint = selectedStop ?? selectedPoi ?? placeMarker;
+  const focusPoint = selectedStop ?? selectedPoi ?? selectedFlight ?? placeMarker;
   const nearbyStops = useMemo(() => {
     if (!focusPoint) return [];
     return transitStops
@@ -625,6 +685,129 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
           : `LIVE · ${limited.length} PLACES`,
       fetchedAt: Date.now(),
     });
+  };
+
+  const queryFlights = async () => {
+    if (typeof fetch !== 'function') {
+      setFlightQuery({ state: 'error', message: 'NO FETCH IN THIS ENVIRONMENT.', fetchedAt: null });
+      return;
+    }
+    setFlightQuery({ state: 'loading', message: 'QUERYING ADSB.LOL VIA THE PROXY…', fetchedAt: null });
+    try {
+      const res = await fetch('/api/mti6', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'flights.nearby',
+          payload: { lat: mapView.lat, lon: mapView.lon, dist: 25 },
+        }),
+      });
+      const env = (await res.json().catch(() => null)) as
+        | { ok?: boolean; data?: unknown; error?: { code?: string; message?: string } }
+        | null;
+      if (!env || !env.ok) {
+        const code = env?.error?.code ?? 'UPSTREAM_ERROR';
+        setFlightQuery({
+          state: 'error',
+          message:
+            code === 'RATE_LIMITED'
+              ? 'RATE_LIMITED — adsb.lol refused the query; wait and try again.'
+              : `QUERY FAILED (${code}) — no flights are shown.`,
+          fetchedAt: null,
+        });
+        setFlightMarkers([]);
+        setFlightRecords({});
+        return;
+      }
+      const data = env.data as { aircraft?: unknown[] } | null;
+      const markers: MapMarker[] = [];
+      const records: Record<string, FlightRecord> = {};
+      if (data && Array.isArray(data.aircraft)) {
+        for (const raw of data.aircraft) {
+          if (!raw || typeof raw !== 'object') continue;
+          const a = raw as Record<string, unknown>;
+          const lat = typeof a.lat === 'number' ? a.lat : null;
+          const lon = typeof a.lon === 'number' ? a.lon : null;
+          const hex = typeof a.hex === 'string' ? a.hex : null;
+          if (lat === null || lon === null || !hex) continue;
+          const callsign = typeof a.callsign === 'string' && a.callsign.length > 0 ? a.callsign : 'UNKNOWN';
+          const rec: FlightRecord = {
+            id: `flt-${hex}`,
+            label: callsign,
+            lat,
+            lon,
+            alt: a.alt === 'ground' ? 'ground' : typeof a.alt === 'number' ? a.alt : null,
+            speed: typeof a.speed === 'number' ? a.speed : null,
+            heading: typeof a.heading === 'number' ? a.heading : null,
+          };
+          records[rec.id] = rec;
+          markers.push({ id: rec.id, lat, lon, label: callsign });
+        }
+      }
+      setFlightMarkers(markers);
+      setFlightRecords(records);
+      if (markers.length === 0) {
+        setFlightQuery({
+          state: 'ok',
+          message: 'NO AIRCRAFT — adsb.lol answered; nothing is within 25 NM of the centre.',
+          fetchedAt: Date.now(),
+        });
+        return;
+      }
+      setFlightQuery({
+        state: 'ok',
+        message: `LIVE · ${markers.length} AIRCRAFT WITHIN 25 NM`,
+        fetchedAt: Date.now(),
+      });
+    } catch {
+      setFlightQuery({ state: 'error', message: 'QUERY FAILED (NETWORK) — no flights are shown.', fetchedAt: null });
+      setFlightMarkers([]);
+      setFlightRecords({});
+    }
+  };
+
+  const queryWeather = async () => {
+    if (typeof fetch !== 'function') {
+      setWeatherQuery({ state: 'error', message: 'NO FETCH IN THIS ENVIRONMENT.', fetchedAt: null });
+      return;
+    }
+    setWeatherQuery({ state: 'loading', message: 'QUERYING MET NORWAY…', fetchedAt: null });
+    try {
+      const res = await fetch(
+        `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${mapView.lat.toFixed(4)}&lon=${mapView.lon.toFixed(4)}`,
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as {
+        properties?: { timeseries?: { data?: { instant?: { details?: Record<string, unknown> }; next_1_hours?: { summary?: { symbol_code?: string } }; next_6_hours?: { summary?: { symbol_code?: string } } } }[] };
+      };
+      const series = data?.properties?.timeseries;
+      if (!Array.isArray(series) || series.length === 0) throw new Error('EMPTY');
+      const first = series[0];
+      const d = first?.data?.instant?.details;
+      const symbol =
+        first?.data?.next_1_hours?.summary?.symbol_code ??
+        first?.data?.next_6_hours?.summary?.symbol_code ??
+        null;
+      if (!d || typeof d.air_temperature !== 'number') throw new Error('NO_DETAILS');
+      const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+      setWeatherData({
+        tempC: d.air_temperature,
+        symbol: typeof symbol === 'string' ? symbol : null,
+        windSpeed: num(d.wind_speed),
+        windDir: num(d.wind_from_direction),
+        pressure: num(d.air_pressure_at_sea_level),
+        humidity: num(d.relative_humidity),
+        cloud: num(d.cloud_area_fraction),
+      });
+      setWeatherQuery({ state: 'ok', message: 'LIVE', fetchedAt: Date.now() });
+    } catch {
+      setWeatherQuery({
+        state: 'error',
+        message: 'QUERY FAILED (NETWORK) — Met Norway did not answer; no weather is shown.',
+        fetchedAt: null,
+      });
+      setWeatherData(null);
+    }
   };
 
   const queryTransitStops = async () => {
@@ -941,6 +1124,47 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 </button>
               ))}
             </span>
+            {/* v227 — Living World atmosphere: live flights (adsb.lol
+                via the gateway) and weather (Met Norway, direct). */}
+            <span className="flex items-center gap-1">
+              <span className="text-[#B8B8B8]">FLIGHTS</span>
+              {([true, false] as const).map((f) => (
+                <button
+                  key={String(f)}
+                  type="button"
+                  onClick={() => setViewSel({ flights: f })}
+                  aria-pressed={viewSel.flights === f}
+                  className={`h-9 px-2.5 rounded border transition ${
+                    viewSel.flights === f
+                      ? 'border-[#00B7FF] bg-[#00B7FF]/15 text-white'
+                      : 'border-white/15 text-[#B8B8B8] hover:border-white/40'
+                  }`}
+                >
+                  {f ? 'ON' : 'OFF'}
+                </button>
+              ))}
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="text-[#B8B8B8]">WEATHER</span>
+              {([true, false] as const).map((w) => (
+                <button
+                  key={String(w)}
+                  type="button"
+                  onClick={() => {
+                    setViewSel({ weather: w });
+                    if (w) queryWeather();
+                  }}
+                  aria-pressed={viewSel.weather === w}
+                  className={`h-9 px-2.5 rounded border transition ${
+                    viewSel.weather === w
+                      ? 'border-[#00B7FF] bg-[#00B7FF]/15 text-white'
+                      : 'border-white/15 text-[#B8B8B8] hover:border-white/40'
+                  }`}
+                >
+                  {w ? 'ON' : 'OFF'}
+                </button>
+              ))}
+            </span>
             <span className="flex items-center gap-1">
               <span className="text-[#B8B8B8]">LENS</span>
               {(['world', 'crypto', 'earnings', 'security', 'transit', 'coverage'] as const).map((l) => (
@@ -986,7 +1210,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               floorMode={floorMode}
               defaultMarkerColor={routeColor}
               markerPulse={markerPulse}
-              markers={[...(transitOn ? transitStops : []), ...(viewSel.places ? poiMarkers : []), ...(placeMarker ? [placeMarker] : [])]}
+              markers={[...(transitOn ? transitStops : []), ...(viewSel.places ? poiMarkers : []), ...(viewSel.flights ? flightMarkers : []), ...(placeMarker ? [placeMarker] : [])]}
               focusPoint={mapFocus}
               links={focusLinks}
               ringMarkerId={focusPoint?.id}
@@ -996,17 +1220,28 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 if (m.id.startsWith('place-')) {
                   setSelectedStop(null);
                   setSelectedPoi(null);
+                  setSelectedFlight(null);
                   return;
                 }
                 if (m.id.startsWith('poi-')) {
                   setSelectedStop(null);
                   setSelectedPoi(poiRecords[m.id] ?? null);
+                  setSelectedFlight(null);
+                  setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
+                  setDeparturesDay('TODAY');
+                  return;
+                }
+                if (m.id.startsWith('flt-')) {
+                  setSelectedStop(null);
+                  setSelectedPoi(null);
+                  setSelectedFlight(flightRecords[m.id] ?? null);
                   setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                   setDeparturesDay('TODAY');
                   return;
                 }
                 setSelectedStop(m);
                 setSelectedPoi(null);
+                setSelectedFlight(null);
                 setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                 setDeparturesDay('TODAY');
               }}
@@ -1106,6 +1341,31 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                     className="ml-2 font-semibold text-white underline decoration-[#00B7FF] underline-offset-2 disabled:opacity-50"
                   >
                     {poiQuery.state === 'loading' ? 'QUERYING…' : 'QUERY PLACES NEAR CENTRE'}
+                  </button>
+                </div>
+              )}
+              {/* v227 — Live flights: an explicit query (never a
+                  poll) places real aircraft via the gateway
+                  (adsb.lol). A snapshot at fetch time — aircraft
+                  move; re-query to refresh. */}
+              {viewSel.flights && (
+                <div className="pointer-events-auto self-start rounded border border-[#00B7FF]/50 bg-[#0b0b0b]/90 px-2.5 py-2 font-mono text-[11px] text-[#B8B8B8] 2xl:self-stretch">
+                  <span className="font-semibold text-[#00B7FF]">FLIGHTS — LIVE QUERY.</span>{' '}
+                  {flightQuery.message}
+                  {flightQuery.fetchedAt !== null && (
+                    <>
+                      {' '}
+                      SOURCE: ADSB.LOL · FETCHED{' '}
+                      {new Date(flightQuery.fetchedAt).toLocaleTimeString('en-US', { hour12: false })}
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={queryFlights}
+                    disabled={flightQuery.state === 'loading'}
+                    className="ml-2 font-semibold text-white underline decoration-[#00B7FF] underline-offset-2 disabled:opacity-50"
+                  >
+                    {flightQuery.state === 'loading' ? 'QUERYING…' : 'QUERY FLIGHTS NEAR CENTRE'}
                   </button>
                 </div>
               )}
@@ -1293,7 +1553,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   : 'OFF — turn on NIGHT in MAP VIEW'}
               </div>
               <div>
-                MARKERS PLACED: {(transitOn ? transitStops.length : 0) + (viewSel.places ? poiMarkers.length : 0) + (placeMarker ? 1 : 0)}
+                MARKERS PLACED: {(transitOn ? transitStops.length : 0) + (viewSel.places ? poiMarkers.length : 0) + (viewSel.flights ? flightMarkers.length : 0) + (placeMarker ? 1 : 0)}
                 {transitOn && transitStops.length > 0
                   ? ' — Transitland stops (sourced locations)'
                   : ' — no verified locations'}
@@ -1411,7 +1671,13 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               <p className="font-mono text-[10px] text-[#B8B8B8]">
                 FOCUS: <span className="text-white">{focusPoint.label}</span> ·{' '}
                 {focusPoint.lat.toFixed(5)}, {focusPoint.lon.toFixed(5)} · SOURCE:{' '}
-                {selectedStop ? 'TRANSITLAND' : selectedPoi ? 'OPENSTREETMAP (NOMINATIM)' : 'GEOCODING PROVIDER'}
+                {selectedStop
+                  ? 'TRANSITLAND'
+                  : selectedPoi
+                    ? 'OPENSTREETMAP (NOMINATIM)'
+                    : selectedFlight
+                      ? 'ADSB.LOL'
+                      : 'GEOCODING PROVIDER'}
               </p>
               {selectedPoi && (
                 <div>
@@ -1445,6 +1711,33 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
                     Products, orders and deliveries are not in OpenStreetMap — they arrive with a
                     business integration, not a map query.
+                  </p>
+                </div>
+              )}
+              {selectedFlight && (
+                <div>
+                  <div className="font-mono text-[10px] text-white">FLIGHT — SNAPSHOT</div>
+                  <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    CALLSIGN: <span className="text-white">{selectedFlight.label}</span>
+                    {' '}· ALTITUDE:{' '}
+                    <span className="text-white">
+                      {selectedFlight.alt === 'ground'
+                        ? 'ON GROUND'
+                        : selectedFlight.alt !== null
+                          ? `${selectedFlight.alt.toLocaleString()} FT`
+                          : 'UNKNOWN'}
+                    </span>
+                    {' '}· SPEED:{' '}
+                    <span className="text-white">
+                      {selectedFlight.speed !== null ? `${Math.round(selectedFlight.speed)} KT` : 'UNKNOWN'}
+                    </span>
+                    {' '}· HEADING:{' '}
+                    <span className="text-white">
+                      {selectedFlight.heading !== null ? `${Math.round(selectedFlight.heading)}°` : 'UNKNOWN'}
+                    </span>
+                  </p>
+                  <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    A snapshot at fetch time — aircraft move; re-query flights to refresh.
                   </p>
                 </div>
               )}
@@ -1535,6 +1828,72 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   ZOOM TO FOCUS
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* v227 — Weather at the map centre (Met Norway, direct
+              browser fetch). Fetches when the toggle turns on and on
+              the button; never polled. */}
+          {viewSel.weather && (
+            <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-mono text-[#00B7FF]">WEATHER — AT MAP CENTRE</div>
+                <button
+                  type="button"
+                  onClick={queryWeather}
+                  disabled={weatherQuery.state === 'loading'}
+                  className="font-mono text-[10px] font-semibold text-white underline decoration-[#00B7FF] underline-offset-2 disabled:opacity-50"
+                >
+                  {weatherQuery.state === 'loading' ? 'QUERYING…' : 'QUERY WEATHER'}
+                </button>
+              </div>
+              {weatherData ? (
+                <div className="space-y-1">
+                  <p className="font-mono text-[10px] text-[#B8B8B8]">
+                    {weatherData.symbol
+                      ? (WEATHER_SYMBOLS[weatherData.symbol] ?? weatherData.symbol.toUpperCase())
+                      : 'CONDITIONS UNKNOWN'}
+                    {' '}·{' '}
+                    <span className="text-white">
+                      {Math.round((weatherData.tempC * 9) / 5 + 32)}°F ({weatherData.tempC.toFixed(1)}°C)
+                    </span>
+                  </p>
+                  <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    WIND:{' '}
+                    <span className="text-white">
+                      {weatherData.windDir !== null
+                        ? `${Math.round(weatherData.windDir)}° ${COMPASS_8[Math.round(weatherData.windDir / 45) % 8]}`
+                        : 'UNKNOWN'}
+                    </span>
+                    {' '}·{' '}
+                    <span className="text-white">
+                      {weatherData.windSpeed !== null
+                        ? `${Math.round(weatherData.windSpeed * 2.23694)} MPH (${weatherData.windSpeed.toFixed(1)} M/S)`
+                        : 'UNKNOWN'}
+                    </span>
+                    {' '}· PRESSURE:{' '}
+                    <span className="text-white">
+                      {weatherData.pressure !== null ? `${Math.round(weatherData.pressure)} HPA` : 'UNKNOWN'}
+                    </span>
+                    {' '}· HUMIDITY:{' '}
+                    <span className="text-white">
+                      {weatherData.humidity !== null ? `${Math.round(weatherData.humidity)}%` : 'UNKNOWN'}
+                    </span>
+                    {' '}· CLOUD:{' '}
+                    <span className="text-white">
+                      {weatherData.cloud !== null ? `${Math.round(weatherData.cloud)}%` : 'UNKNOWN'}
+                    </span>
+                  </p>
+                  <p className="font-mono text-[10px] text-[#B8B8B8]">
+                    SOURCE: MET NORWAY · FETCHED{' '}
+                    {weatherQuery.fetchedAt !== null
+                      ? new Date(weatherQuery.fetchedAt).toLocaleTimeString('en-US', { hour12: false })
+                      : '—'}
+                  </p>
+                </div>
+              ) : (
+                <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">{weatherQuery.message}</p>
+              )}
             </div>
           )}
 
