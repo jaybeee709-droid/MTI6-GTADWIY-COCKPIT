@@ -408,6 +408,21 @@ try {
     'radar coverage lists Stablecoins, Perp Funding, Fixed Yield (v221)',
   );
   check(
+    'web harvest panel on Bot Operations',
+    botOpsText.includes('WEB HARVEST') && botOpsText.includes('TRIBE SCOUTS'),
+    'harvest panel renders with the scout heading (v229)',
+  );
+  check(
+    'harvest scout assignments seeded',
+    botOpsText.includes('JUDAH') && botOpsText.includes('ISSACHAR') && botOpsText.includes('ZEBULUN'),
+    'three seeded Scout assignments render (v229)',
+  );
+  check(
+    'harvest raw-store honesty line',
+    botOpsText.includes('RAW, UNVERIFIED'),
+    'harvest store is labelled RAW and unverified (v229)',
+  );
+  check(
     'honest state NOT_CONNECTED appears',
     allSeen.includes('NOT_CONNECTED'),
     'NOT_CONNECTED present across visited routes',

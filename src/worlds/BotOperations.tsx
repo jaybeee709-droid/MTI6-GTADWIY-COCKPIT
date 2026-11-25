@@ -45,6 +45,22 @@ import {
 } from '../worker-runtime';
 import { RADAR_CATEGORY_STATES, moneyRadarSummary } from '../money-radar';
 import {
+  HARVEST_EXCERPT_CHARS,
+  HARVEST_INTERVAL_MS,
+  HARVEST_KINDS,
+  HARVEST_MAX_RECORDS,
+  loadHarvestAssignments,
+  loadHarvestAuto,
+  loadHarvestRecords,
+  runHarvestAssignments,
+  safeHarvestUrl,
+  saveHarvestAssignments,
+  saveHarvestAuto,
+  type HarvestAssignment,
+  type HarvestKind,
+  type HarvestRecord,
+} from '../web-harvest';
+import {
   BLOCKSCOUT_NETWORKS,
   CONTRACT_ROLES,
   checkContractOnExplorer,
@@ -295,6 +311,57 @@ export const BotOperations: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoDispatch, kinds]);
   const [taskMsg, setTaskMsg] = useState('');
+
+  // v229 — Tribe Web Harvest: principals scraping every source
+  // the owner adds, saving excerpts to a bounded RAW store.
+  // Same page-open discipline as auto-dispatch: it runs when
+  // this page is open and never while the app is closed.
+  const [harvestAssignments, setHarvestAssignments] = useState<HarvestAssignment[]>(() => loadHarvestAssignments());
+  const [harvestRecords, setHarvestRecords] = useState<HarvestRecord[]>(() => loadHarvestRecords());
+  const [harvestAuto, setHarvestAutoState] = useState<boolean>(() => loadHarvestAuto());
+  const [harvestBusy, setHarvestBusy] = useState(false);
+  const [harvestMsg, setHarvestMsg] = useState<string | null>(null);
+  const [lastHarvestAt, setLastHarvestAt] = useState<number | null>(null);
+  const [nextHarvestAt, setNextHarvestAt] = useState<number | null>(null);
+  const harvestBusyRef = useRef(false);
+  const [newPrincipal, setNewPrincipal] = useState('tribe-judah');
+  const [newSource, setNewSource] = useState('');
+  const [newUrl, setNewUrl] = useState('');
+  const [newKind, setNewKind] = useState<HarvestKind>('OTHER');
+  const [harvestFormMsg, setHarvestFormMsg] = useState('');
+  const runHarvestNow = async () => {
+    if (harvestBusyRef.current) return;
+    harvestBusyRef.current = true;
+    setHarvestBusy(true);
+    try {
+      const made = await runHarvestAssignments(loadHarvestAssignments());
+      setHarvestRecords(loadHarvestRecords());
+      setLastHarvestAt(Date.now());
+      setNextHarvestAt(Date.now() + HARVEST_INTERVAL_MS);
+      const ok = made.filter((r) => r.status === 'OK').length;
+      setHarvestMsg(
+        made.length === 0
+          ? 'NO ACTIVE ASSIGNMENTS — add one below or switch an assignment on.'
+          : `${made.length} SOURCE${made.length === 1 ? '' : 'S'} FETCHED — ${ok} OK, ${made.length - ok} FAILED. Failed sources leave a record, not silence.`,
+      );
+    } finally {
+      harvestBusyRef.current = false;
+      setHarvestBusy(false);
+    }
+  };
+  useEffect(() => {
+    if (!harvestAuto) return;
+    const iv = setInterval(() => {
+      void runHarvestNow();
+    }, HARVEST_INTERVAL_MS);
+    void runHarvestNow();
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [harvestAuto]);
+  const setHarvestAuto = (on: boolean) => {
+    setHarvestAutoState(on);
+    saveHarvestAuto(on);
+  };
   const [evidenceText, setEvidenceText] = useState<Record<string, string>>({});
   const principalName = (id: string | null) =>
     id ? (TRIBE_PRINCIPALS.find((t) => t.id === id)?.displayName ?? id) : 'UNASSIGNED POOL';
@@ -892,6 +959,188 @@ export const BotOperations: React.FC = () => {
           SOURCE: WORKER-RUNTIME) — THE MEMORY LAYER'S FIRST GOVERNED PRODUCER. THE ENGINE
           PERFORMS RESEARCH AND CHECKS ONLY; IT SIGNS NOTHING, SENDS NOTHING, AND MOVES NO
           FUNDS — THE LADDER STILL ENDS AT PREPARED.
+        </p>
+      </div>
+
+      {/* WEB HARVEST (v229) — Tribe members scraping the web.
+          Every source the owner adds, not a fixed list: a
+          principal is assigned a source URL, the harvest
+          fetches it from this page and saves the excerpt to
+          a bounded RAW store. Page-open only — nothing
+          scrapes while the app is closed. Harvested content
+          is RAW, never canonical, never a price or a fact. */}
+      <div className="rounded-xl border border-white/10 p-4 space-y-3" style={SPACE_BG}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-mono text-xs text-[#8B5CFF]">WEB HARVEST — TRIBE SCOUTS, EVERY SOURCE</span>
+          <span className="font-mono text-[10px] text-[#B8B8B8]">
+            ASSIGNMENTS: {harvestAssignments.filter((a) => a.active).length} ACTIVE / {harvestAssignments.length} · RECORDS:{' '}
+            {harvestRecords.length} / {HARVEST_MAX_RECORDS} · STORE: RAW, UNVERIFIED
+          </span>
+        </div>
+        <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+          SCOUTS FETCH THEIR SOURCES FROM THIS PAGE AND SAVE THE EXCERPT — UP TO{' '}
+          {HARVEST_EXCERPT_CHARS.toLocaleString()} CHARACTERS PER RECORD — SO WHAT THE TRIBE
+          GATHERS SURVIVES THE SESSION. A SOURCE THAT BLOCKS BROWSER READS FAILS HONESTLY
+          (NETWORK OR CORS) AND IS NEVER BYPASSED. NOTHING HERE IS CANONICAL AND NOTHING IS
+          SHOWN AS A PRICE OR A FACT.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void runHarvestNow()}
+            disabled={harvestBusy}
+            className="flex min-h-[44px] items-center rounded border border-[#8B5CFF]/60 px-3 font-mono text-[10px] text-white disabled:opacity-50"
+          >
+            {harvestBusy ? 'HARVESTING…' : '▶ RUN HARVEST NOW'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setHarvestAuto(!harvestAuto)}
+            className="flex min-h-[44px] items-center rounded border px-3 font-mono text-[10px] text-white"
+            style={{ borderColor: harvestAuto ? '#32D74B' : 'rgba(255,255,255,0.2)' }}
+          >
+            AUTO-HARVEST: {harvestAuto ? 'ON' : 'OFF'}
+          </button>
+          <span className="font-mono text-[9px] text-[#B8B8B8]">
+            {harvestAuto
+              ? `WHILE ON AND THIS PAGE IS OPEN, ACTIVE ASSIGNMENTS RUN EVERY 15 MIN — CLOSING THE PAGE STOPS IT. ${lastHarvestAt ? `LAST RUN ${new Date(lastHarvestAt).toLocaleTimeString('en-US', { hour12: false })} · ` : ''}${nextHarvestAt ? `NEXT RUN ${new Date(nextHarvestAt).toLocaleTimeString('en-US', { hour12: false })}` : ''}`
+              : 'WHILE OFF, HARVEST RUNS ONLY WHEN YOU TAP RUN HARVEST NOW.'}
+          </span>
+        </div>
+        {harvestMsg && <p className="font-mono text-[10px] text-white">{harvestMsg}</p>}
+        <div className="space-y-2">
+          {harvestAssignments.map((a) => (
+            <div key={a.id} className="rounded border border-white/10 bg-[#050505] px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-mono text-[11px] text-white">
+                  {a.principalName} — SCOUT · {a.sourceName} · {a.kind}
+                </span>
+                <span className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = harvestAssignments.map((x) => (x.id === a.id ? { ...x, active: !x.active } : x));
+                      setHarvestAssignments(next);
+                      saveHarvestAssignments(next);
+                    }}
+                    className="rounded border border-white/15 px-2 py-1 font-mono text-[9px] text-[#B8B8B8] hover:text-white"
+                  >
+                    {a.active ? 'ACTIVE — TAP TO PAUSE' : 'PAUSED — TAP TO ACTIVATE'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = harvestAssignments.filter((x) => x.id !== a.id);
+                      setHarvestAssignments(next);
+                      saveHarvestAssignments(next);
+                    }}
+                    className="rounded border border-white/10 px-2 py-1 font-mono text-[9px] text-[#B8B8B8]"
+                  >
+                    REMOVE
+                  </button>
+                </span>
+              </div>
+              <p className="mt-1 break-all font-mono text-[9px] text-[#B8B8B8]">{a.url}</p>
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={newPrincipal}
+            onChange={(e) => setNewPrincipal(e.target.value)}
+            aria-label="Scout principal"
+            className="h-9 rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white outline-none focus:border-[#8B5CFF]"
+          >
+            {TRIBE_PRINCIPALS.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.displayName}
+              </option>
+            ))}
+          </select>
+          <input
+            value={newSource}
+            onChange={(e) => setNewSource(e.target.value)}
+            placeholder="Source name (e.g. Hacker News front page)"
+            aria-label="Source name"
+            className="h-9 min-w-[180px] flex-1 rounded-lg border border-white/15 bg-[#101010] px-2.5 text-xs text-white outline-none placeholder:text-[#B8B8B8]/60 focus:border-[#8B5CFF]"
+          />
+          <input
+            value={newUrl}
+            onChange={(e) => setNewUrl(e.target.value)}
+            placeholder="https://… (any source — browser-readable ones fetch, the rest fail honestly)"
+            aria-label="Source URL"
+            className="h-9 min-w-[220px] flex-1 rounded-lg border border-white/15 bg-[#101010] px-2.5 text-xs text-white outline-none placeholder:text-[#B8B8B8]/60 focus:border-[#8B5CFF]"
+          />
+          <select
+            value={newKind}
+            onChange={(e) => setNewKind(e.target.value as HarvestKind)}
+            aria-label="Harvest kind"
+            className="h-9 rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white outline-none focus:border-[#8B5CFF]"
+          >
+            {HARVEST_KINDS.map((k) => (
+              <option key={k} value={k}>
+                {k}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => {
+              const principal = TRIBE_PRINCIPALS.find((t) => t.id === newPrincipal);
+              const url = safeHarvestUrl(newUrl);
+              if (!principal) return setHarvestFormMsg('Pick a Tribe principal.');
+              if (!newSource.trim()) return setHarvestFormMsg('A source name is required.');
+              if (!url) return setHarvestFormMsg('That is not a valid http(s) address — paste the full URL starting https://.');
+              const next = [
+                ...harvestAssignments,
+                {
+                  id: `harvest-${Date.now()}`,
+                  principalId: principal.id,
+                  principalName: principal.displayName,
+                  sourceName: newSource.trim(),
+                  url,
+                  kind: newKind,
+                  active: true,
+                  createdAt: Date.now(),
+                },
+              ];
+              setHarvestAssignments(next);
+              saveHarvestAssignments(next);
+              setNewSource('');
+              setNewUrl('');
+              setHarvestFormMsg('');
+            }}
+            className="flex min-h-[44px] items-center rounded-lg bg-[#8B5CFF] px-4 text-xs font-semibold text-white"
+          >
+            ADD ASSIGNMENT
+          </button>
+        </div>
+        {harvestFormMsg && <p className="font-mono text-[10px] text-[#FFB020]">{harvestFormMsg}</p>}
+        {harvestRecords.length === 0 ? (
+          <p className="font-mono text-[10px] text-[#B8B8B8]">
+            NO HARVEST RECORDS YET — RUN HARVEST NOW, OR LEAVE AUTO-HARVEST ON WHILE THIS PAGE
+            STAYS OPEN. NOTHING IS INVENTED TO FILL THIS LIST.
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {harvestRecords.slice(0, 10).map((r) => (
+              <div key={r.id} className="rounded border border-white/10 bg-[#050505] px-3 py-2">
+                <p className="font-mono text-[10px] text-white">
+                  {r.status === 'OK' ? '✓' : '✗'} {r.principalName} · {r.sourceName} · {r.kind} ·{' '}
+                  {new Date(r.fetchedAt).toLocaleTimeString('en-US', { hour12: false })} ·{' '}
+                  {r.status === 'OK' ? `${r.bytes.toLocaleString()} BYTES SAVED` : 'FAILED'}
+                </p>
+                <p className="mt-0.5 break-words font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+                  {r.status === 'OK' ? r.excerpt.slice(0, 120) + (r.excerpt.length > 120 ? '…' : '') : r.error}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+          HARVESTED EXCERPTS ARE RAW EVIDENCE FOR REVIEW — THEY DO NOT ENTER THE ENCYCLOPEDIA,
+          THE ENTITY UNIVERSE, OR ANY LIVE FIGURE. A SOURCE THAT NEEDS A KEY, A SIGN-IN, OR A
+          BROWSER THE APP CANNOT READ STAYS UNREAD UNTIL DANIEL OPENS THAT DOOR HIMSELF.
         </p>
       </div>
 

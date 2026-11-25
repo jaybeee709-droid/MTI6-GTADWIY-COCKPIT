@@ -4,7 +4,9 @@
 // - No embedded YouTube player (removed by owner choice Oct 31,
 //   2026): web search finds videos, and video links open in the
 //   phone's default browser instead.
-// - Public page URLs show their readable text via the scouts layer.
+// - Public page URLs are fetched by the Tribe Web Harvest on Bot
+//   Operations (v229) — this window points there instead of
+//   pretending to fetch itself.
 // - Pages that block browser fetches are NOT bypassed: the window
 //   shows a link to open them in the phone's default browser.
 // - Topics search saved bot knowledge and Hacker News headlines.
@@ -13,10 +15,6 @@
 // visible instead of silent. Clips and movies are made in Muse chat
 // and saved to play in the default browser — this page does not
 // render movies locally.
-//
-// The KnowledgeScout layer is not wired in this React build, so no
-// page text can be fetched and no saved knowledge can be searched
-// here — the window says so honestly instead of pretending to work.
 
 import React, { useState } from 'react';
 import { Globe } from 'lucide-react';
@@ -87,17 +85,17 @@ export const WebBotWorkScreen: React.FC = () => {
     if (/^https?:\/\//i.test(value)) {
       const safe = safeHttpUrl(value);
       addLog('Fetching public page text (no bypass if blocked)…');
-      addLog('Scouts layer did not load — no page text can be fetched in this build.');
+      addLog('Page fetching lives in the Tribe Web Harvest on Bot Operations — assign it there, it saves the excerpt.');
       setWindowText(
-        'The KnowledgeScout layer is not wired in this build, so this page’s text cannot be read here. Pages that block browser fetches are never bypassed — open it in your phone’s default browser instead.',
+        'This window does not fetch page text itself. The Tribe Web Harvest on Bot Operations does — assign any source there (JUDAH, ISSACHAR, and ZEBULUN already scout prices, yields, and pairs) and it saves the excerpt to the RAW harvest store. Pages that block browser fetches are never bypassed — open them in your phone’s default browser instead.',
       );
       setWindowLink(safe ? { href: safe, label: 'Open in your phone’s default browser' } : null);
       return;
     }
     addLog(`Searching saved bot knowledge and headlines for: ${value}`);
-    addLog('No saved knowledge match — the KnowledgeScout layer is not wired in this build.');
+    addLog('No saved knowledge match — the harvest store lives on Bot Operations.');
     setWindowText(
-      'No saved bot knowledge matched. Try the Scouts panel to scrape and save a public page on this topic first — the Scouts layer is not connected in this build.',
+      'No saved bot knowledge matched. Try the Web Harvest on Bot Operations to scrape and save a public page on this topic first — the Scouts there fetch every source you assign.',
     );
     setWindowLink(null);
   };
