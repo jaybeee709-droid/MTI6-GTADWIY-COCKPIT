@@ -101,7 +101,12 @@ export const BotProfileScreen: React.FC = () => {
         </div>
       </Panel>
 
-      <Panel title={`Profile — ${selectedName}`}>
+      {/* v223 — presence frame: the Tribe presence treatment
+          (hologram / realistic / stylized / tactical / futuristic)
+          paints this panel's frame. The principal's identity inside
+          is canonical and is never restyled. */}
+      <div className="mti6-presence-frame rounded-2xl">
+        <Panel title={`Profile — ${selectedName}`}>
         <div className="space-y-3 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#151515] p-3.5">
             <span className="text-[#B8B8B8]">Kind</span>
@@ -147,6 +152,7 @@ export const BotProfileScreen: React.FC = () => {
             : 'Identity comes from the canonical roster (js/tribe-principals.js); role, task and history come from the owner\u2019s assignment records in the canonical store (mti6_principal_assignments_v1), written in Bot Operations. An assignment is a record of the owner\u2019s intent — it is not bot activity. Runtime work is a separate record: tasks with a runtime executor, below, are executed for real by the in-page engine while the app is open.'}
         </p>
       </Panel>
+      </div>
 
       <Panel title={`What ${selectedName} is doing`}>
         <p className="mb-3 text-xs text-[#B8B8B8]">{CONVERGENCE_LINE}</p>

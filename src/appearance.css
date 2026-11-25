@@ -1,0 +1,277 @@
+/* Visual Universe theme layer (v223). Every rule reads the
+ * variables applyAppearance() sets on :root, with the Electric
+ * Blue Command look as the fallback so first paint is never
+ * unstyled. Status colours are NOT variables here — they live in
+ * tokens and in the alert-slot vars, which the Studio may shade
+ * but never reassign. */
+
+:root {
+  --mti6-bg: #050505;
+  --mti6-surface: #101010;
+  --mti6-surface2: #151515;
+  --mti6-accent: #00b7ff;
+  --mti6-text: #ffffff;
+  --mti6-muted: #b8b8b8;
+  --mti6-border: #202020;
+  --mti6-glow: rgba(0, 183, 255, 0.45);
+  --mti6-star-glow: #00b7ff;
+  --mti6-route: #00b7ff;
+  --mti6-alert-normal: #00b7ff;
+  --mti6-alert-warning: #ffb020;
+  --mti6-alert-critical: #ff3b30;
+  --mti6-alert-success: #32d74b;
+  --mti6-win-radius: 16px;
+  --mti6-win-opacity: 1;
+  --mti6-win-glow: 0.5;
+  --mti6-font-scale: 14px;
+}
+
+html {
+  font-size: var(--mti6-font-scale);
+}
+
+body {
+  background-color: var(--mti6-bg);
+  color: var(--mti6-text);
+}
+
+::-webkit-scrollbar-track {
+  background: var(--mti6-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--mti6-border);
+}
+
+/* ---- app shell: the top bar, nav rail and menu drawer follow the
+ * theme. Screens keep their own content colours; the frame is what
+ * a theme transforms. ---- */
+#root > div > header {
+  background-color: var(--mti6-surface);
+  border-bottom-color: var(--mti6-border);
+}
+
+#root > div > header nav button[aria-current='page'],
+#root > div > header nav button[data-active='true'] {
+  color: var(--mti6-accent);
+}
+
+/* ---- STAR orb: glow follows the chosen STAR colour. The portrait
+ * inside is canonical and is never touched. ---- */
+button[aria-label='STAR Orb'] {
+  border-color: var(--mti6-star-glow) !important;
+  box-shadow: 0 0 25px var(--mti6-glow) !important;
+}
+
+[data-mti6-star-idle='on'] button[aria-label='STAR Orb'] {
+  animation: mti6-orb-breathe 4s ease-in-out infinite;
+}
+
+@keyframes mti6-orb-breathe {
+  0%, 100% { box-shadow: 0 0 18px var(--mti6-glow); }
+  50% { box-shadow: 0 0 34px var(--mti6-glow); }
+}
+
+[data-mti6-star-aura='on'] .mti6-star-panel {
+  box-shadow: 0 0 40px var(--mti6-glow);
+  border-color: var(--mti6-star-glow) !important;
+}
+
+/* ---- floating windows: chrome styles. The window div carries
+ * .mti6-float-win (App.tsx); the style comes from the data attr. ---- */
+.mti6-float-win {
+  border-radius: var(--mti6-win-radius);
+  opacity: var(--mti6-win-opacity);
+}
+
+[data-mti6-window='glass'] .mti6-float-win {
+  background: color-mix(in srgb, var(--mti6-surface) 78%, transparent) !important;
+  backdrop-filter: blur(14px);
+  border-color: var(--mti6-accent) !important;
+  box-shadow: 0 0 calc(24px * var(--mti6-win-glow)) var(--mti6-glow);
+}
+
+[data-mti6-window='steel'] .mti6-float-win {
+  background: linear-gradient(160deg, #2a2f36, var(--mti6-surface) 55%, #1a1d22) !important;
+  border-color: #c8cfd8 !important;
+}
+
+[data-mti6-window='carbon'] .mti6-float-win {
+  background:
+    repeating-linear-gradient(45deg, rgba(255,255,255,0.03) 0 2px, transparent 2px 6px),
+    var(--mti6-surface) !important;
+  border-color: #3a3f46 !important;
+}
+
+[data-mti6-window='neon'] .mti6-float-win {
+  border-color: var(--mti6-accent) !important;
+  box-shadow: 0 0 calc(32px * var(--mti6-win-glow)) var(--mti6-glow), inset 0 0 18px rgba(0,0,0,0.4);
+}
+
+[data-mti6-window='hud'] .mti6-float-win {
+  border: 1px solid var(--mti6-accent) !important;
+  border-radius: 4px !important;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.6), 0 0 calc(16px * var(--mti6-win-glow)) var(--mti6-glow);
+}
+
+[data-mti6-window='transparent'] .mti6-float-win {
+  background: transparent !important;
+  backdrop-filter: blur(6px);
+  border-color: var(--mti6-border) !important;
+}
+
+[data-mti6-window='deck'] .mti6-float-win {
+  border-top: 3px solid var(--mti6-accent) !important;
+  background: var(--mti6-surface) !important;
+}
+
+/* ---- particles: a fixed overlay of CSS dots. The React layer
+ * renders the dots; density comes from the effects level. ---- */
+.mti6-particles {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  overflow: hidden;
+}
+
+.mti6-particles span {
+  position: absolute;
+  bottom: -2vh;
+  border-radius: 9999px;
+  background: var(--mti6-accent);
+  opacity: 0.5;
+  animation: mti6-particle-rise linear infinite;
+}
+
+@keyframes mti6-particle-rise {
+  0% { transform: translateY(0); opacity: 0; }
+  12% { opacity: 0.55; }
+  88% { opacity: 0.4; }
+  100% { transform: translateY(-108vh); opacity: 0; }
+}
+
+/* ---- alert cards: style comes from the data attr; the severity
+ * stripe always uses the law's colours (shadeable, never
+ * reassignable). The card div carries .mti6-alert-card +
+ * data-severity (SecurityWorld). ---- */
+.mti6-alert-card {
+  border-left-width: 3px !important;
+}
+
+.mti6-alert-card[data-severity='CRITICAL'] { border-left-color: var(--mti6-alert-critical) !important; }
+.mti6-alert-card[data-severity='HIGH'] { border-left-color: var(--mti6-alert-warning) !important; }
+.mti6-alert-card[data-severity='CAUTION'] { border-left-color: var(--mti6-alert-warning) !important; }
+.mti6-alert-card[data-severity='INFORMATIONAL'] { border-left-color: var(--mti6-alert-normal) !important; }
+.mti6-alert-card[data-severity='UNKNOWN'] { border-left-color: var(--mti6-muted) !important; }
+
+[data-mti6-alert='futuristic'] .mti6-alert-card {
+  box-shadow: 0 0 18px var(--mti6-glow);
+  border-color: var(--mti6-accent) !important;
+}
+
+[data-mti6-alert='tactical'] .mti6-alert-card {
+  border-radius: 4px !important;
+  border-color: var(--mti6-alert-warning) !important;
+  font-family: ui-monospace, monospace;
+}
+
+[data-mti6-alert='executive'] .mti6-alert-card {
+  box-shadow: none !important;
+  border-color: var(--mti6-border) !important;
+}
+
+[data-mti6-alert='ai'] .mti6-alert-card {
+  border-color: #8b5cff !important;
+  box-shadow: 0 0 18px rgba(139, 92, 255, 0.4);
+}
+
+/* ---- presence frames: the treatment around STAR / Tribe profile
+ * panels. The face or body inside is never restyled. ---- */
+.mti6-presence-frame {
+  position: relative;
+}
+
+[data-mti6-presence='hologram'] .mti6-presence-frame {
+  box-shadow: 0 0 22px var(--mti6-glow);
+  border-color: var(--mti6-accent) !important;
+}
+
+[data-mti6-presence='hologram'] .mti6-presence-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(255,255,255,0.04) 0 1px, transparent 1px 4px);
+  border-radius: inherit;
+}
+
+[data-mti6-presence='stylized'] .mti6-presence-frame {
+  box-shadow: 0 0 26px rgba(139, 92, 255, 0.45);
+}
+
+[data-mti6-presence='tactical'] .mti6-presence-frame {
+  border-radius: 4px !important;
+  border-color: var(--mti6-alert-warning) !important;
+}
+
+[data-mti6-presence='futuristic'] .mti6-presence-frame {
+  border-color: #8b5cff !important;
+  box-shadow: 0 0 26px rgba(139, 92, 255, 0.5);
+}
+
+/* ---- globe treatments: overlays inside the map container
+ * (WorldGlobe adds .mti6-globe-overlay). ---- */
+.mti6-globe-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+[data-mti6-globe='tron'] .mti6-globe-overlay {
+  background:
+    linear-gradient(rgba(0, 255, 255, 0.06), rgba(0, 255, 255, 0.06)),
+    repeating-linear-gradient(0deg, rgba(0, 255, 255, 0.08) 0 1px, transparent 1px 48px),
+    repeating-linear-gradient(90deg, rgba(0, 255, 255, 0.08) 0 1px, transparent 1px 48px);
+}
+
+[data-mti6-globe='holographic'] .mti6-globe-overlay {
+  background: repeating-linear-gradient(0deg, rgba(125, 211, 252, 0.07) 0 2px, transparent 2px 6px);
+  box-shadow: inset 0 0 80px rgba(125, 211, 252, 0.25);
+}
+
+[data-mti6-globe='data'] .mti6-globe-overlay,
+[data-mti6-globe='network'] .mti6-globe-overlay {
+  background-image: radial-gradient(rgba(0, 183, 255, 0.35) 1px, transparent 1.5px);
+  background-size: 28px 28px;
+  opacity: 0.35;
+}
+
+/* ---- dynamic mood: the app reacts to real state. ALERT mood
+ * fires only from a CONFIRMED-and-active AngelSecurity alert;
+ * profit mood has no live source and is never faked. ---- */
+[data-mti6-mood='alert'] #root > div > header {
+  box-shadow: inset 0 2px 0 var(--mti6-alert-critical);
+}
+
+/* ---- route pulse: markers breathe when the route style is
+ * PULSE (Globe Designer). Other route styles are stored and apply
+ * when route lines exist — routing is NOT_CONNECTED, so today the
+ * pulse is the only visible route style. ---- */
+.mti6-marker-pulse span {
+  animation: mti6-marker-pulse 1.8s ease-out infinite;
+}
+
+@keyframes mti6-marker-pulse {
+  0% { box-shadow: 0 0 0 0 var(--mti6-route); }
+  70% { box-shadow: 0 0 0 10px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-mti6-star-idle='on'] button[aria-label='STAR Orb'],
+  .mti6-particles span {
+    animation: none !important;
+  }
+}

@@ -39,6 +39,16 @@ import {
   transitionAlert,
   type AlertState,
 } from '../angel-security';
+import {
+  GLOBE_ROUTE_COLORS,
+  STAR_GLOW_COLORS,
+  THEMES,
+  applyGlobeDesign,
+  builtinPresets,
+  resolveTheme,
+  type AppearanceSettings,
+  type MediaAsset,
+} from '../appearance';
 import { PROXY_ACTIONS, PROXY_ENV_NAMES, PROXY_METHOD, PROXY_PROVIDERS } from '../security-posture-data';
 import { RESOURCE_PROVIDERS } from '../resource-catalog-data';
 import {
@@ -1540,7 +1550,7 @@ export const SecurityWorld: React.FC = () => {
         ) : (
           <div className="space-y-2">
             {angelStore.alerts.map((a) => (
-              <div key={a.id} className="rounded-lg border border-white/10 bg-[#050505] p-3 space-y-1.5">
+              <div key={a.id} data-severity={a.severity} className="mti6-alert-card rounded-lg border border-white/10 bg-[#050505] p-3 space-y-1.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs font-semibold text-white">{a.title}</span>
                   <span className="rounded border border-white/15 px-2 py-0.5 font-mono text-[9px] text-white">
@@ -1692,9 +1702,526 @@ const SETTINGS_TABS = [
 ] as const;
 type SettingsTab = (typeof SETTINGS_TABS)[number];
 
-export const SettingsWorld: React.FC = () => {
+/* ---- Appearance Studio / Visual Universe (v223) ----
+ * The full visual-command center. Every control applies LIVE —
+ * there is no save step; the cockpit IS the preview. Two laws
+ * are enforced in the UI itself: status colours are never
+ * reassignable (alert slots offer shades only), and STAR / Tribe /
+ * Angel identities are never replaced (themes change glow, frame
+ * and presence — never the ruled face or body). */
+const AppearanceStudio: React.FC<{
+  appearance: AppearanceSettings;
+  onAppearanceChange: (next: AppearanceSettings) => void;
+}> = ({ appearance: a, onAppearanceChange }) => {
+  const set = (patch: Partial<AppearanceSettings>) => onAppearanceChange({ ...a, ...patch });
+  const theme = resolveTheme(a);
+  const [presetName, setPresetName] = useState('');
+  const [customAccent, setCustomAccent] = useState(a.customTheme?.accent ?? '#00B7FF');
+  const [customSurface, setCustomSurface] = useState(a.customTheme?.surface ?? '#101010');
+  const [customBg, setCustomBg] = useState(a.customTheme?.bg ?? '#050505');
+  const [mediaSource, setMediaSource] = useState<MediaAsset['source']>('User Uploaded');
+  const [mediaLicense, setMediaLicense] = useState('Owner upload — Daniel\u2019s own file');
+  const [mediaMsg, setMediaMsg] = useState('');
+
+  const savePreset = () => {
+    const name = presetName.trim() || `theme-${a.themeId}-v${a.presets.length + 1}`;
+    const { presets: _p, media: _m, ...snapshot } = a;
+    set({
+      presets: [
+        ...a.presets,
+        { id: `preset-${Date.now()}`, name, createdAt: Date.now(), snapshot },
+      ],
+    });
+    setPresetName('');
+  };
+  const applyPreset = (p: { snapshot: Omit<AppearanceSettings, 'presets' | 'media'> }) => {
+    onAppearanceChange({ ...p.snapshot, presets: a.presets, media: a.media });
+  };
+  const importWallpaper = (file: File | undefined) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setMediaMsg('Only image files can be wallpapers in this build.');
+      return;
+    }
+    if (file.size > 1_500_000) {
+      setMediaMsg('That file is over 1.5 MB — resize it first (wallpapers stay small so the cockpit stays fast).');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result ?? '');
+      const total = a.media.reduce((n, m) => n + m.dataUrl.length, 0) + dataUrl.length;
+      if (total > 4_000_000) {
+        setMediaMsg('Media library is full (~4 MB) — remove a wallpaper first.');
+        return;
+      }
+      const asset: MediaAsset = {
+        id: `media-${Date.now()}`,
+        name: file.name,
+        kind: 'wallpaper',
+        source: mediaSource,
+        license: mediaLicense,
+        dataUrl,
+        createdAt: Date.now(),
+      };
+      set({ media: [...a.media, asset], activeWallpaper: asset.id });
+      setMediaMsg(`Imported "${file.name}" and set it as the cockpit wallpaper.`);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const seg = (on: boolean) =>
+    `rounded-lg px-3 py-2 font-semibold transition ${
+      on ? 'bg-[#00B7FF] text-black' : 'bg-[#151515] text-[#B8B8B8] hover:bg-[#202020] hover:text-white'
+    }`;
+  const section = (title: string, note: string, body: React.ReactNode) => (
+    <div className="rounded-xl border border-white/10 bg-[#151515] p-4 space-y-3">
+      <div className="text-sm font-semibold text-white">{title}</div>
+      <p className="text-[11px] leading-relaxed text-[#B8B8B8]">{note}</p>
+      {body}
+    </div>
+  );
+
+  const moodNow =
+    typeof document !== 'undefined'
+      ? document.querySelector('[data-mti6-mood]')?.getAttribute('data-mti6-mood') ?? 'normal'
+      : 'normal';
+
+  return (
+    <div className="space-y-4">
+      <p className="text-[11px] leading-relaxed text-[#B8B8B8]">
+        Live — every change below applies across the cockpit immediately, no save step. The cockpit itself is
+        the preview. Two things themes never touch: <strong className="text-white">status colours</strong>{' '}
+        (green = profit / verified, red = critical alert only, amber = warning, violet = STAR) and{' '}
+        <strong className="text-white">canonical identities</strong> (STAR&apos;s face is your portrait; the 12
+        Tribe principals and the Angels are ruled embodiments — themes change their glow and frame, never the
+        face or body).
+      </p>
+
+      {section(
+        'Live Preview',
+        'A miniature of the cockpit in the current theme — the real cockpit behind this panel is already wearing it.',
+        <div className="rounded-lg border p-3" style={{ backgroundColor: theme.bg, borderColor: theme.border }}>
+          <div className="flex items-center gap-2 rounded px-2 py-1.5" style={{ backgroundColor: theme.surface }}>
+            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: theme.accent }} />
+            <span className="text-[11px] font-semibold" style={{ color: theme.text }}>MTI6 Cockpit</span>
+            <span className="ml-auto h-2.5 w-2.5 rounded-full" style={{ backgroundColor: '#8B5CFF' }} title="STAR" />
+          </div>
+          <div className="mt-2 flex gap-2">
+            <div className="h-14 flex-1 rounded" style={{ backgroundColor: theme.surface2, border: `1px solid ${theme.border}` }}>
+              <div className="p-2 text-[10px]" style={{ color: theme.muted }}>World Globe · {a.globeType}</div>
+            </div>
+            <div className="h-14 w-20 rounded" style={{ backgroundColor: theme.surface, border: `1px solid ${theme.accent}` }}>
+              <div className="p-2 text-[10px]" style={{ color: theme.text }}>Window · {a.windowStyle}</div>
+            </div>
+          </div>
+          <div className="mt-2 text-[10px]" style={{ color: theme.muted }}>
+            Theme: {theme.name} · STAR glow: {a.starGlow} · Particles: {a.particlesEnabled ? a.effectsLevel : 'off'} · Mood: {moodNow}
+          </div>
+        </div>,
+      )}
+
+      {section(
+        'Themes — one click changes the cockpit',
+        'Eleven named themes plus your Custom build. The shell (top bar, surfaces, glows, windows) follows the theme; screens keep their content colours and every status colour stays law.',
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {THEMES.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => set({ themeId: t.id })}
+              className={`text-left rounded-lg border p-3 transition ${
+                a.themeId === t.id ? 'border-white bg-[#202020]' : 'border-white/10 bg-[#101010] hover:border-white/40'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="flex gap-1">
+                  <span className="h-3 w-3 rounded-full border border-white/20" style={{ backgroundColor: t.bg }} />
+                  <span className="h-3 w-3 rounded-full" style={{ backgroundColor: t.accent }} />
+                  <span className="h-3 w-3 rounded-full" style={{ backgroundColor: t.surface2 }} />
+                </span>
+                <span className="text-xs font-semibold text-white">{t.name}</span>
+              </div>
+              <div className="mt-1 text-[11px] text-[#B8B8B8]">{t.blurb}</div>
+            </button>
+          ))}
+        </div>,
+      )}
+
+      {section(
+        'Custom Theme Builder',
+        'Pick your own accent, surface and background, then apply them as the Custom theme.',
+        <div className="flex flex-wrap items-end gap-3">
+          {([
+            ['Accent', customAccent, setCustomAccent],
+            ['Surface', customSurface, setCustomSurface],
+            ['Background', customBg, setCustomBg],
+          ] as const).map(([label, value, setValue]) => (
+            <label key={label} className="flex flex-col gap-1 text-[11px] text-[#B8B8B8]">
+              {label}
+              <input
+                type="color"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                className="h-9 w-14 cursor-pointer rounded border border-white/15 bg-[#101010]"
+              />
+              <span className="font-mono text-[10px]">{value}</span>
+            </label>
+          ))}
+          <button
+            type="button"
+            onClick={() => set({ customTheme: { accent: customAccent, surface: customSurface, bg: customBg }, themeId: 'custom' })}
+            className="rounded-lg bg-[#00B7FF] px-3 py-2 text-xs font-semibold text-black"
+          >
+            Apply as Custom
+          </button>
+          <button
+            type="button"
+            onClick={() => set({ customTheme: null, themeId: 'electric-blue' })}
+            className="rounded-lg bg-[#202020] px-3 py-2 text-xs font-semibold text-white"
+          >
+            Reset to Electric Blue
+          </button>
+        </div>,
+      )}
+
+      {section(
+        'Presets — save entire worlds',
+        'A preset is a snapshot of every setting on this page. Built-ins are the four example worlds; yours are private to this cockpit.',
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <input
+              value={presetName}
+              onChange={(e) => setPresetName(e.target.value)}
+              placeholder={`theme-${a.themeId}-v${a.presets.length + 1}`}
+              aria-label="Preset name"
+              className="h-9 min-w-0 flex-1 rounded-lg border border-white/15 bg-[#050505] px-2.5 text-xs text-white outline-none placeholder:text-[#B8B8B8]/70"
+            />
+            <button type="button" onClick={savePreset} className="rounded-lg bg-[#00B7FF] px-3 py-2 text-xs font-semibold text-black">
+              Save current design
+            </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {[...builtinPresets(), ...a.presets].map((p) => (
+              <div key={p.id} className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-[#101010] px-3 py-2">
+                <div>
+                  <div className="text-xs font-semibold text-white">{p.name}</div>
+                  <div className="text-[10px] text-[#B8B8B8]">{p.builtin ? 'Built-in' : 'Yours'} · {p.snapshot.themeId}</div>
+                </div>
+                <div className="flex gap-1.5">
+                  <button type="button" onClick={() => applyPreset(p)} className="rounded-lg bg-[#00B7FF]/20 px-2.5 py-1.5 text-[11px] font-semibold text-[#00B7FF]">
+                    Apply
+                  </button>
+                  {!p.builtin && (
+                    <button
+                      type="button"
+                      onClick={() => set({ presets: a.presets.filter((x) => x.id !== p.id) })}
+                      className="rounded-lg bg-[#202020] px-2.5 py-1.5 text-[11px] font-semibold text-[#B8B8B8]"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>,
+      )}
+
+      {section(
+        'Globe Designer',
+        'Globe type is a preset over the map controls (base + terrain + floor). Galaxy has no geography source and is not offered. Route lines need a routing provider — routing is NOT_CONNECTED today, so only PULSE visibly animates the map markers; the other styles are stored and apply when route lines exist.',
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-1.5">
+            {(['realistic', 'satellite', 'wireframe', 'terrain', 'tron', 'holographic', 'data', 'network'] as const).map((g) => (
+              <button
+                key={g}
+                type="button"
+                onClick={() => {
+                  set({ globeType: g });
+                  // Retarget the stored map-view too, so the design
+                  // lands even if the World Globe screen is unmounted.
+                  applyGlobeDesign(g);
+                }}
+                className={seg(a.globeType === g)}
+              >
+                {g.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] text-[#B8B8B8]">Route colour</span>
+            {(Object.keys(GLOBE_ROUTE_COLORS) as (keyof typeof GLOBE_ROUTE_COLORS)[]).map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => set({ globeRoute: c })}
+                aria-label={`Route colour ${c}`}
+                className={`h-8 w-8 rounded-full border-2 ${a.globeRoute === c ? 'border-white' : 'border-white/20'}`}
+                style={{ backgroundColor: GLOBE_ROUTE_COLORS[c] }}
+              />
+            ))}
+            <span className="text-[11px] text-[#B8B8B8]">Route style</span>
+            {(['solid', 'pulse', 'lightning', 'laser', 'stream'] as const).map((r) => (
+              <button key={r} type="button" onClick={() => set({ routeStyle: r })} className={seg(a.routeStyle === r)}>
+                {r.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <label className="flex items-center gap-2 text-xs text-[#B8B8B8]">
+            <input type="checkbox" checked={a.globeParticles} onChange={(e) => set({ globeParticles: e.target.checked })} />
+            Data-stream particles over the globe (cosmetic — zero data behind them)
+          </label>
+        </div>,
+      )}
+
+      {section(
+        'STAR',
+        'STAR\u2019s face is your portrait and his build is owner-ruled — neither is replaced by a theme. What changes here is his light: glow colour, aura, idle motion, presence frame, and voice style.',
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] text-[#B8B8B8]">Glow</span>
+            {(Object.keys(STAR_GLOW_COLORS) as (keyof typeof STAR_GLOW_COLORS)[]).map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => set({ starGlow: c })}
+                className={seg(a.starGlow === c)}
+              >
+                {c.toUpperCase()}
+              </button>
+            ))}
+            {a.starGlow === 'custom' && (
+              <input type="color" value={a.starGlowCustom} onChange={(e) => set({ starGlowCustom: e.target.value })} className="h-9 w-14 cursor-pointer rounded border border-white/15 bg-[#101010]" />
+            )}
+          </div>
+          <div className="flex flex-wrap gap-4 text-xs text-[#B8B8B8]">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={a.starAura} onChange={(e) => set({ starAura: e.target.checked })} /> Aura on the STAR panel
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={a.starIdle} onChange={(e) => set({ starIdle: e.target.checked })} /> Idle breathing glow on the orb
+            </label>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] text-[#B8B8B8]">Voice style</span>
+            {(['executive', 'friendly', 'strategic', 'scientific', 'mentor'] as const).map((v) => (
+              <button key={v} type="button" onClick={() => set({ starVoice: v })} className={seg(a.starVoice === v)}>
+                {v.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-[#B8B8B8]">
+            Voice style is stored and will shape STAR voice briefings when spoken. No speech pipeline exists in this
+            build — nothing speaks aloud today, so this changes no sound yet.
+          </p>
+        </div>,
+      )}
+
+      {section(
+        'Tribes — presence',
+        'The 12 principals keep their ruled faces, robes and builds. Presence changes only the frame around their profile panels.',
+        <div className="flex flex-wrap gap-1.5">
+          {(['hologram', 'realistic', 'stylized', 'tactical', 'futuristic'] as const).map((p) => (
+            <button key={p} type="button" onClick={() => set({ tribePresence: p })} className={seg(a.tribePresence === p)}>
+              {p.toUpperCase()}
+            </button>
+          ))}
+        </div>,
+      )}
+
+      {section(
+        'Window Designer',
+        'Every floating window in the cockpit takes this chrome: style, corner radius, transparency and glow.',
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-1.5">
+            {(['glass', 'steel', 'carbon', 'neon', 'hud', 'transparent', 'deck'] as const).map((w) => (
+              <button key={w} type="button" onClick={() => set({ windowStyle: w })} className={seg(a.windowStyle === w)}>
+                {w.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          {([
+            ['Corner radius', a.windowRadius, 0, 24, (v: number) => set({ windowRadius: v }), 'px'],
+            ['Transparency', Math.round(a.windowOpacity * 100), 55, 100, (v: number) => set({ windowOpacity: v / 100 }), '%'],
+            ['Glow', Math.round(a.windowGlow * 100), 0, 100, (v: number) => set({ windowGlow: v / 100 }), '%'],
+          ] as const).map(([label, value, min, max, onChange, unit]) => (
+            <label key={label as string} className="flex items-center gap-3 text-xs text-[#B8B8B8]">
+              <span className="w-24 shrink-0">{label}</span>
+              <input
+                type="range"
+                min={min}
+                max={max}
+                value={value}
+                onChange={(e) => (onChange as (v: number) => void)(Number(e.target.value))}
+                className="flex-1 accent-[#00B7FF]"
+              />
+              <span className="w-12 text-right font-mono text-white">{value}{unit}</span>
+            </label>
+          ))}
+        </div>,
+      )}
+
+      {section(
+        'Visual Effects Studio',
+        'Everything that moves. Particles are pure CSS dots — no data, no telemetry, just light. Minimal to Extreme sets particle count and glow strength together.',
+        <div className="space-y-3">
+          <label className="flex items-center gap-2 text-xs text-[#B8B8B8]">
+            <input type="checkbox" checked={a.particlesEnabled} onChange={(e) => set({ particlesEnabled: e.target.checked })} />
+            Particles on
+          </label>
+          <div className="flex flex-wrap gap-1.5">
+            {(['minimal', 'standard', 'enhanced', 'cinematic', 'extreme'] as const).map((l) => (
+              <button key={l} type="button" onClick={() => set({ effectsLevel: l })} className={seg(a.effectsLevel === l)}>
+                {l.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>,
+      )}
+
+      {section(
+        'Alert Styles',
+        'Four renderings for the Security register\u2019s alert cards. The severity stripe always uses the law\u2019s colours — the pickers below change only the shade inside each meaning. Critical can never become green; success can never become red.',
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-1.5">
+            {(['futuristic', 'tactical', 'executive', 'ai'] as const).map((s) => (
+              <button key={s} type="button" onClick={() => set({ alertStyle: s })} className={seg(a.alertStyle === s)}>
+                {s.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          {([
+            ['Normal', 'normal', ['#00B7FF', '#33CFFF', '#0080FF']],
+            ['Warning', 'warning', ['#FFB020', '#FF9500', '#FFC24B']],
+            ['Critical', 'critical', ['#FF3B30', '#FF453A', '#FF6961']],
+            ['Success', 'success', ['#32D74B', '#30D158', '#7BE495']],
+          ] as const).map(([label, key, shades]) => (
+            <div key={key} className="flex items-center gap-2">
+              <span className="w-16 text-[11px] text-[#B8B8B8]">{label}</span>
+              {shades.map((hex) => (
+                <button
+                  key={hex}
+                  type="button"
+                  aria-label={`${label} shade ${hex}`}
+                  onClick={() => set({ alertColors: { ...a.alertColors, [key]: hex } })}
+                  className={`h-7 w-7 rounded-full border-2 ${a.alertColors[key as keyof typeof a.alertColors] === hex ? 'border-white' : 'border-white/20'}`}
+                  style={{ backgroundColor: hex }}
+                />
+              ))}
+              <span className="font-mono text-[10px] text-[#B8B8B8]">{a.alertColors[key as keyof typeof a.alertColors]}</span>
+            </div>
+          ))}
+        </div>,
+      )}
+
+      {section(
+        'Dynamic Living World',
+        'The cockpit reacts to real state without opening settings. Alert mood fires only from a CONFIRMED-or-ACTIVE CRITICAL alert (the same bar as the map turning red). Profit mood has no live source — no profit is recorded anywhere in this build — so it is unwired and says so, rather than faking a gold glow.',
+        <div className="space-y-2 text-xs text-[#B8B8B8]">
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={a.dynamicMood} onChange={(e) => set({ dynamicMood: e.target.checked })} />
+            Dynamic mood on
+          </label>
+          <div>Mood right now: <strong className="text-white">{moodNow.toUpperCase()}</strong></div>
+          <div>Profit mood: <strong className="text-white">NO_DATA</strong> — unwired until a real profit feed exists</div>
+        </div>,
+      )}
+
+      {section(
+        'Media Library — wallpapers',
+        'Import your own images and assign them as the cockpit wallpaper. Every asset records its source and licence, so the library stays copyright-clean by construction. Files cap at 1.5 MB each, ~4 MB total (localStorage).',
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <select
+              value={mediaSource}
+              onChange={(e) => setMediaSource(e.target.value as MediaAsset['source'])}
+              className="h-9 rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white"
+              aria-label="Asset source"
+            >
+              {(['User Uploaded', 'Public Domain', 'Creative Commons', 'Licensed', 'MTI6 Original'] as const).map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+            <input
+              value={mediaLicense}
+              onChange={(e) => setMediaLicense(e.target.value)}
+              placeholder="Licence / provenance note"
+              aria-label="Licence note"
+              className="h-9 min-w-0 flex-1 rounded-lg border border-white/15 bg-[#050505] px-2.5 text-xs text-white outline-none placeholder:text-[#B8B8B8]/70"
+            />
+            <label className="flex h-9 cursor-pointer items-center rounded-lg bg-[#00B7FF] px-3 text-xs font-semibold text-black">
+              Import image
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => importWallpaper(e.target.files?.[0])}
+              />
+            </label>
+          </div>
+          {mediaMsg && <p className="text-[11px] text-[#B8B8B8]">{mediaMsg}</p>}
+          {a.media.length === 0 ? (
+            <p className="text-[11px] text-[#B8B8B8]">No wallpapers imported yet.</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {a.media.map((m) => (
+                <div key={m.id} className="rounded-lg border border-white/10 bg-[#101010] p-2">
+                  <img src={m.dataUrl} alt={m.name} className="h-20 w-full rounded object-cover" />
+                  <div className="mt-1.5 text-xs font-semibold text-white">{m.name}</div>
+                  <div className="text-[10px] text-[#B8B8B8]">{m.source} · {m.license}</div>
+                  <div className="mt-1.5 flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => set({ activeWallpaper: m.id })}
+                      className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold ${a.activeWallpaper === m.id ? 'bg-[#32D74B]/20 text-[#32D74B]' : 'bg-[#00B7FF]/20 text-[#00B7FF]'}`}
+                    >
+                      {a.activeWallpaper === m.id ? 'Active' : 'Apply'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => set({ media: a.media.filter((x) => x.id !== m.id), activeWallpaper: a.activeWallpaper === m.id ? null : a.activeWallpaper })}
+                      className="rounded-lg bg-[#202020] px-2.5 py-1.5 text-[11px] font-semibold text-[#B8B8B8]"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {a.activeWallpaper && (
+            <button type="button" onClick={() => set({ activeWallpaper: null })} className="text-[11px] text-[#B8B8B8] underline">
+              Remove wallpaper (back to the theme background)
+            </button>
+          )}
+          <div className="space-y-1 border-t border-white/10 pt-2 text-[11px] text-[#B8B8B8]">
+            <div>Sound packs: <strong className="text-white">NOT_CONNECTED</strong> — no audio pipeline exists in this build.</div>
+            <div>AI asset generator: <strong className="text-white">NOT_CONNECTED</strong> — no image provider is configured.</div>
+          </div>
+        </div>,
+      )}
+
+      {section(
+        'Typography',
+        'Base font size for the whole cockpit.',
+        <div className="flex flex-wrap gap-1.5">
+          {(['compact', 'standard', 'comfortable'] as const).map((f) => (
+            <button key={f} type="button" onClick={() => set({ fontScale: f })} className={seg(a.fontScale === f)}>
+              {f.toUpperCase()}
+            </button>
+          ))}
+        </div>,
+      )}
+    </div>
+  );
+};
+
+export const SettingsWorld: React.FC<{
+  appearance: AppearanceSettings;
+  onAppearanceChange: (next: AppearanceSettings) => void;
+}> = ({ appearance, onAppearanceChange }) => {
   const [tab, setTab] = useState<SettingsTab>('Appearance Studio');
-  const [accent, setAccent] = useState<string>('#00B7FF');
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
   const [reducedMotion, setReducedMotion] = useState<boolean>(false);
 
@@ -1732,29 +2259,7 @@ export const SettingsWorld: React.FC = () => {
 
       <div className="rounded-2xl border border-white/10 bg-[#101010] p-5 text-xs">
         {tab === 'Appearance Studio' && (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <Palette className="h-4 w-4 text-[#00B7FF]" /> Cockpit Accent Token
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { name: 'Electric Cyan', hex: '#00B7FF' },
-                { name: 'Sovereign Violet', hex: '#8B5CFF' },
-                { name: 'Terminal Green', hex: '#32D74B' },
-              ].map((c) => (
-                <button
-                  key={c.hex}
-                  onClick={() => setAccent(c.hex)}
-                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
-                    accent === c.hex ? 'border-white bg-[#202020]' : 'border-white/10 bg-[#151515]'
-                  }`}
-                >
-                  <span className="h-3 w-3 rounded-full" style={{ backgroundColor: c.hex }} />
-                  <span>{c.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+          <AppearanceStudio appearance={appearance} onAppearanceChange={onAppearanceChange} />
         )}
 
         {tab === 'Voice' && (

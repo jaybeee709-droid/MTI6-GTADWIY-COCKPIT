@@ -292,6 +292,36 @@ try {
     `${uniqueHashes.size} distinct renders of ${routeTexts.length} routes`,
   );
 
+  // v223 — Appearance Studio / Visual Universe on the Settings
+  // route (the default tab). The route texts were captured above;
+  // find the Settings render and assert the Studio sections.
+  const settingsText = routeTexts[ROUTES.findIndex(([l]) => l === 'Settings World')] ?? '';
+  check('appearance studio present', settingsText.includes('Appearance Studio'), 'Studio tab renders');
+  check(
+    'theme grid present',
+    ['Electric Blue Command', 'Purple STAR', 'Stainless Steel Silver', 'Cyberpunk Neon'].every((t) =>
+      settingsText.includes(t),
+    ),
+    '11 named themes',
+  );
+  check(
+    'studio sections present',
+    ['Custom Theme Builder', 'Presets — save entire worlds', 'Globe Designer', 'Window Designer', 'Visual Effects Studio', 'Alert Styles', 'Dynamic Living World', 'Media Library', 'Typography'].every((t) =>
+      settingsText.includes(t),
+    ),
+    'builder / presets / globe / windows / effects / alerts / mood / media / type',
+  );
+  check(
+    'colour-law guardrails stated',
+    settingsText.includes('status colours') && settingsText.includes('canonical identities'),
+    'law note present in the Studio',
+  );
+  check(
+    'honest not-connected rows present',
+    settingsText.includes('NOT_CONNECTED') && settingsText.includes('no image provider is configured'),
+    'sound packs + AI generator honestly unconnected',
+  );
+
   // Honest states, checked across the whole rendered document after visiting
   // every route (last route visited is Crypto Workspaces; re-visit Globe and
   // Crypto Market so their honest-state strings are in the DOM too — the

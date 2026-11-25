@@ -43,6 +43,13 @@ import {
   MTI6_WORLD_OS,
 } from './tokens';
 import { DISPLAY_CURRENCIES, currencyOf } from './currencies';
+import {
+  applyAppearance,
+  loadAppearance,
+  saveAppearance,
+  type AppearanceSettings,
+} from './appearance';
+import { loadAngelStore } from './angel-security';
 import { fetchStarStatus, starChat, StarError } from './star-client';
 import { buildStarSystemPrompt } from './star-context';
 import { answerLocally } from './star-local';
@@ -228,6 +235,42 @@ export function App() {
   const [activeWorld, setActiveWorld] = useState<WorldId>('globe');
   const [viewMode, setViewMode] = useState<ViewMode>('All');
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('Read-Only');
+  // v223 — Visual Universe: the Appearance Studio's settings live
+  // here, apply live (no save step) and persist. The Studio screen
+  // edits them; the shell (orb, windows, particles, mood) reads them.
+  const [appearance, setAppearanceState] = useState<AppearanceSettings>(loadAppearance);
+  const updateAppearance = (next: AppearanceSettings) => {
+    setAppearanceState(next);
+    saveAppearance(next);
+    applyAppearance(next);
+  };
+  // Dynamic Living World mood — driven ONLY by real state: a
+  // CONFIRMED-or-ACTIVE CRITICAL alert turns the shell's edge red.
+  // Profit mood has no live source and is never faked. Re-checked
+  // whenever the user navigates or changes appearance.
+  const mood = useMemo(() => {
+    if (!appearance.dynamicMood) return 'normal';
+    try {
+      const store = loadAngelStore();
+      const critical = store.alerts.some(
+        (a) => (a.state === 'CONFIRMED' || a.state === 'ACTIVE') && a.severity === 'CRITICAL',
+      );
+      return critical ? 'alert' : 'normal';
+    } catch {
+      return 'normal';
+    }
+  }, [appearance.dynamicMood, activeWorld]);
+  const particleCount = !appearance.particlesEnabled
+    ? 0
+    : appearance.effectsLevel === 'minimal'
+      ? 8
+      : appearance.effectsLevel === 'standard'
+        ? 16
+        : appearance.effectsLevel === 'enhanced'
+          ? 32
+          : appearance.effectsLevel === 'cinematic'
+            ? 56
+            : 96;
   const [floatingWindows, setFloatingWindows] = useState<FloatingWin[]>([]);
   const [accountsOpen, setAccountsOpen] = useState<boolean>(false);
   const [starOrbOpen, setStarOrbOpen] = useState<boolean>(false);
@@ -538,7 +581,7 @@ export function App() {
       case 'security':
         return <SecurityWorld />;
       case 'settings':
-        return <SettingsWorld />;
+        return <SettingsWorld appearance={appearance} onAppearanceChange={updateAppearance} />;
       case 'cockpit-status':
         return <CockpitStatusScreen />;
       case 'knowledge':
@@ -723,7 +766,26 @@ export function App() {
     <div
       className="min-h-screen text-white flex flex-col"
       style={{ backgroundColor: MTI6_COLORS.bgVoid, ...SPACE_BG }}
+      data-mti6-mood={mood}
     >
+      {/* v223 — particle layer: pure CSS dots, count from the
+          effects level. Zero data behind them; disable in the Studio. */}
+      {particleCount > 0 && (
+        <div className="mti6-particles" aria-hidden="true">
+          {Array.from({ length: particleCount }, (_, i) => (
+            <span
+              key={i}
+              style={{
+                left: `${(i * 37 + 11) % 100}%`,
+                width: `${2 + (i % 3)}px`,
+                height: `${2 + (i % 3)}px`,
+                animationDuration: `${9 + (i % 5) * 3}s`,
+                animationDelay: `${(i * 1.7) % 12}s`,
+              }}
+            />
+          ))}
+        </div>
+      )}
       {/* Phase 2 Top Bar — REPLACES the Phase 1 dock (owner directive
           2026-11-23). One row, left to right: ☰ (the logo AND the menu
           control — one control, two jobs), the search bar (scope named
@@ -1229,7 +1291,7 @@ export function App() {
           {floatingWindows.map((win) => (
             <div
               key={win.id}
-              className="w-[380px] rounded-2xl border border-white/20 bg-[#101010] shadow-2xl overflow-hidden"
+              className="mti6-float-win w-[380px] rounded-2xl border border-white/20 bg-[#101010] shadow-2xl overflow-hidden"
             >
               <div className="flex items-center justify-between border-b border-white/10 bg-[#181818] px-3 py-2">
                 <span className="text-xs font-semibold text-white">{win.title} · Floating</span>
@@ -1325,7 +1387,7 @@ export function App() {
       {/* Persistent Lower-Right STAR Orb */}
       <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-2">
         {starOrbOpen && (
-          <div className="w-80 max-w-[calc(100vw-2.5rem)] rounded-2xl border border-[#00B7FF]/40 bg-[#101010] p-4 shadow-2xl text-xs">
+          <div className="mti6-star-panel w-80 max-w-[calc(100vw-2.5rem)] rounded-2xl border border-[#00B7FF]/40 bg-[#101010] p-4 shadow-2xl text-xs">
             <div className="flex items-center justify-between border-b border-white/10 pb-2 mb-2">
               <span className="font-semibold text-[#00B7FF] flex items-center gap-1.5">
                 {/* STAR's face is the owner's designated portrait

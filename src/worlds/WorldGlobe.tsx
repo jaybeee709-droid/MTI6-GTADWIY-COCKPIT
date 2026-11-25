@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Activity,
   Globe,
@@ -13,6 +13,12 @@ import { useCockpitDb } from '../hooks/useCockpitDb';
 import { MTI6_LAYER } from '../tokens';
 import { EARNINGS_LOCATION_RULES, type MapBaseStyle } from '../world-data';
 import type { MapTerrainMode } from './WorldMapEngine';
+import {
+  GLOBE_ROUTE_COLORS,
+  MAP_VIEW_SEL_KEY,
+  globeTypeToMap,
+  loadAppearance,
+} from '../appearance';
 import { fmtTime, useProvenanceLog } from '../live-data';
 import {
   WorldMapEngine,
@@ -143,7 +149,6 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // (Coverage = every layer's data state at once). Persisted —
   // the choice survives reloads.
   type MapLens = 'world' | 'crypto' | 'earnings' | 'security' | 'transit' | 'coverage';
-  const MAP_VIEW_SEL_KEY = 'mti6_map_view_v1';
   const readViewSel = (): { base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens } => {
     try {
       const raw = localStorage.getItem(MAP_VIEW_SEL_KEY);
@@ -182,6 +187,59 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     if (!activeLayers.includes(id)) setActiveLayers([...activeLayers, id]);
     setFocusedLayer(id);
   };
+  // v223 — Globe Designer bridge: the Appearance Studio's globe
+  // type is a preset over these same controls. When the Studio
+  // applies one, this listener re-reads the appearance settings
+  // and retargets the map (base + terrain + floor mode + route
+  // colour / pulse). The MAP VIEW bar stays the live source of
+  // truth — changing BASE or TERRAIN there does not rewrite the
+  // Studio's stored globe type.
+  const [floorMode, setFloorMode] = useState<'filled' | 'wireframe'>(() => {
+    try {
+      return globeTypeToMap(loadAppearance().globeType).floorMode;
+    } catch {
+      return 'filled';
+    }
+  });
+  const [routeColor, setRouteColor] = useState<string>(() => {
+    try {
+      return GLOBE_ROUTE_COLORS[loadAppearance().globeRoute];
+    } catch {
+      return '#00B7FF';
+    }
+  });
+  const [markerPulse, setMarkerPulse] = useState<boolean>(() => {
+    try {
+      return loadAppearance().routeStyle === 'pulse';
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    const onAppearance = () => {
+      try {
+        const a = loadAppearance();
+        const m = globeTypeToMap(a.globeType);
+        setFloorMode(m.floorMode);
+        setRouteColor(GLOBE_ROUTE_COLORS[a.globeRoute]);
+        setMarkerPulse(a.routeStyle === 'pulse');
+        setViewSelState((prev) => {
+          const merged = { ...prev, base: m.base as MapBaseStyle, terrain: m.terrain as MapTerrainMode };
+          try {
+            localStorage.setItem(MAP_VIEW_SEL_KEY, JSON.stringify(merged));
+          } catch {
+            // Persistence is a nicety.
+          }
+          return merged;
+        });
+      } catch {
+        // Appearance read failure leaves the map as-is.
+      }
+    };
+    window.addEventListener('mti6:appearance', onAppearance);
+    return () => window.removeEventListener('mti6:appearance', onAppearance);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const provenance = useProvenanceLog();
   // Live transit (A2): stops fetched through the /api/mti6 proxy
   // (Transitland) for the map centre, on the owner's explicit query —
@@ -676,6 +734,9 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
             <WorldMapEngine
               baseStyle={viewSel.base}
               terrain={viewSel.terrain}
+              floorMode={floorMode}
+              defaultMarkerColor={routeColor}
+              markerPulse={markerPulse}
               markers={[...(transitOn ? transitStops : []), ...(placeMarker ? [placeMarker] : [])]}
               focusPoint={mapFocus}
               onViewChange={handleViewChange}
@@ -690,6 +751,11 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 setDeparturesDay('TODAY');
               }}
             />
+            {/* v223 — globe treatment overlay (Tron grid, holographic
+                scanlines, data/network dots). The treatment comes from
+                data-mti6-globe on the document element; this div is
+                only the layer it paints on. */}
+            <div className="mti6-globe-overlay" aria-hidden="true" />
             {/* Layer chips — 44px touch targets at every tier (the
                 Phase 1 chips were ~18px and failed the rule). Phone:
                 overlay, scrolls horizontally. Tablet/Desktop: overlay,

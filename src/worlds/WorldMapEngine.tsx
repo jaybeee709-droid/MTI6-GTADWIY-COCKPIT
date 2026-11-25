@@ -77,6 +77,11 @@ interface WorldMapEngineProps {
   // v222 — map-view selector: base style and terrain hillshade.
   baseStyle?: MapBaseStyle;
   terrain?: MapTerrainMode;
+  // v223 — Visual Universe: wireframe floor (Globe Designer) and
+  // the route colour / pulse for markers.
+  floorMode?: 'filled' | 'wireframe';
+  defaultMarkerColor?: string;
+  markerPulse?: boolean;
 }
 
 interface ViewState {
@@ -111,8 +116,10 @@ function clampView(view: ViewState, w: number, h: number): ViewState {
 
 /** Render the vendored Natural Earth geography to a canvas texture.
  *  Returns null where no 2D canvas exists (the plane then carries the
- *  flat ocean colour — the floor is a colour before it is a picture). */
-function buildFloorCanvas(): HTMLCanvasElement | null {
+ *  flat ocean colour — the floor is a colour before it is a picture).
+ *  v223 — wireframe mode: no land fill, bright coastline strokes
+ *  only (the Wireframe / Tron globe types). */
+function buildFloorCanvas(wireframe = false): HTMLCanvasElement | null {
   const geo = getWorldGeo();
   if (!geo) return null;
   const S = 2048;
@@ -157,6 +164,19 @@ function buildFloorCanvas(): HTMLCanvasElement | null {
       ctx.closePath();
     }
   };
+
+  if (wireframe) {
+    // Wireframe: coastlines only, bright cyan, no fill, no states.
+    ctx.strokeStyle = '#00E5FF';
+    ctx.globalAlpha = 0.9;
+    ctx.lineWidth = 1.5;
+    for (const c of geo.countries) {
+      trace(c.p);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    return canvas;
+  }
 
   // Land fill, then coastlines, then state borders (lines only).
   for (const c of geo.countries) trace(c.p);
@@ -283,6 +303,9 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
   focusPoint = null,
   baseStyle = 'streets',
   terrain = 'off',
+  floorMode = 'filled',
+  defaultMarkerColor,
+  markerPulse = false,
 }) => {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const glRef = useRef<HTMLDivElement | null>(null);
@@ -303,6 +326,21 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
   baseStyleRef.current = baseStyle;
   const terrainRef = useRef(terrain);
   terrainRef.current = terrain;
+  const floorMatRef = useRef<THREE.MeshBasicMaterial | null>(null);
+
+  // v223 — wireframe floor: rebuild the floor texture when the
+  // Globe Designer switches the floor mode.
+  useEffect(() => {
+    const mat = floorMatRef.current;
+    if (!mat) return;
+    const canvas = buildFloorCanvas(floorMode === 'wireframe');
+    if (!canvas) return;
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    mat.map?.dispose();
+    mat.map = tex;
+    mat.needsUpdate = true;
+  }, [floorMode]);
 
   // Geocode focus: a new nonce recentres on the provider-returned
   // point at City zoom. Guarded for jsdom (no layout) like the
@@ -389,6 +427,7 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(WORLD, WORLD), floorMat);
     floor.position.z = 0;
     scene.add(floor);
+    floorMatRef.current = floorMat;
 
     const tileGroup = new THREE.Group();
     scene.add(tileGroup);
@@ -867,7 +906,7 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
             const left = ((wx - (view.cx - halfW)) / (2 * halfW)) * 100;
             const top = ((view.cy + halfH - wy) / (2 * halfH)) * 100;
             if (left < -5 || left > 105 || top < -5 || top > 105) return null;
-            const color = m.color ?? MTI6_MAP.marker;
+            const color = m.color ?? defaultMarkerColor ?? MTI6_MAP.marker;
             return (
               <button
                 key={m.id}
@@ -875,7 +914,7 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
                 aria-label={m.label}
                 title={m.label}
                 onClick={() => onMarkerSelect?.(m)}
-                className="pointer-events-auto absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
+                className={`pointer-events-auto absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center${markerPulse ? ' mti6-marker-pulse' : ''}`}
                 style={{ left: `${left}%`, top: `${top}%` }}
               >
                 <span
