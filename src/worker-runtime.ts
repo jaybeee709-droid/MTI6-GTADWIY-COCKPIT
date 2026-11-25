@@ -46,7 +46,9 @@ import { CANONICAL_60, ENCYCLOPEDIA_COUNTS, ENCYCLOPEDIA_FAMILIES, ENCYCLOPEDIA_
 import { ENTITY_UNIVERSE } from './entity-data';
 import { WORKSPACE_COVERAGE } from './workspace-coverage-data';
 import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
-import { memorySummary, recordMemory } from './bot-memory';
+import { memorySummary, recordMemory, recordRunFailureLesson } from './bot-memory';
+import { consultLessons } from './bot-lessons';
+import { mistakeAlertForLesson } from './mistake-alerts';
 import { checkContractOnExplorer, loadContractEntries, recordContractCheck } from './contract-registry';
 import { CATALOGUED_CONTRACTS } from './contract-catalog';
 import { assetUniverse, assetUniverseSummary } from './asset-universe';
@@ -165,6 +167,163 @@ export const CONTINUOUS_DISCOVERY_ROTATION: string[] = [
   'opportunity-scan',
   'catalog-check',
 ];
+
+/* Conditional parallel execution (v247, owner direction #7,
+ * 2026-11-25): ALL 12 Tribe principals run at once ONLY IF THE
+ * WORK NEEDS IT — parallel execution is conditional, decided
+ * by the work itself, never the default. The queue runs in
+ * rotation (one task at a time) unless a batch passes BOTH
+ * checks below. The auto-dispatch path in BotOperations
+ * consults decideExecutionMode() before running a batch; it
+ * keeps its sequential loop unless the policy says PARALLEL. */
+export const PARALLEL_POLICY =
+  'ROTATION is the default: the queue runs one task at a time. A batch runs in parallel ONLY when the work itself needs it: every task in the batch is marked needsParallel (set by the owner or the dispatcher when the work genuinely needs it, e.g. a time-boxed multi-source verification), AND the tasks are independent — different executors, different principals, and no task shares a record or depends on another task in the batch. A batch of fewer than 2 tasks, or larger than the 12 Tribe principals, never runs in parallel. Parallel is never the default; all 12 at once happens only when the work meets every condition.';
+
+export type ExecutionMode = 'ROTATION' | 'PARALLEL';
+
+export interface ParallelBatchTask {
+  task: WorkerTask;
+  executor: string;
+  /** Set by the owner or the dispatcher when this task's work genuinely needs parallel execution. */
+  needsParallel: boolean;
+  /** Why this task needs parallel work (e.g. 'time-boxed multi-source verification'). */
+  parallelReason?: string;
+}
+
+interface ParallelDecision {
+  mode: ExecutionMode;
+  reason: string;
+  at: string | null;
+  batchSize: number;
+}
+
+let lastParallelDecision: ParallelDecision = {
+  mode: 'ROTATION',
+  reason:
+    'ROTATION is the default: the queue runs one task at a time; parallel runs only when the work itself needs it.',
+  at: null,
+  batchSize: 0,
+};
+
+/** The independence + need check. A batch runs in parallel
+ *  ONLY when every condition holds; the reason names the first
+ *  condition that fails, so a rotation decision is explainable. */
+export function canRunParallel(batch: ParallelBatchTask[]): { ok: boolean; reason: string } {
+  if (batch.length < 2) {
+    return { ok: false, reason: `ROTATION: ${batch.length} task(s) — parallel needs a batch of at least 2 independent tasks.` };
+  }
+  if (batch.length > 12) {
+    return { ok: false, reason: `ROTATION: batch of ${batch.length} exceeds the 12 Tribe principals — never run more than 12 at once.` };
+  }
+  const unflagged = batch.filter((b) => !b.needsParallel);
+  if (unflagged.length > 0) {
+    return {
+      ok: false,
+      reason: `ROTATION: ${unflagged.length} task(s) not marked needsParallel (${unflagged.map((b) => b.task.title).join(', ')}) — the work itself has not said it needs parallel execution.`,
+    };
+  }
+  const executors = new Set(batch.map((b) => b.executor));
+  if (executors.size !== batch.length) {
+    return { ok: false, reason: 'ROTATION: two or more tasks share an executor — the tasks are not independent.' };
+  }
+  const principals = batch.map((b) => b.task.principal);
+  const seen = new Set<string>();
+  for (const p of principals) {
+    const key = p ?? 'unassigned';
+    if (seen.has(key)) {
+      return { ok: false, reason: 'ROTATION: two or more tasks share a principal — the tasks are not independent.' };
+    }
+    seen.add(key);
+  }
+  const ids = new Set(batch.map((b) => b.task.id));
+  for (const b of batch) {
+    for (const dep of b.task.dependencies ?? []) {
+      if (ids.has(dep)) {
+        return {
+          ok: false,
+          reason: `ROTATION: "${b.task.title}" depends on another task in the batch — the tasks share work and are not independent.`,
+        };
+      }
+    }
+  }
+  const reasons = [...new Set(batch.map((b) => b.parallelReason).filter((r): r is string => !!r))];
+  return {
+    ok: true,
+    reason: `PARALLEL: all ${batch.length} tasks marked needsParallel and independent (different executors, different principals, no shared records)${reasons.length ? ` — ${reasons.join('; ')}` : ''}.`,
+  };
+}
+
+/** The auto-dispatch consult: decide the mode for a batch and
+ *  record the decision so parallelStatus() can report it. */
+export function decideExecutionMode(batch: ParallelBatchTask[]): { mode: ExecutionMode; reason: string } {
+  const check = canRunParallel(batch);
+  lastParallelDecision = {
+    mode: check.ok ? 'PARALLEL' : 'ROTATION',
+    reason: check.reason,
+    at: new Date().toISOString(),
+    batchSize: batch.length,
+  };
+  return { mode: lastParallelDecision.mode, reason: check.reason };
+}
+
+/** Current mode: ROTATION or PARALLEL, plus why — the last
+ *  decision decideExecutionMode() recorded, or the default. */
+export function parallelStatus(): {
+  mode: ExecutionMode;
+  reason: string;
+  lastDecisionAt: string | null;
+  lastBatchSize: number;
+} {
+  return {
+    mode: lastParallelDecision.mode,
+    reason: lastParallelDecision.reason,
+    lastDecisionAt: lastParallelDecision.at,
+    lastBatchSize: lastParallelDecision.batchSize,
+  };
+}
+
+/** Run a batch under the policy. A batch that fails the check
+ *  falls back to sequential rotation runs (one at a time, as
+ *  today); a batch that passes runs its executors concurrently
+ *  and records PARALLEL + the reason on every run record's
+ *  evidence. The per-run apply is merged by task id before the
+ *  caller's apply runs, so concurrent completions never clobber
+ *  each other's task transitions. */
+export async function runParallelBatch(
+  tasks: WorkerTask[],
+  batch: ParallelBatchTask[],
+  apply: (tasks: WorkerTask[]) => void,
+): Promise<RunRecord[]> {
+  const decision = decideExecutionMode(batch);
+  if (decision.mode !== 'PARALLEL') {
+    const out: RunRecord[] = [];
+    for (const b of batch) {
+      out.push(
+        await runRuntimeTask(tasks, b.task.id, b.executor, apply, {
+          mode: 'ROTATION',
+          modeReason: decision.reason,
+        }),
+      );
+    }
+    return out;
+  }
+  let merged = tasks;
+  const mergingApply = (next: WorkerTask[]) => {
+    const byId = new Map(merged.map((t) => [t.id, t]));
+    for (const t of next) byId.set(t.id, t);
+    merged = [...byId.values()];
+    apply(merged);
+  };
+  const results = await Promise.all(
+    batch.map((b) =>
+      runRuntimeTask(tasks, b.task.id, b.executor, mergingApply, {
+        mode: 'PARALLEL',
+        modeReason: decision.reason,
+      }),
+    ),
+  );
+  return results;
+}
 
 /* Phase 2 executors (v172) — the remaining live capabilities put
  * to work through the same governed paths the screens use. */
@@ -1038,8 +1197,21 @@ export async function runRuntimeTask(
   taskId: string,
   executorId: string,
   apply: (tasks: WorkerTask[]) => void,
+  opts?: { mode?: ExecutionMode; modeReason?: string },
 ): Promise<RunRecord> {
   const startedAt = new Date().toISOString();
+  // v247 — conditional parallel execution: the mode that ran
+  // this task is recorded on every run record's evidence.
+  // ROTATION is the default; PARALLEL only when the policy
+  // check passed for the batch this task ran in.
+  const mode: ExecutionMode = opts?.mode ?? 'ROTATION';
+  const modeLine =
+    mode === 'PARALLEL'
+      ? `[PARALLEL — ${opts?.modeReason ?? 'batch passed the parallel policy check'}]`
+      : `[ROTATION — ${opts?.modeReason ?? 'rotation is the default: one task at a time'}]`;
+  if (mode === 'PARALLEL') {
+    lastParallelDecision = { mode, reason: opts?.modeReason ?? '', at: startedAt, batchSize: 0 };
+  }
   const task = tasks.find((t) => t.id === taskId);
   const executor = executorById(executorId);
   if (!task || !executor) {
@@ -1050,7 +1222,7 @@ export async function runRuntimeTask(
       startedAt,
       finishedAt: new Date().toISOString(),
       outcome: 'FAILED',
-      evidence: 'Task or executor not found.',
+      evidence: `${modeLine} Task or executor not found.`,
     };
   }
   let cur = tasks;
@@ -1064,7 +1236,18 @@ export async function runRuntimeTask(
   if (task.state === 'UNASSIGNED') step('QUEUED', 'Queued by the worker runtime.');
   step('ACTIVE', `Worker runtime executing: ${executor.label}.`);
   try {
-    const evidence = await executor.run();
+    // v247 — Bot Lessons: consult the ACTIVE lessons before
+    // acting, so a run repeats no known mistake (e.g. a lesson
+    // about a dead model/endpoint is consulted before the
+    // provider call). Matching lessons are named in the run's
+    // evidence so the consultation is visible, not silent.
+    const lessons = consultLessons(`${executor.id} ${executor.label} ${task.title}`);
+    const lessonNote =
+      lessons.length > 0
+        ? `Lessons consulted (${lessons.length}): ${lessons.map((l) => l.title).join(' | ')}.`
+        : '';
+    const runEvidence = await executor.run();
+    const evidence = `${modeLine} ${lessonNote ? `${lessonNote} ` : ''}${runEvidence}`;
     const r = transitionTask(cur, taskId, 'COMPLETE', {
       note: `Completed by the worker runtime (${executor.label}).`,
       evidence,
@@ -1115,6 +1298,18 @@ export async function runRuntimeTask(
     };
   } catch (err) {
     const reason = err instanceof Error ? err.message : 'The run failed.';
+    // v247 — Bot Lessons: a failed run records a lesson when the
+    // error is new (duplicate-guarded by title in the lessons
+    // store), so the next run consults the failure before acting.
+    // v247 direction #10 — a newly recorded failure lesson also
+    // raises an immediate owner ALERT (in-app; no mail provider
+    // is wired). A deduped repeat raises no second alert.
+    try {
+      const lf = recordRunFailureLesson(executor.label, reason);
+      if (lf.ok && !lf.deduped && lf.lesson) mistakeAlertForLesson(lf.lesson);
+    } catch {
+      /* lesson/alert recording is best-effort; the task record stands */
+    }
     const r = transitionTask(cur, taskId, 'FAILED', {
       note: `Worker runtime run failed: ${reason}`,
     });
@@ -1129,7 +1324,7 @@ export async function runRuntimeTask(
       startedAt,
       finishedAt: new Date().toISOString(),
       outcome: 'FAILED',
-      evidence: reason,
+      evidence: `${modeLine} ${reason}`,
     };
   }
 }
@@ -1172,7 +1367,7 @@ export async function runAdHocTask(executorId: string, title: string): Promise<R
       startedAt: new Date().toISOString(),
       finishedAt: new Date().toISOString(),
       outcome: 'FAILED',
-      evidence: 'Unknown executor.',
+      evidence: '[ROTATION — rotation is the default: one task at a time] Unknown executor.',
     };
   }
   const before = loadTasks();
@@ -1185,7 +1380,7 @@ export async function runAdHocTask(executorId: string, title: string): Promise<R
       startedAt: new Date().toISOString(),
       finishedAt: new Date().toISOString(),
       outcome: 'FAILED',
-      evidence: 'The task could not be recorded.',
+      evidence: '[ROTATION — rotation is the default: one task at a time] The task could not be recorded.',
     };
   }
   const created = next[0];

@@ -14,6 +14,7 @@ import type { HarvestAssignment, HarvestRecord } from '../web-harvest';
 import type { WorkerTask } from '../worker-tasks';
 import type { RunRecord, RuntimeKindMap } from '../worker-runtime';
 import { executorById } from '../worker-runtime';
+import { CastPicker } from './PinnedPanels';
 
 const SCENE_ICON: Record<TheaterScene, React.ReactNode> = {
   LAB: <FlaskConical className="h-5 w-5 text-[#8B5CFF]" />,
@@ -62,6 +63,9 @@ export const BotTheater: React.FC<BotTheaterProps> = ({
 }) => {
   // A 1 s tick so elapsed seconds on running work stay live.
   const [, setNow] = useState(Date.now());
+  // Big Screen cast picker (v247): the COMMAND view can target a
+  // chosen monitor via the generic CAST control.
+  const [castPickerOpen, setCastPickerOpen] = useState(false);
   useEffect(() => {
     if (runningIds.length === 0 && !harvestBusy) return;
     const iv = setInterval(() => setNow(Date.now()), 1000);
@@ -119,6 +123,20 @@ export const BotTheater: React.FC<BotTheaterProps> = ({
         CHECKS WORK IN THE LAB · WEB WORK SITS AT A DESK · BUILDING STACKS BOXES IN THE WAREHOUSE
         · RADAR AND MONITORING WATCH FROM COMMAND.
       </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-mono text-[10px] text-[#B8B8B8]">
+          BIG SCREEN — CAST THE COMMAND VIEW TO A MONITOR:
+        </span>
+        <button
+          type="button"
+          onClick={() => setCastPickerOpen((v) => !v)}
+          aria-label="Cast Big Screen to a monitor"
+          className="flex min-h-[36px] items-center rounded border border-[#8B5CFF]/60 px-3 font-mono text-[10px] text-white"
+        >
+          {castPickerOpen ? 'HIDE CAST PICKER' : 'CAST BIG SCREEN'}
+        </button>
+      </div>
+      {castPickerOpen && <CastPicker panelId="big-screen" title="Big Screen — Bot Theater" />}
 
       {postedTasks.length === 0 && activeHarvest.length === 0 ? (
         <p className="font-mono text-[10px] text-[#B8B8B8]">

@@ -22,6 +22,8 @@
  * scans, monitors, or claims a live security feed.
  */
 
+import { getAngel, isApprovedAngel } from './angel-registry';
+
 export const ANGEL_STORE_KEY = 'mti6_angel_security_v1';
 const MAX_ALERTS = 100;
 
@@ -230,4 +232,117 @@ export function alertCounts(alerts: SecurityAlert[]): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const a of alerts) counts[a.state] = (counts[a.state] ?? 0) + 1;
   return counts;
+}
+
+/* Angel assignment (v247, owner direction #7, 2026-11-25) —
+ * the four approved Angels (MICHAEL, GABRIEL, RAPHAEL, URIEL)
+ * take security/alert work alongside the Tribe: alert
+ * verification, remediation, and holds. Assignment is recorded
+ * on the alert's assignedAngelId and in its history — it is
+ * NOT a lifecycle transition, it changes NO state, and it never
+ * auto-verifies anything: the Angel acts only through the
+ * existing allowed transitions (transitionAlert), and the owner
+ * remains the recorded actor for owner actions. The lifecycle
+ * needed no change to support this: assignedAngelId already
+ * exists on the alert record. RAGUEL, SARIEL and REMIEL are
+ * refused here — isApprovedAngel() is false for them. */
+
+/** Assign an approved Angel to an alert. The assignment is an
+ *  owner action (by: 'owner' in history); the alert's state
+ *  does not move. */
+export function assignAngelToAlert(
+  store: AngelStore,
+  id: string,
+  angelId: string,
+  note = '',
+): { store: AngelStore; error: string | null } {
+  const angel = getAngel(angelId);
+  if (!angel || !isApprovedAngel(angelId)) {
+    return {
+      store,
+      error: `${angel ? angel.name : angelId} is not an approved Angel and cannot be assigned alert work (RAGUEL, SARIEL and REMIEL are UNVERIFIED / NOT ACTIVATED).`,
+    };
+  }
+  const alert = store.alerts.find((a) => a.id === id);
+  if (!alert) return { store, error: 'Alert not found.' };
+  const stamp = new Date().toISOString();
+  const updated: SecurityAlert = {
+    ...alert,
+    assignedAngelId: angelId,
+    updatedAt: stamp,
+    lastUpdated: stamp,
+    history: [
+      ...alert.history,
+      {
+        from: alert.state,
+        to: alert.state,
+        at: stamp,
+        by: 'owner',
+        note: `Angel ${angel.name} assigned to this alert (${angel.role})${note.trim() ? ` — ${note.trim()}` : ''}. Assignment only; the alert state did not move.`,
+      },
+    ],
+  };
+  return {
+    store: saveAngelStore({ ...store, alerts: store.alerts.map((a) => (a.id === id ? updated : a)) }),
+    error: null,
+  };
+}
+
+/** Remove whichever Angel holds an alert. State does not move. */
+export function unassignAngelFromAlert(
+  store: AngelStore,
+  id: string,
+  note = '',
+): { store: AngelStore; error: string | null } {
+  const alert = store.alerts.find((a) => a.id === id);
+  if (!alert) return { store, error: 'Alert not found.' };
+  if (!alert.assignedAngelId) return { store, error: 'No Angel is assigned to this alert.' };
+  const stamp = new Date().toISOString();
+  const updated: SecurityAlert = {
+    ...alert,
+    assignedAngelId: null,
+    updatedAt: stamp,
+    lastUpdated: stamp,
+    history: [
+      ...alert.history,
+      {
+        from: alert.state,
+        to: alert.state,
+        at: stamp,
+        by: 'owner',
+        note: `Angel assignment removed${note.trim() ? ` — ${note.trim()}` : ''}. The alert state did not move.`,
+      },
+    ],
+  };
+  return {
+    store: saveAngelStore({ ...store, alerts: store.alerts.map((a) => (a.id === id ? updated : a)) }),
+    error: null,
+  };
+}
+
+/** Every alert an Angel holds (any state). */
+export function alertsForAngel(store: AngelStore, angelId: string): SecurityAlert[] {
+  return store.alerts.filter((a) => a.assignedAngelId === angelId);
+}
+
+/** The open alert work an Angel holds — assigned and not yet
+ *  RESOLVED / POST_INCIDENT_REVIEW. This is what makes an
+ *  Angel ACTIVE; an Angel holding nothing here is STANDBY. */
+export function openAlertsForAngel(store: AngelStore, angelId: string): SecurityAlert[] {
+  return alertsForAngel(store, angelId).filter(
+    (a) => a.state !== 'RESOLVED' && a.state !== 'POST_INCIDENT_REVIEW',
+  );
+}
+
+/** Per-Angel work counts for the panel: open vs total assigned. */
+export function angelWorkSummary(store: AngelStore): Record<string, { open: number; total: number }> {
+  const summary: Record<string, { open: number; total: number }> = {};
+  for (const alert of store.alerts) {
+    if (!alert.assignedAngelId) continue;
+    const entry = summary[alert.assignedAngelId] ?? { open: 0, total: 0 };
+    entry.total += 1;
+    if (alert.state !== 'RESOLVED' && alert.state !== 'POST_INCIDENT_REVIEW') entry.open += 1;
+    summary[alert.assignedAngelId] = entry;
+  }
+  return summary;
 }

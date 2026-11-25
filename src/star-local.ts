@@ -17,7 +17,12 @@ import { CRYPTO_WORLD_CONTENTS, EARNINGS_CATEGORIES, TRIBE_PRINCIPALS } from './
 import { getProvenanceLog } from './live-data';
 import { memorySummary } from './bot-memory';
 import { contractRegistrySummary } from './contract-registry';
-import { EXECUTORS, runtimeStoreSummary } from './worker-runtime';
+import { EXECUTORS, PARALLEL_POLICY, parallelStatus, runtimeStoreSummary } from './worker-runtime';
+import { angelStatus } from './angel-registry';
+import { loadAngelStore } from './angel-security';
+import { learnedFeed, learningSummary } from './bot-learning';
+import { RECALL_BUDGET_NOTE, recallFor } from './bot-recall';
+import { mistakeAlertsSummaryText, unreadMistakeAlertCount } from './mistake-alerts';
 import { dexRegistrySummary } from './dex-registry';
 import { bridgeRegistrySummary } from './bridge-registry';
 import { poolVaultSummary } from './pool-vault-registry';
@@ -31,6 +36,11 @@ import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
 import { loadHarvestAssignments, loadHarvestRecords } from './web-harvest';
 import { buildQueueSummaryText } from './build-queue';
 import { botBrowserSummaryText } from './bot-browser';
+import { getActiveLessons } from './bot-lessons';
+import { getJobForPrincipal } from './principal-jobs';
+import { answerNetlifyQuestion } from './netlify-knowledge';
+import { API_REGISTRY, getNoFallbackEntries, getWiredFallbackEntries } from './api-registry';
+import { getActiveProjectKnowledge, projectKnowledgeSummary } from './project-knowledge';
 
 // §69 WHY? for a named workspace: the recorded chain behind what
 // the workspace shows, from the registry + coverage records only.
@@ -233,6 +243,94 @@ export function answerLocally(raw: string): string | null {
 
   if (/(bot browser|browser session|github browser|bots.*github|github.*bot)/.test(q))
     return botBrowserSummaryText();
+
+  // v247 direction #7 — the Angels, active on security/alert work
+  // in their own registry (never Tribe members). Status is derived
+  // from real alert work: ACTIVE only while holding open assigned
+  // alerts, otherwise STANDBY. RAGUEL, SARIEL, REMIEL are
+  // UNVERIFIED and NOT ACTIVATED.
+  if (/(angel|michael|gabriel|raphael|uriel|raguel|sariel|remiel)/.test(q)) {
+    const s = angelStatus(loadAngelStore().alerts);
+    const lines = s.angels
+      .map((a) => `${a.name} — ${a.status}${a.status === 'ACTIVE' ? ` (${a.openAlertCount} open alert${a.openAlertCount === 1 ? '' : 's'})` : ''}: ${a.role}`)
+      .join('; ');
+    return `${FROM_RECORDS}the Angels are active on security/alert work alongside the Tribe, in their own registry — never Tribe members. ${s.active} ACTIVE, ${s.standby} STANDBY, ${s.notActivated} NOT ACTIVATED. ${lines}. RAGUEL, SARIEL and REMIEL are UNVERIFIED and NOT ACTIVATED — they cannot be assigned. See them on Bot Operations under ANGELS.`;
+  }
+
+  // v247 direction #10 — mistake alerts: the owner is notified on
+  // ANY mistake, right away. Placed BEFORE the lessons branch
+  // (which also matches /mistake/) so an alert question gets the
+  // alert answer, not the lessons list.
+  if (/(mistake alert|any mistakes|mistakes made|alert me|notified|notify me|mistake alerts)/.test(q)) {
+    const n = unreadMistakeAlertCount();
+    const s = mistakeAlertsSummaryText();
+    return `${FROM_RECORDS}mistake alerts: ${s}. ${n === 0 ? 'No unread mistake alerts — nothing has gone wrong that needs your attention.' : `${n} unread alert(s) — see them on Bot Operations under MISTAKE ALERTS.`} Alerts are delivered in-app only — no SMS or email provider is wired, so no text or email is sent; outbound SMS/email delivery is a designed follow-on.`;
+  }
+
+  // v247 direction #8 — web-source learning: the harvest feeding
+  // Bot Memory, and relevance-ranked recall over everything the
+  // bots remember. Placed before the lessons branch (which also
+  // matches /learn/).
+  if (/(what.*learned from|learned from the web|web.*learn|bot intelligence|super intelligent|what did the bots learn)/.test(q)) {
+    const s = learningSummary();
+    const feed = learnedFeed().slice(0, 3);
+    return `${FROM_RECORDS}the bots learn from web sources continuously: ${s.learned} harvest record(s) learned into Bot Memory as UNVERIFIED research evidence, ${s.skipped} skipped as ambiguous or excluded, ${s.pending} unlearned OK record(s) pending. Learning runs after every harvest. ${feed.length > 0 ? `Latest learned: ${feed.map((f) => `"${f.subject}"`).join('; ')}.` : 'Nothing learned yet — run the harvest from Bot Operations.'} Learned records stay UNVERIFIED; unknown stays UNKNOWN.`;
+  }
+
+  // v247 direction #8 — remembering everything, recalled by
+  // relevance: the most relevant records for the question, not
+  // literally everything at once (bounded by storage and context).
+  if (/(remember|recall|what do you remember|do you remember)/.test(q)) {
+    const items = recallFor(raw, 5);
+    if (items.length === 0)
+      return `${FROM_RECORDS}I remember nothing matching that — Bot Memory, lessons, project knowledge and open tasks hold no record with those words. ${RECALL_BUDGET_NOTE}`;
+    return `${FROM_RECORDS}from what the bots remember, the most relevant records for that question: ${items.map((r) => `"${r.title}" (${r.source}) — ${r.why}`).join('; ')}. ${RECALL_BUDGET_NOTE}`;
+  }
+
+  // v247 direction #7 — conditional parallel: all 12 principals
+  // run at once ONLY IF THE WORK NEEDS IT; otherwise rotation.
+  if (/(parallel|all 12|run at once|rotation|run in parallel)/.test(q)) {
+    const s = parallelStatus();
+    return `${FROM_RECORDS}execution mode is ${s.mode} — ${s.reason} The rule: ${PARALLEL_POLICY}`;
+  }
+
+  if (/(lesson|what.*learn|mistake|learned from)/.test(q)) {
+    const lessons = getActiveLessons();
+    if (lessons.length === 0)
+      return `${FROM_RECORDS}no lessons recorded yet — the lessons store fills when a run fails or a mistake is recorded with its fix. The runtime consults active lessons before every executor run.`;
+    return `${FROM_RECORDS}the team has ${lessons.length} active lesson(s) it consults before every run: ${lessons.slice(0, 5).map((l) => `${l.title} — fix: ${l.fix} (changed: ${l.changedWhat})`).join('; ')}. See them all on Bot Operations under LESSONS.`;
+  }
+
+  if (/(job|role)/.test(q)) {
+    const hit = TRIBE_PRINCIPALS.find((p) => q.includes(p.displayName.toLowerCase()));
+    if (hit) {
+      const job = getJobForPrincipal(hit.id);
+      if (job)
+        return `${FROM_RECORDS}${job.principal}'s job: ${job.job} Role: ${job.role ?? 'UNASSIGNED'} — ${job.roleNote} Does: ${job.whatItDoes.join('; ')} Never: ${job.neverDoes.slice(0, 2).join('; ')} APIs: ${job.apis.join(', ') || 'none named'}. Limits: ${job.limits.slice(0, 2).join('; ')}`;
+    }
+  }
+
+  if (/(netlify|deploy|hosted|hosting)/.test(q)) {
+    const a = answerNetlifyQuestion(raw);
+    if (a) return `${FROM_RECORDS}${a}`;
+  }
+
+  if (/(api registry|which apis|what apis|fallback|monthly limit)/.test(q)) {
+    const wired = getWiredFallbackEntries();
+    const nofb = getNoFallbackEntries();
+    return `${FROM_RECORDS}the API Registry holds ${API_REGISTRY.length} entries — ${API_REGISTRY.filter((e) => e.keyStatus === 'CONFIGURED').length} keyed + configured, the rest keyless or not configured. ${wired.length} entries carry a wired fallback chain (price chain, swap quotes, geocode, STAR: OpenRouter → Claude → Gemini); ${nofb.length} have NO fallback and say so. Usage is UNKNOWN everywhere — the app has no metering. Monthly limits are sourced only where a provider states one (LocationIQ 5,000/month, conservative). See the full list on Bot Operations under API REGISTRY.`;
+  }
+
+  if (/(project knowledge|gmail|google drive|drive feed|project feed)/.test(q)) {
+    const s = projectKnowledgeSummary();
+    if (s.total === 0)
+      return `${FROM_RECORDS}the project-knowledge feed is empty — no distilled Gmail/Drive records yet.`;
+    const kinds = Object.entries(s.byKind)
+      .filter(([, n]) => n > 0)
+      .map(([k, n]) => `${n} ${k}`)
+      .join(', ');
+    return `${FROM_RECORDS}the project-knowledge feed holds ${s.active} active distilled record(s) (${kinds}) from Gmail, Drive, the repo, and builds — distilled summaries with a source reference, never raw inbox or Drive access. ${s.skippedCount} source(s) were left out as ambiguous or excluded. Latest: ${s.recent.slice(0, 3).map((r) => `${r.title} (${r.kind}, ${r.source})`).join('; ')}.`;
+  }
 
   if (/(harvest|scout)/.test(q)) {
     const recs = loadHarvestRecords();

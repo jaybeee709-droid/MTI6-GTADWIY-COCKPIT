@@ -32,6 +32,8 @@
  *   runs nothing. Nothing here is live until Daniel signs in.
  */
 
+import { learnFromMistakeNow } from './instant-lessons';
+
 export const BOT_BROWSER_REPO = 'jaybeee709-droid/MTI6-GTADWIY-COCKPIT';
 export const BOT_BROWSER_REPO_URL = `https://github.com/${BOT_BROWSER_REPO}`;
 export const BOT_BROWSER_ALLOWED_BRANCH = 'development';
@@ -254,6 +256,49 @@ export interface BrowserActionVerdict {
   openUrl: string | null;
 }
 
+/* --- Refusals -> instant lessons (v247, owner direction #9) ---
+ * Every refused bot-browser action records an instant
+ * REFUSED_ACTION lesson AT ONCE via learnFromMistakeNow, so the
+ * refusal is ACTIVE for the very next action. The lesson title
+ * is stable per refusal kind, so a refusal that repeats the
+ * same lesson is duplicate-guarded, not duplicated. The
+ * evidence — page, action, time — is the lesson's source. */
+const REFUSAL_LESSONS: Record<
+  Exclude<BotBrowserActionResult, 'OPENED_FOR_OWNER'>,
+  { whatWentWrong: string; fix: string }
+> = {
+  REFUSED_NO_BUILD_TASK: {
+    whatWentWrong: 'Bot browser action refused: no build task.',
+    fix: 'Attach the browser action to an approved build item from the Build Queue before requesting it — a browser action needs a build task.',
+  },
+  REFUSED_NOT_APPROVED: {
+    whatWentWrong: 'Bot browser action refused: build item not approved.',
+    fix: 'Get Daniel\u2019s approval for the build item in the Bot Browser panel first — unapproved build work never opens.',
+  },
+  REFUSED_NOT_SIGNED_IN: {
+    whatWentWrong: 'Bot browser action refused: session not signed in.',
+    fix: 'Daniel signs in to GitHub in the browser first, then confirms in the Bot Browser panel — no bot browser action runs unsigned-in.',
+  },
+  REFUSED_OUT_OF_SCOPE: {
+    whatWentWrong: 'Bot browser action refused: page out of scope.',
+    fix: 'Stay in scope: github.com, this repo, development branch only. No other host, repo, branch, or page.',
+  },
+};
+
+function recordRefusalLesson(
+  result: Exclude<BotBrowserActionResult, 'OPENED_FOR_OWNER'>,
+  page: string,
+  action: string,
+): void {
+  const lesson = REFUSAL_LESSONS[result];
+  learnFromMistakeNow({
+    kind: 'REFUSED_ACTION',
+    whatWentWrong: lesson.whatWentWrong,
+    fix: lesson.fix,
+    source: `bot-browser refusal ${result} — page ${page}, action "${action}", ${stamp()}`,
+  });
+}
+
 /* Decide a bot browser action and record it. The decision order
  * is the governance order: a build task must exist, the owner
  * must have approved it for browser work, the session must be
@@ -271,21 +316,25 @@ export function requestBrowserAction(req: BrowserActionRequest): BrowserActionVe
   if (!req.buildItemId) {
     const detail = 'No build task — a browser action needs an approved build item from the Build Queue.';
     recordBrowserAction({ ...base, result: 'REFUSED_NO_BUILD_TASK', detail });
+    recordRefusalLesson('REFUSED_NO_BUILD_TASK', scope.page, req.action);
     return { result: 'REFUSED_NO_BUILD_TASK', page: scope.page, detail, openUrl: null };
   }
   if (!session.approvedBuildIds.includes(req.buildItemId)) {
     const detail = 'Build item is not approved for browser work — Daniel approves it in the Bot Browser panel first.';
     recordBrowserAction({ ...base, result: 'REFUSED_NOT_APPROVED', detail });
+    recordRefusalLesson('REFUSED_NOT_APPROVED', scope.page, req.action);
     return { result: 'REFUSED_NOT_APPROVED', page: scope.page, detail, openUrl: null };
   }
   if (session.state !== 'SIGNED_IN') {
     const detail = 'Session is NOT SIGNED IN — Daniel signs in to GitHub in the browser first.';
     recordBrowserAction({ ...base, result: 'REFUSED_NOT_SIGNED_IN', detail });
+    recordRefusalLesson('REFUSED_NOT_SIGNED_IN', scope.page, req.action);
     return { result: 'REFUSED_NOT_SIGNED_IN', page: scope.page, detail, openUrl: null };
   }
   if (!scope.ok) {
     const detail = `Out of scope — ${scope.reason}`;
     recordBrowserAction({ ...base, result: 'REFUSED_OUT_OF_SCOPE', detail });
+    recordRefusalLesson('REFUSED_OUT_OF_SCOPE', scope.page, req.action);
     return { result: 'REFUSED_OUT_OF_SCOPE', page: scope.page, detail, openUrl: null };
   }
   const detail =

@@ -30,6 +30,43 @@
 // below. Storage is this screen-layer's local record store
 // (localStorage mti6_bot_memory_v1), the React mirror pattern; the
 // canonical engine persists in the cryptoWorld store.
+//
+// One producer-side bridge lives here (v247): recordRunFailureLesson
+// turns a failed runtime run into a Bot Lesson via the lessons
+// store. The worker runtime calls it from its failure path; the
+// lesson store duplicate-guards by title, so a repeated failure
+// does not mint a second lesson.
+
+import { recordLesson, type Lesson } from './bot-lessons';
+
+/** Record a failed runtime run as a Bot Lesson (v247). The
+ * lesson store duplicate-guards by title, so the same executor
+ * failing with the same error records once. Best-effort: a
+ * lessons-store refusal never throws — the task record is the
+ * primary record of the failure. */
+export function recordRunFailureLesson(
+  executorLabel: string,
+  reason: string,
+  source = 'worker-runtime',
+): { ok: boolean; deduped?: boolean; lesson?: Lesson } {
+  try {
+    const shortReason = reason.trim().slice(0, 160) || 'The run failed.';
+    const r = recordLesson({
+      title: `Run failure: ${executorLabel} — ${shortReason}`,
+      whatWentWrong: `The ${executorLabel} executor run failed: ${shortReason}`,
+      fix: 'Not yet fixed — this lesson was recorded automatically from the failed run so the next run consults it before acting. The owner or STAR fills in the fix once the cause is known.',
+      source,
+      changedWhat:
+        'Recorded from the failed run itself: future runs of this executor consult this lesson before acting, and the failure is no longer silent.',
+    });
+    // v247 direction #10 — the caller also raises the owner alert
+    // from the returned lesson (newly recorded only, never a
+    // deduped repeat).
+    return { ok: r.ok, deduped: r.deduped, lesson: r.lesson };
+  } catch {
+    return { ok: false };
+  }
+}
 
 export const MEMORY_KINDS = [
   'ASSIGNMENT_OUTCOME',

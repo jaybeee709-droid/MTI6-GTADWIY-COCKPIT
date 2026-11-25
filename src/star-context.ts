@@ -6,12 +6,30 @@ import { ENTITY_COUNTS } from './entity-data';
 import { WORKSPACE_COVERAGE } from './workspace-coverage-data';
 import { WORLD_ENGINE_STATS } from './world-engine-data';
 import { memorySummary } from './bot-memory';
-import { EXECUTORS } from './worker-runtime';
+import { EXECUTORS, parallelStatus, PARALLEL_POLICY } from './worker-runtime';
+import { angelStatus } from './angel-registry';
+import { loadAngelStore } from './angel-security';
+import { learningSummary } from './bot-learning';
+import { mistakeAlertsSummaryText } from './mistake-alerts';
 import { moneyRadarSummary } from './money-radar';
 import { swapDeskSummary } from './swap-desk';
 import { loadHarvestAssignments, loadHarvestRecords } from './web-harvest';
 import { buildQueueSummary } from './build-queue';
 import { botBrowserSummary } from './bot-browser';
+import { getActiveLessons } from './bot-lessons';
+import { API_REGISTRY, getWiredFallbackEntries } from './api-registry';
+import {
+  NETLIFY_ENV_VAR_NAMES,
+  NETLIFY_GATEWAY_ACTIONS,
+  NETLIFY_PREVIEW_LABEL,
+  NETLIFY_PREVIEW_URL,
+  NETLIFY_PRODUCTION_BRANCH,
+  NETLIFY_PRODUCTION_COMMIT,
+  NETLIFY_PRODUCTION_COMMIT_DATE,
+  NETLIFY_SITE_NAME,
+  NETLIFY_TEAM,
+} from './netlify-knowledge';
+import { projectKnowledgeSummary } from './project-knowledge';
 
 /* STAR's grounding context — the platform snapshot STAR answers
  * from. Everything here is derived from the app's own data modules
@@ -80,6 +98,92 @@ function botBrowserLine(): string {
   }
 }
 
+// v247 — lessons the team learned from mistakes; the runtime
+// consults active lessons before every executor run.
+function lessonsLine(): string {
+  try {
+    const lessons = getActiveLessons();
+    if (lessons.length === 0) return 'no lessons recorded yet';
+    return `${lessons.length} active lesson(s) — latest: ${lessons.slice(0, 3).map((l) => l.title).join('; ')}`;
+  } catch {
+    return 'lessons unreadable this session';
+  }
+}
+
+// v247 — the API Registry: every API the platform needs, per bot,
+// with fallback chains and monthly limits.
+function registryLine(): string {
+  try {
+    const total = API_REGISTRY.length;
+    const configured = API_REGISTRY.filter((e) => e.keyStatus === 'CONFIGURED').length;
+    const wired = getWiredFallbackEntries().length;
+    return `${total} registered API(s) (${configured} keyed + configured); ${wired} entries carry a wired fallback chain; usage is UNKNOWN everywhere (no metering in the app); monthly limits are sourced only where a provider states one (LocationIQ 5,000/month, conservative)`;
+  } catch {
+    return 'API registry unreadable this session';
+  }
+}
+
+// v247 — Netlify knowledge: site, preview vs production, gateway,
+// env vars by name only. No Netlify API token exists.
+function netlifyLine(): string {
+  return `site ${NETLIFY_SITE_NAME} (${NETLIFY_TEAM}); production ${NETLIFY_PRODUCTION_BRANCH} @ ${NETLIFY_PRODUCTION_COMMIT} (${NETLIFY_PRODUCTION_COMMIT_DATE}); development lives as ${NETLIFY_PREVIEW_LABEL} at ${NETLIFY_PREVIEW_URL}; the gateway carries ${NETLIFY_GATEWAY_ACTIONS.length} actions; ${NETLIFY_ENV_VAR_NAMES.length} env vars by name (never values); no Netlify API token, so no live deploy log`;
+}
+
+// v247 — the Angels active on security/alert work (four approved
+// only: MICHAEL, GABRIEL, RAPHAEL, URIEL). Status is derived from
+// real alert work — ACTIVE only while holding open assigned alerts.
+function angelsLine(): string {
+  try {
+    const store = loadAngelStore();
+    const s = angelStatus(store.alerts);
+    const active = s.angels.filter((v) => v.status === 'ACTIVE');
+    return `4 approved Angels (MICHAEL, GABRIEL, RAPHAEL, URIEL); ${s.active} ACTIVE on open alert work (${active.map((v) => `${v.name}: ${v.openAlertCount} open`).join(', ') || 'none'}), ${s.standby} STANDBY; RAGUEL, SARIEL, REMIEL are UNVERIFIED and NOT ACTIVATED`;
+  } catch {
+    return 'Angels unreadable this session';
+  }
+}
+
+// v247 — parallel policy: all 12 principals run at once ONLY IF
+// THE WORK NEEDS IT; otherwise the queue runs in rotation.
+function parallelLine(): string {
+  try {
+    const s = parallelStatus();
+    return `execution mode ${s.mode} — ${s.reason} (${PARALLEL_POLICY})`;
+  } catch {
+    return 'parallel policy unreadable this session';
+  }
+}
+
+// v247 — web-source learning: the harvest feeding Bot Memory.
+function learningLine(): string {
+  try {
+    const s = learningSummary();
+    return `${s.learned} harvest record(s) learned into Bot Memory (UNVERIFIED research evidence), ${s.skipped} skipped as ambiguous or excluded, ${s.pending} unlearned OK record(s) pending; learning runs after every harvest`;
+  } catch {
+    return 'learning unreadable this session';
+  }
+}
+
+// v247 — mistake alerts: the owner is notified on ANY mistake.
+function mistakeAlertsLine(): string {
+  try {
+    return mistakeAlertsSummaryText();
+  } catch {
+    return 'mistake alerts unreadable this session';
+  }
+}
+
+// v247 — the distilled Gmail/Drive project-knowledge feed.
+function projectKnowledgeLine(): string {
+  try {
+    const s = projectKnowledgeSummary();
+    if (s.total === 0) return 'the project-knowledge feed is empty';
+    return `${s.active} active distilled record(s) (${s.byKind.HANDOFF ?? 0} handoffs, ${s.byKind.DIRECTIVE ?? 0} directives, ${s.byKind.KEY_NOTICE ?? 0} key notices, ${s.byKind.DEPLOY_NOTICE ?? 0} deploy notices, ${s.byKind.PAPER ?? 0} papers, ${s.byKind.MANIFEST ?? 0} manifests); ${s.skippedCount} source(s) skipped as ambiguous or excluded; distilled records only, never a live inbox or Drive connection`;
+  } catch {
+    return 'project knowledge unreadable this session';
+  }
+}
+
 function runtimeCounts(): { recorded: number; completed: number } {
   try {
     const rawTasks = localStorage.getItem('mti6_worker_tasks_v1');
@@ -139,6 +243,14 @@ export function buildStarSystemPrompt(): string {
     `- Web Harvest (Tribe scouts, page-open only): ${harvestLine()} — excerpts are RAW and UNVERIFIED; a record becomes work only when Daniel turns it into a Research task from Bot Operations.`,
     `- Build Queue (the BUILDER track — what the team prepared for Muse to build): ${buildQueueLine()}. The bots prepare research, spec, and verification with evidence only — they write no code and run no builds; Muse implements in the clone and Daniel marks items IMPLEMENTED when they land. Ask "what's ready to build" for the list.`,
     `- Bot Browser (the governed in-app browser session for GitHub build work, Universal Search spec Phase 3): ${botBrowserLine()}. The bot never acts inside GitHub — an approved, in-scope page opens in a new tab for Daniel to perform and verify. There is no commit or push action in the session; every push still needs his own approval tap.`,
+    `- Lessons the team learned from mistakes: ${lessonsLine()}. The runtime consults active lessons before every executor run; ask "what did the team learn" for the list.`,
+    `- API Registry (every API the platform needs, per bot): ${registryLine()}. Fallback chains are recorded per entry — wired where the code actually falls back, labelled documented-only where not; entries with no fallback say so. Ask "which APIs" for the list.`,
+    `- Netlify (deploy + hosting): ${netlifyLine()}. Ask "what is Netlify" or "where is the app deployed".`,
+    `- Project knowledge (distilled Gmail/Drive feed): ${projectKnowledgeLine()}. Records are curated distillations with a source reference — never raw inbox or Drive access, never the personal-details archive, never phone messages. Ask "what project knowledge" for the feed.`,
+    `- Angels (security/alert work, separate registry — never Tribe members): ${angelsLine()}. Ask "what are the Angels" for their status.`,
+    `- Execution mode (parallel is conditional): ${parallelLine()}. Ask "parallel" for the rule.`,
+    `- Web-source learning (harvest → Bot Memory): ${learningLine()}. Learned records stay UNVERIFIED; unknown stays UNKNOWN. Ask "what did the bots learn".`,
+    `- Mistake alerts (the owner is notified on ANY mistake, right away): ${mistakeAlertsLine()}. Every mistake also records an instant lesson, ACTIVE for the very next action. Alerts are delivered in-app only — no SMS or email provider is wired, so no text or email is sent. Ask "any mistake alerts".`,
     `- Swap Desk (the execution track — owner decisions D1 YES, D2 DEX only with no KYC venue, D3 $50 starting capital): ${swapDeskSummary().swappableCount} catalogued tokens are swappable across Ethereum and Base (${swapDeskSummary().baseSwappableCount} on Base, the low-fee leg; quotes run Paraswap → KyberSwap → CoW Swap on both networks). ${swapDeskSummary().prepared} swap(s) prepared awaiting approval, ${swapDeskSummary().approved} owner-approved, ${swapDeskSummary().handedOff} handed off to Daniel's wallet for signing. ${swapDeskSummary().watch ? 'A watch wallet is set (public address only, read-only balances).' : 'No watch wallet is set yet — Daniel adds his public address in the Swap Desk.'} Every handoff passes a live Honeypot.is security gate on the token he would receive. The desk prepares and records; it never signs, never broadcasts, never holds keys or funds. Signing happens in Daniel's own wallet at the venue.`,
     `- Display currencies in the catalogue: ${DISPLAY_CURRENCIES.map((c) => c.code).join(', ')}. No wallet is connected: holdings are UNAVAILABLE, never zero.`,
     '- Live data now flows for crypto prices (CoinGecko → Coinbase → CoinPaprika), price history, and DefiLlama yields; every figure carries provenance (source, fetch time, LIVE/CACHED/STALE). Transit stops and departures can be queried through the platform proxy.',

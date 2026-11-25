@@ -50,9 +50,10 @@ import {
   type AppearanceSettings,
 } from './appearance';
 import { loadAngelStore } from './angel-security';
-import { fetchStarStatus, starChat, StarError } from './star-client';
+import { fetchStarStatus, recordLocalReply, starChat, StarError } from './star-client';
 import { buildStarSystemPrompt } from './star-context';
 import { answerLocally } from './star-local';
+import { reportWrongAnswer } from './instant-lessons';
 import { executorById, runAdHocTask, runtimeCommandFor } from './worker-runtime';
 import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
 import { STAR_EXPRESSIONS, STAR_PORTRAIT } from './star-avatar-data';
@@ -61,6 +62,19 @@ import { WorldGlobe } from './worlds/WorldGlobe';
 import { CryptoWorld } from './worlds/CryptoWorld';
 import { EarningsWorld } from './worlds/EarningsWorld';
 import { BotOperations } from './worlds/BotOperations';
+import { NetlifyPanel } from './worlds/NetlifyPanel';
+import { PinnablePanel, PinnedList, PinnedPanels } from './worlds/PinnedPanels';
+import { BotTheater } from './worlds/BotTheater';
+import { TRIBE_PRINCIPALS } from './worlds-data';
+import { loadTasks, type WorkerTask } from './worker-tasks';
+import { loadKinds, type RuntimeKindMap } from './worker-runtime';
+import {
+  loadHarvestAssignments,
+  loadHarvestRecords,
+  type HarvestAssignment,
+  type HarvestRecord,
+} from './web-harvest';
+import { loadTakeovers, type TakeoverRecord } from './bot-theater';
 import { UrbanWallet } from './worlds/UrbanWallet';
 import {
   OpportunitiesWorld,
@@ -231,6 +245,74 @@ const MENU_DESC: Record<WorldId, string> = {
   'crypto-workspaces': 'All 56 crypto workspaces',
 };
 
+/* v247 — Big Screen popout: the Bot Theater rendered alone in a
+ * separate window (?panel=big-screen) for casting to a chosen
+ * monitor. DISPLAY COPY — tasks/harvest/takeovers load from the
+ * stores, but live run state (run log, running ids) lives only in
+ * the main window's session, so it reads as not yet recorded here;
+ * the note below says so rather than inventing runs. Take-over is
+ * disabled in the popout — it is a display, not a console. */
+function BigScreenPopout() {
+  const [tasks, setTasks] = useState<WorkerTask[]>([]);
+  const [kinds, setKinds] = useState<RuntimeKindMap>({});
+  const [harvestAssignments, setHarvestAssignments] = useState<HarvestAssignment[]>([]);
+  const [harvestRecords, setHarvestRecords] = useState<HarvestRecord[]>([]);
+  const [takeovers, setTakeovers] = useState<TakeoverRecord[]>([]);
+  useEffect(() => {
+    try {
+      setTasks(loadTasks());
+    } catch {
+      /* store unreadable — the theater renders the empty state honestly */
+    }
+    try {
+      setKinds(loadKinds());
+    } catch {
+      /* same */
+    }
+    try {
+      setHarvestAssignments(loadHarvestAssignments());
+    } catch {
+      /* same */
+    }
+    try {
+      setHarvestRecords(loadHarvestRecords());
+    } catch {
+      /* same */
+    }
+    try {
+      setTakeovers(loadTakeovers());
+    } catch {
+      /* same */
+    }
+  }, []);
+  const principalName = (id: string | null) =>
+    TRIBE_PRINCIPALS.find((p) => p.id === id)?.displayName ?? 'UNASSIGNED';
+  return (
+    <div className="min-h-screen bg-[#050505] p-4 text-white">
+      <p className="mb-3 font-mono text-[10px] leading-relaxed text-[#FFB020]">
+        BIG SCREEN — DISPLAY COPY FOR A CHOSEN MONITOR. LIVE RUN STATE SHOWS IN THE MAIN WINDOW
+        (BOT OPERATIONS); RUNS HERE READ AS NOT YET RECORDED BECAUSE THEY ARE NOT SHARED ACROSS
+        WINDOWS. TAKE-OVER IS DISABLED IN THIS WINDOW.
+      </p>
+      <BotTheater
+        tasks={tasks}
+        kinds={kinds}
+        runningIds={[]}
+        runStarts={{}}
+        runLog={[]}
+        harvestAssignments={harvestAssignments}
+        harvestRecords={harvestRecords}
+        harvestBusy={false}
+        harvestCurrentId={null}
+        takeovers={takeovers}
+        principalName={principalName}
+        onTakeOverTask={() => {}}
+        onTakeOverHarvest={() => {}}
+      />
+    </div>
+  );
+}
+
 export function App() {
   const [activeWorld, setActiveWorld] = useState<WorldId>('globe');
   const [viewMode, setViewMode] = useState<ViewMode>('All');
@@ -290,6 +372,8 @@ export function App() {
   // Phase 2 top bar state: the ☰ menu panel, and the screen search
   // (scope: the 22 cockpit screens — named in the UI, see renderSearchField).
   const [menuOpen, setMenuOpen] = useState<boolean>(false);
+  // v247 — the pinned Netlify screen overlay (first pinned screen).
+  const [netlifyOpen, setNetlifyOpen] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [searchFocus, setSearchFocus] = useState<boolean>(false);
   const [phoneSearchOpen, setPhoneSearchOpen] = useState<boolean>(false);
@@ -313,6 +397,37 @@ export function App() {
   >([]);
   const [starInput, setStarInput] = useState<string>('');
   const [starBusy, setStarBusy] = useState<boolean>(false);
+  // v247 direction #8/#9 — STAR response time (measured provider +
+  // round-trip ms, never invented) and wrong-answer feedback (the
+  // owner flags a wrong answer with the correction; an instant
+  // lesson + owner alert are recorded at once).
+  const [starLastReply, setStarLastReply] = useState<{ provider: string; ms: number } | null>(null);
+  const [starFeedbackFor, setStarFeedbackFor] = useState<number | null>(null);
+  const [starCorrection, setStarCorrection] = useState('');
+
+  // v247 direction #9 — the owner corrects a wrong STAR answer:
+  // the question is the nearest user message before it, the
+  // correction is what he typed. Records an instant WRONG_ANSWER
+  // lesson (ACTIVE for STAR's next answer) + an owner alert.
+  const submitStarCorrection = (index: number) => {
+    const answer = starThread[index];
+    if (!answer || answer.role !== 'assistant') return;
+    const question =
+      [...starThread.slice(0, index)].reverse().find((m) => m.role === 'user')?.content ?? '';
+    const lesson = reportWrongAnswer(question, answer.content, starCorrection);
+    setStarFeedbackFor(null);
+    setStarCorrection('');
+    setStarThread((prev) => [
+      ...prev,
+      {
+        role: 'assistant',
+        content: lesson
+          ? `Noted — lesson recorded at once: "${lesson.title}". It is ACTIVE for my very next answer, and an owner alert was raised with it.`
+          : 'I could not record that correction — the question, my answer, or the correction was missing. Nothing was recorded.',
+        kind: 'demo',
+      },
+    ]);
+  };
 
   useEffect(() => {
     let live = true;
@@ -373,7 +488,13 @@ export function App() {
       // Local brain first (v146): deterministic answers from the
       // platform's own records, still labelled DEMO; the canned
       // reply remains the fallback for anything off-records.
+      // v247 — the local brain is instant: measure it and record
+      // the measured ms (never an invented figure).
+      const localStart = typeof performance !== 'undefined' ? performance.now() : 0;
       const local = answerLocally(text);
+      const localMs = localStart ? Math.max(0, Math.round(performance.now() - localStart)) : 0;
+      const lastLocal = recordLocalReply(localMs);
+      setStarLastReply({ provider: lastLocal.provider, ms: lastLocal.ms });
       setStarThread([
         ...threadWithUser,
         {
@@ -392,8 +513,12 @@ export function App() {
       .slice(-10)
       .map((m) => ({ role: m.role, content: m.content }));
     starChat([{ role: 'system', content: buildStarSystemPrompt() }, ...history])
-      .then(({ reply, model }) => {
+      .then(({ reply, model, provider, ms }) => {
         setStarModel(model);
+        // v247 direction #8 — the measured provider + round-trip
+        // ms for this reply (the proxy reports the provider; the
+        // ms is measured around the gateway call).
+        setStarLastReply({ provider, ms });
         setStarThread((prev) => [...prev, { role: 'assistant', content: reply, kind: 'chat' }]);
       })
       .catch((err) => {
@@ -416,7 +541,13 @@ export function App() {
         // status when the gateway reports one). The key stays
         // configured — this is a provider failure, not a missing key.
         const upstream = err instanceof StarError && err.upstreamStatus ? `, upstream ${err.upstreamStatus}` : '';
+        // v247 — the fallback local answer is measured the same
+        // way as the configured local path (instant, measured ms).
+        const localStart = typeof performance !== 'undefined' ? performance.now() : 0;
         const local = answerLocally(text);
+        const localMs = localStart ? Math.max(0, Math.round(performance.now() - localStart)) : 0;
+        const lastLocal = recordLocalReply(localMs);
+        setStarLastReply({ provider: lastLocal.provider, ms: lastLocal.ms });
         setStarThread((prev) => [
           ...prev,
           {
@@ -794,6 +925,33 @@ export function App() {
       )}
     </div>
   );
+
+  // v247 — ?panel= contract (pinning system): a pop-out window loads
+  // the app with ?panel=<id> and renders just that panel alone.
+  // 'netlify' renders the Netlify panel; 'big-screen' renders the Bot
+  // Theater (display copy — live run state lives in the main window).
+  // Unknown ids render an honest message, never a guessed panel.
+  const panelParam =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('panel')
+      : null;
+  if (panelParam === 'netlify') {
+    return (
+      <div className="min-h-screen bg-[#050505] p-4 text-white">
+        <NetlifyPanel />
+      </div>
+    );
+  }
+  if (panelParam === 'big-screen') {
+    return <BigScreenPopout />;
+  }
+  if (panelParam) {
+    return (
+      <div className="min-h-screen bg-[#050505] p-4 font-mono text-[12px] text-white">
+        Unknown panel &ldquo;{panelParam}&rdquo; — panels available: netlify, big-screen.
+      </div>
+    );
+  }
 
   return (
     <div
@@ -1209,6 +1367,30 @@ export function App() {
               </div>
             </div>
 
+            {/* Pinned panels (v247) — the general pinning system:
+                any pop-out panel can be pinned anywhere on screen,
+                cast to a chosen monitor, and reopened from here.
+                Netlify is the first pinned screen. */}
+            <div>
+              <div className="mb-2 font-mono text-[10px] tracking-widest text-[#8B5CFF]">PINNED</div>
+              <PinnedList />
+              <button
+                type="button"
+                onClick={() => {
+                  setNetlifyOpen(true);
+                  setMenuOpen(false);
+                }}
+                className="mt-2 flex w-full items-center justify-between rounded-lg border border-[#8B5CFF]/40 bg-[#101010] px-2.5 py-2 text-left hover:border-[#8B5CFF]"
+              >
+                <span className="text-[11px] font-semibold text-white">NETLIFY — PINNED SCREEN</span>
+                <span className="text-[9px] text-[#B8B8B8]">DEPLOY · PREVIEW</span>
+              </button>
+              <p className="mt-1.5 text-[10px] leading-snug text-[#B8B8B8]">
+                Pinned panels stay where you put them — drag, cast to a monitor, or unpin from
+                any panel. Manage every screen in Settings → Devices.
+              </p>
+            </div>
+
             {/* Shell controls footer */}
             <div className="flex flex-wrap items-center gap-3 border-t border-white/10 pt-3">
               {/* View Modes (Standard | Advanced | All) */}
@@ -1357,6 +1539,36 @@ export function App() {
         </div>
       )}
 
+      {/* Pinned panels layer (v247) — mounted once at the app root;
+          renders open pinned panels whose source screen is not mounted. */}
+      <PinnedPanels />
+
+      {/* Netlify pinned screen (v247) — the first pinned screen, opened
+          from the menu. Wrapped in PinnablePanel: PIN, open-on-monitor,
+          CAST, and close controls live on its title bar. */}
+      {netlifyOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-[560px]">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="font-mono text-[10px] tracking-widest text-white">
+                NETLIFY — PINNED SCREEN
+              </span>
+              <button
+                type="button"
+                onClick={() => setNetlifyOpen(false)}
+                aria-label="Close Netlify screen"
+                className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 font-mono text-[11px] text-[#E8EAF0]"
+              >
+                ✕ CLOSE
+              </button>
+            </div>
+            <PinnablePanel panelId="netlify" title="Netlify">
+              <NetlifyPanel />
+            </PinnablePanel>
+          </div>
+        </div>
+      )}
+
       {/* Wallet Slide-Over (the black card's panel) */}
       {accountsOpen && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm">
@@ -1469,12 +1681,66 @@ export function App() {
                       {m.kind === 'error' ? ' · ERROR' : ''}
                     </div>
                     <div className="whitespace-pre-wrap text-white">{m.content}</div>
+                    {/* v247 direction #9 — the owner flags a wrong
+                        answer with the correction; an instant lesson
+                        + owner alert are recorded at once. */}
+                    {m.role === 'assistant' && (
+                      <div className="mt-1.5">
+                        {starFeedbackFor === i ? (
+                          <span className="flex items-center gap-2">
+                            <input
+                              value={starCorrection}
+                              onChange={(e) => setStarCorrection(e.target.value)}
+                              placeholder="What is the correct answer?"
+                              aria-label="Correct answer for STAR"
+                              className="h-7 min-w-0 flex-1 rounded border border-white/20 bg-[#050505] px-2 text-[11px] text-white outline-none placeholder:text-[#B8B8B8]/70"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => submitStarCorrection(i)}
+                              className="h-7 shrink-0 rounded bg-[#8B5CFF] px-2 font-mono text-[10px] font-bold text-white"
+                            >
+                              RECORD CORRECTION
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setStarFeedbackFor(null);
+                                setStarCorrection('');
+                              }}
+                              className="h-7 shrink-0 rounded border border-white/20 px-2 font-mono text-[10px] text-[#B8B8B8]"
+                            >
+                              Cancel
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setStarFeedbackFor(i);
+                              setStarCorrection('');
+                            }}
+                            className="font-mono text-[10px] text-[#B8B8B8] underline"
+                          >
+                            This answer was wrong
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
                 {starBusy && (
                   <p className="font-mono text-[10px] text-[#B8B8B8]">STAR IS THINKING…</p>
                 )}
               </div>
+            )}
+            {/* v247 direction #8 — the last reply's measured
+                provider + round-trip ms (never invented). */}
+            {starLastReply && (
+              <p className="mt-2 font-mono text-[10px] text-[#B8B8B8]">
+                Last reply: {starLastReply.provider} · {starLastReply.ms} ms
+                {starLastReply.provider === 'local' ? ' — local brain is instant' : ''}
+              </p>
             )}
             <form
               onSubmit={(e) => {

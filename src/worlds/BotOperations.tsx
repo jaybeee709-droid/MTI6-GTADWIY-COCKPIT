@@ -33,15 +33,25 @@ import {
 } from '../worker-tasks';
 import { RESOURCE_COUNTS, RESOURCE_GAPS, RESOURCE_PROVIDERS } from '../resource-catalog-data';
 import { MEMORY_KINDS, memorySummary } from '../bot-memory';
+import { LessonsPanel } from './LessonsPanel';
+import { JobCardsPanel } from './JobCardsPanel';
+import { ApiRegistryPanel } from './ApiRegistryPanel';
+import { ProjectKnowledgePanel } from './ProjectKnowledgePanel';
+import { AngelsPanel } from './AngelsPanel';
+import { BotIntelligencePanel } from './BotIntelligencePanel';
+import { MistakeAlertsPanel } from './MistakeAlertsPanel';
+import { learnFromHarvest } from '../bot-learning';
 import {
   EXECUTORS,
   CONTINUOUS_DISCOVERY_ROTATION,
+  decideExecutionMode,
   executorById,
   loadKinds,
   runAdHocTask,
   runRuntimeTask,
   runtimeStoreSummary,
   saveKinds,
+  type ParallelBatchTask,
   type RunRecord,
   type RuntimeKindMap,
 } from '../worker-runtime';
@@ -392,6 +402,19 @@ export const BotOperations: React.FC = () => {
       if (runnable.length === 0) return;
       dispatchBusy.current = true;
       try {
+        // v247 direction #7 — conditional parallel: consult the
+        // policy before running the batch. Queue tasks carry no
+        // needsParallel flag, so the work itself has not said it
+        // needs parallel execution — the decision records ROTATION
+        // with its reason and the loop runs one task at a time.
+        // A batch only ever runs in parallel when every task in
+        // it is marked needsParallel and independent.
+        const batch: ParallelBatchTask[] = runnable.map((t) => ({
+          task: t,
+          executor: kinds[t.id] as string,
+          needsParallel: false,
+        }));
+        decideExecutionMode(batch);
         for (const t of runnable) {
           await doRun(t);
         }
@@ -433,6 +456,16 @@ export const BotOperations: React.FC = () => {
     try {
       const made = await runHarvestAssignments(loadHarvestAssignments(), (a) => setHarvestCurrentId(a.id));
       setHarvestRecords(loadHarvestRecords());
+      // v247 direction #8 — web-source learning: every harvest
+      // run distills its new OK records into Bot Memory (as
+      // UNVERIFIED research evidence) and, where project-relevant,
+      // into the project-knowledge feed. Best-effort: a learning
+      // failure never breaks the harvest record itself.
+      try {
+        learnFromHarvest();
+      } catch {
+        /* learning is best-effort; the harvest records stand */
+      }
       setLastHarvestAt(Date.now());
       setNextHarvestAt(Date.now() + HARVEST_INTERVAL_MS);
       const ok = made.filter((r) => r.status === 'OK').length;
@@ -1230,6 +1263,52 @@ export const BotOperations: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* LESSONS (v247) — Bot Memory that learns from mistakes: failed
+          runs, errors, and corrections recorded as lessons the runtime
+          consults before every executor run. Seeded from real project
+          history only, each with its evidence. */}
+      <LessonsPanel />
+
+      {/* JOB CARDS (v247) — one card per Tribe principal: the job each
+          actually does in the app, what it never does, its APIs, its
+          limits. Roles are owner-assigned at runtime — no principal
+          carries a fixed role in code, and no card invents one. */}
+      <JobCardsPanel />
+
+      {/* API REGISTRY (v247) — every API the platform needs, per bot:
+          provider, key status (name only), monthly limit, fallback
+          order, usage (UNKNOWN unless measured), cost class. */}
+      <ApiRegistryPanel />
+
+      {/* PROJECT KNOWLEDGE (v247) — the distilled Gmail/Drive feed:
+          backup handoffs, key notices, deploy notifications, papers,
+          directives. Curated records with a source reference — never
+          raw inbox or Drive access, never the personal-details
+          archive, never phone messages. */}
+      <ProjectKnowledgePanel />
+
+      {/* ANGELS (v247) — the four approved Angels (MICHAEL, GABRIEL,
+          RAPHAEL, URIEL) active on security/alert work alongside the
+          Tribe. Separate registry, never Tribe members. RAGUEL,
+          SARIEL, REMIEL are UNVERIFIED and NOT ACTIVATED. Status is
+          derived from real alert work — ACTIVE only while holding
+          open assigned alerts, otherwise STANDBY. */}
+      <AngelsPanel />
+
+      {/* BOT INTELLIGENCE (v247) — the super-intelligent bots: the
+          web-source learning feed (harvest → Bot Memory, UNVERIFIED),
+          relevance-ranked recall, and measured STAR response times.
+          Recall is prioritized by relevance and bounded by storage
+          and model context — never literally everything at once. */}
+      <BotIntelligencePanel />
+
+      {/* MISTAKE ALERTS (v247) — the owner is notified on ANY mistake,
+          right away: every mistake records an immediate in-app alert
+          alongside its lesson. Delivery is in-app only — no mail
+          provider is wired, so no email is sent; email delivery is
+          a designed follow-on. */}
+      <MistakeAlertsPanel />
 
       {/* NETWORK EARNING OPS (Gemini family 11 adoption, 2026-11-23):
           the concept's Network Earnings columns — validators, nodes,
