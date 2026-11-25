@@ -468,6 +468,41 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   ];
   const streamMarkers: MapMarker[] = LIVE_STREAMS.map((s) => ({ id: s.id, lat: s.lat, lon: s.lon, label: `STREAM — ${s.title}`, color: '#00B7FF' }));
   const [selectedStream, setSelectedStream] = useState<LiveStreamRecord | null>(null);
+  // v238 — Twitch IRL channels (Daniel: "every social media
+  // platform live stream"). The official player embeds by
+  // channel, keyless, no login:
+  // player.twitch.tv/?channel=<name>&parent=<domain>&muted=true
+  // — parent is REQUIRED and must list every domain the page
+  // opens on (production + Deploy Preview + localhost for the
+  // local preview). The player follows the CHANNEL, so it
+  // stays valid across streams and shows live or offline.
+  // Live status was verified from each channel page's own
+  // JSON-LD (publication.isLiveBroadcast) on Nov 25, 2026:
+  // jinnytty + robcdee were LIVE; asianandy, cyr,
+  // extraemily were offline at that check. IRL streamers
+  // MOVE — only robcdee's current city was named in his
+  // stream title ("Tokyo"), so only he carries a map pin
+  // (35.6762, 139.6503). The others carry no pin and no
+  // invented home city; their player renders in the
+  // STREAMS card, not in Place Intelligence, so no
+  // invented location ever enters the focus chain.
+  interface TwitchChannel {
+    id: string;
+    channel: string;
+    kind: string;
+    place: string | null;
+    lat: number | null;
+    lon: number | null;
+  }
+  const TWITCH_CHANNELS: TwitchChannel[] = [
+    { id: 'tw-jinnytty', channel: 'jinnytty', kind: 'IRL — OUTDOOR STREAMS', place: null, lat: null, lon: null },
+    { id: 'tw-robcdee', channel: 'robcdee', kind: 'IRL — OUTDOOR STREAMS', place: 'Tokyo, Japan', lat: 35.6762, lon: 139.6503 },
+    { id: 'tw-asianandy', channel: 'asianandy', kind: 'IRL — OUTDOOR STREAMS', place: null, lat: null, lon: null },
+    { id: 'tw-cyr', channel: 'cyr', kind: 'IRL — TRAVEL STREAMS', place: null, lat: null, lon: null },
+    { id: 'tw-extraemily', channel: 'extraemily', kind: 'IRL — OUTDOOR STREAMS', place: null, lat: null, lon: null },
+  ];
+  const twitchMarkers: MapMarker[] = TWITCH_CHANNELS.filter((c) => c.lat !== null && c.lon !== null).map((c) => ({ id: c.id, lat: c.lat as number, lon: c.lon as number, label: `TWITCH — ${c.channel.toUpperCase()} (${(c.place as string).toUpperCase()})`, color: '#00B7FF' }));
+  const [selectedTwitch, setSelectedTwitch] = useState<TwitchChannel | null>(null);
   const [quakeMarkers, setQuakeMarkers] = useState<MapMarker[]>([]);
   const [quakeRecords, setQuakeRecords] = useState<Record<string, QuakeRecord>>({});
   const [selectedQuake, setSelectedQuake] = useState<QuakeRecord | null>(null);
@@ -559,7 +594,15 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   const streamFocus: MapMarker | null = selectedStream
     ? { id: selectedStream.id, lat: selectedStream.lat, lon: selectedStream.lon, label: `STREAM — ${selectedStream.title}`, color: '#00B7FF' }
     : null;
-  const focusPoint = selectedStop ?? selectedPoi ?? selectedFlight ?? selectedCamera ?? selectedQuake ?? selectedDisaster ?? streamFocus ?? tappedPoint ?? placeMarker;
+  // v238 — Twitch focus: only the channel with a verified
+  // current city (robcdee, Tokyo) pins and focuses. The
+  // others carry no coordinates and focus nothing — their
+  // player renders in the STREAMS card, not here, so no
+  // invented location ever enters the focus chain.
+  const twitchFocus: MapMarker | null = selectedTwitch && selectedTwitch.lat !== null && selectedTwitch.lon !== null && selectedTwitch.place !== null
+    ? { id: selectedTwitch.id, lat: selectedTwitch.lat, lon: selectedTwitch.lon, label: `TWITCH — ${selectedTwitch.channel.toUpperCase()} (${selectedTwitch.place.toUpperCase()})`, color: '#00B7FF' }
+    : null;
+  const focusPoint = selectedStop ?? selectedPoi ?? selectedFlight ?? selectedCamera ?? selectedQuake ?? selectedDisaster ?? streamFocus ?? twitchFocus ?? tappedPoint ?? placeMarker;
   const nearbyStops = useMemo(() => {
     if (!focusPoint) return [];
     return transitStops
@@ -2801,7 +2844,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               floorMode={floorMode}
               defaultMarkerColor={routeColor}
               markerPulse={markerPulse}
-              markers={[...(transitOn ? transitStops : []), ...(viewSel.places ? poiMarkers : []), ...(viewSel.flights ? flightMarkers : []), ...(viewSel.cameras ? cameraMarkers : []), ...(viewSel.quakes ? quakeMarkers : []), ...(viewSel.disasters ? disasterMarkers : []), ...(viewSel.streams ? streamMarkers : []), ...(placeMarker ? [placeMarker] : []), ...(tappedPoint ? [tappedPoint] : [])]}
+              markers={[...(transitOn ? transitStops : []), ...(viewSel.places ? poiMarkers : []), ...(viewSel.flights ? flightMarkers : []), ...(viewSel.cameras ? cameraMarkers : []), ...(viewSel.quakes ? quakeMarkers : []), ...(viewSel.disasters ? disasterMarkers : []), ...(viewSel.streams ? streamMarkers : []), ...(viewSel.streams ? twitchMarkers : []), ...(placeMarker ? [placeMarker] : []), ...(tappedPoint ? [tappedPoint] : [])]}
               focusPoint={mapFocus}
               links={focusLinks}
               ringMarkerId={focusPoint?.id}
@@ -2822,6 +2865,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   setSelectedQuake(null);
                   setSelectedDisaster(null);
                   setSelectedStream(null);
+                  setSelectedTwitch(null);
                   return;
                 }
                 if (m.id.startsWith('poi-')) {
@@ -2832,6 +2876,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   setSelectedQuake(null);
                   setSelectedDisaster(null);
                   setSelectedStream(null);
+                  setSelectedTwitch(null);
                   setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                   setDeparturesDay('TODAY');
                   return;
@@ -2844,6 +2889,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   setSelectedQuake(null);
                   setSelectedDisaster(null);
                   setSelectedStream(null);
+                  setSelectedTwitch(null);
                   setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                   setDeparturesDay('TODAY');
                   return;
@@ -2856,6 +2902,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   setSelectedQuake(null);
                   setSelectedDisaster(null);
                   setSelectedStream(null);
+                  setSelectedTwitch(null);
                   setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                   setDeparturesDay('TODAY');
                   return;
@@ -2868,6 +2915,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   setSelectedQuake(quakeRecords[m.id] ?? null);
                   setSelectedDisaster(null);
                   setSelectedStream(null);
+                  setSelectedTwitch(null);
                   setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                   setDeparturesDay('TODAY');
                   return;
@@ -2880,6 +2928,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   setSelectedQuake(null);
                   setSelectedDisaster(disasterRecords[m.id] ?? null);
                   setSelectedStream(null);
+                  setSelectedTwitch(null);
                   setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                   setDeparturesDay('TODAY');
                   return;
@@ -2896,6 +2945,19 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   setDeparturesDay('TODAY');
                   return;
                 }
+                if (m.id.startsWith('tw-')) {
+                  setSelectedStop(null);
+                  setSelectedPoi(null);
+                  setSelectedFlight(null);
+                  setSelectedCamera(null);
+                  setSelectedQuake(null);
+                  setSelectedDisaster(null);
+                  setSelectedStream(null);
+                  setSelectedTwitch(TWITCH_CHANNELS.find((x) => x.id === m.id) ?? null);
+                  setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
+                  setDeparturesDay('TODAY');
+                  return;
+                }
                 setSelectedStop(m);
                 setSelectedPoi(null);
                 setSelectedFlight(null);
@@ -2903,6 +2965,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 setSelectedQuake(null);
                 setSelectedDisaster(null);
                   setSelectedStream(null);
+                  setSelectedTwitch(null);
                 setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                 setDeparturesDay('TODAY');
               }}
@@ -3086,6 +3149,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                         type="button"
                         onClick={() => {
                           setSelectedStream(s);
+                          setSelectedTwitch(null);
                           setSelectedCamera(null);
                           setSelectedQuake(null);
                           setSelectedDisaster(null);
@@ -3102,6 +3166,87 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                         {s.title.toUpperCase()} ({s.place.toUpperCase()})
                       </button>
                     ))}
+                  </div>
+                  {/* v238 — Twitch IRL channels: the official
+                      player embeds by channel, keyless. Only
+                      robcdee carries a pin (Tokyo, where his
+                      stream was when verified); the others move,
+                      so they have no pin and no invented home
+                      city — their player opens here, in this
+                      card. Instagram Live, TikTok LIVE and X
+                      Live have no public embed; Facebook Live
+                      embeds one video at a time and has no
+                      public live directory. Kick's player embeds
+                      by channel too, but no place-based Kick
+                      channel was verified. */}
+                  <div className="mt-2 border-t border-white/10 pt-2">
+                    <span className="font-semibold text-white">TWITCH — IRL CHANNELS.</span>{' '}
+                    THE PLAYER SHOWS WHETHER EACH CHANNEL IS LIVE RIGHT NOW. VERIFIED LIVE ON NOV 25,
+                    2026: JINNYTTY + ROBCDEE (TOKYO). ASIANANDY, CYR, EXTRAEMILY WERE OFFLINE AT
+                    THAT CHECK. INSTAGRAM LIVE, TIKTOK LIVE AND X LIVE HAVE NO PUBLIC EMBED — THEY
+                    CANNOT BE SHOWN HERE. FACEBOOK LIVE EMBEDS ONE VIDEO AT A TIME AND HAS NO
+                    PUBLIC LIVE DIRECTORY.
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                      {TWITCH_CHANNELS.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedTwitch(c);
+                            setSelectedStream(null);
+                            setSelectedCamera(null);
+                            setSelectedQuake(null);
+                            setSelectedDisaster(null);
+                            setSelectedFlight(null);
+                            setSelectedPoi(null);
+                            setSelectedStop(null);
+                            setTappedPoint(null);
+                            setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
+                            setDeparturesDay('TODAY');
+                            if (c.lat !== null && c.lon !== null) {
+                              setMapFocus((f) => ({ lon: c.lon as number, lat: c.lat as number, nonce: (f?.nonce ?? 0) + 1 }));
+                            }
+                          }}
+                          className={`underline decoration-[#00B7FF] underline-offset-2 ${selectedTwitch?.id === c.id ? 'font-semibold text-white' : ''}`}
+                        >
+                          {c.channel.toUpperCase()} (TWITCH{c.place !== null ? ` — ${c.place.toUpperCase()}` : ''})
+                        </button>
+                      ))}
+                    </div>
+                    {selectedTwitch && (
+                      <div className="mt-2">
+                        <div className="font-mono text-[10px] text-white">TWITCH — LIVE</div>
+                        <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                          <span className="text-white">{selectedTwitch.channel}</span>
+                          {' '}· <span className="text-white">{selectedTwitch.kind}</span>
+                          {selectedTwitch.place !== null && (
+                            <>
+                              {' '}· <span className="text-white">{selectedTwitch.place}</span>
+                            </>
+                          )}
+                        </p>
+                        <iframe
+                          key={selectedTwitch.channel}
+                          src={`https://player.twitch.tv/?channel=${selectedTwitch.channel}&parent=mti6-gtadwiy-cockpit.netlify.app&parent=deploy-preview-1--mti6-gtadwiy-cockpit.netlify.app&parent=localhost&autoplay=true&muted=true`}
+                          title={`Twitch — ${selectedTwitch.channel}`}
+                          allow="autoplay; fullscreen"
+                          allowFullScreen
+                          className="mt-1 aspect-video w-full max-w-[320px] rounded border border-white/15"
+                        />
+                        <p className="mt-1 font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                          TWITCH CHANNEL — THE PLAYER SHOWS WHETHER THEY ARE LIVE RIGHT NOW. IF IT
+                          SAYS OFFLINE, THEY ARE NOT STREAMING.{' '}
+                          <a
+                            href={`https://www.twitch.tv/${selectedTwitch.channel}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-semibold text-white underline decoration-[#00B7FF] underline-offset-2"
+                          >
+                            OPEN ON TWITCH
+                          </a>
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -3446,7 +3591,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   : 'OFF — turn on CINEMATIC in MAP VIEW'}
               </div>
               <div>
-                MARKERS PLACED: {(transitOn ? transitStops.length : 0) + (viewSel.places ? poiMarkers.length : 0) + (viewSel.flights ? flightMarkers.length : 0) + (viewSel.cameras ? cameraMarkers.length : 0) + (viewSel.quakes ? quakeMarkers.length : 0) + (viewSel.disasters ? disasterMarkers.length : 0) + (viewSel.streams ? streamMarkers.length : 0) + (placeMarker ? 1 : 0)}
+                MARKERS PLACED: {(transitOn ? transitStops.length : 0) + (viewSel.places ? poiMarkers.length : 0) + (viewSel.flights ? flightMarkers.length : 0) + (viewSel.cameras ? cameraMarkers.length : 0) + (viewSel.quakes ? quakeMarkers.length : 0) + (viewSel.disasters ? disasterMarkers.length : 0) + (viewSel.streams ? streamMarkers.length + twitchMarkers.length : 0) + (placeMarker ? 1 : 0)}
                 {transitOn && transitStops.length > 0
                   ? ' — Transitland stops (sourced locations)'
                   : ' — no verified locations'}
@@ -3578,7 +3723,9 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                             ? selectedDisaster.source
                             : selectedStream
                               ? 'YOUTUBE (PUBLIC LIVE STREAM)'
-                              : focusPoint === tappedPoint
+                              : selectedTwitch
+                                ? 'TWITCH'
+                                : focusPoint === tappedPoint
                                 ? tapNamed
                                   ? 'NOMINATIM REVERSE'
                                   : 'COORDINATES — REVERSE LOOKUP FAILED'

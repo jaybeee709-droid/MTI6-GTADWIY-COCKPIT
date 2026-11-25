@@ -1158,7 +1158,12 @@ async function handleCamerasLouisiana(payload) {
     geometry: validated.minLon + "," + validated.minLat + "," + validated.maxLon + "," + validated.maxLat,
     geometryType: "esriGeometryEnvelope",
     spatialRel: "esriSpatialRelIntersects",
-    inSR: "4326"
+    inSR: "4326",
+    // v238 fix: both Louisiana services store geometry in
+    // Louisiana State Plane (feet). Without outSR the
+    // response came back in feet (lat 699314, lon 3341977)
+    // and every camera was silently filtered out client-side.
+    outSR: "4326"
   });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
