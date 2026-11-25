@@ -469,6 +469,23 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     { id: 'stream-elephant-pan', title: 'Elephant Pan Waterhole', place: 'Northern Botswana', channel: 'Africam', lat: -19.9857, lon: 23.4254, videoId: 'QJe1tGI1EZc' },
     { id: 'stream-table-mountain', title: 'Table Mountain & Bloubergstrand', place: 'Cape Town, South Africa', channel: 'Table Mountain Live', lat: -33.807, lon: 18.464, videoId: 'vOLCjL4kv-w' },
     { id: 'stream-midway', title: 'Midway Airport', place: 'Chicago, USA', channel: 'EarthCam', lat: 41.7868, lon: -87.7522, videoId: 'EiUyBIcG4fQ' },
+    // v240 — second batch of 12 (Daniel: "Do YouTube have more").
+    // All re-verified live + embeddable from the shell Nov 25,
+    // 2026 (watch page isLive:true + playableInEmbed:true).
+    // 12 distinct countries; only Italy repeats a batch-1
+    // country (Manarola, a different place from Siena).
+    { id: 'stream-tallinn', title: 'Tallinn CityCam', place: 'Tallinn, Estonia', channel: '360PANO', lat: 59.437, lon: 24.7536, videoId: 'VhVgZi2lGv0' },
+    { id: 'stream-calgary', title: 'Calgary Live Camera', place: 'Calgary, Canada', channel: 'DELTATECH Calgary', lat: 51.0447, lon: -114.0719, videoId: 'MwcqP3ta6RI' },
+    { id: 'stream-vatican', title: "Vatican Media Live (St Peter's)", place: 'Vatican City', channel: 'Vatican News', lat: 41.9022, lon: 12.4573, videoId: '03pYP2Nmreo' },
+    { id: 'stream-geneva', title: 'Geneva and Lake Geneva', place: 'Geneva, Switzerland', channel: 'Vision-Environnement - Webcams', lat: 46.21, lon: 6.156, videoId: '3HsL6AA6rPM' },
+    { id: 'stream-mara-river', title: 'Mara River Main Crossing', place: 'Maasai Mara, Kenya', channel: 'Africam', lat: -1.55, lon: 35.02, videoId: 'BaEFc79IMCA' },
+    { id: 'stream-hwange', title: 'The Hide Waterhole, Hwange', place: 'Hwange National Park, Zimbabwe', channel: 'Africam', lat: -18.93, lon: 27.03, videoId: 'ljLeMq_KXpY' },
+    { id: 'stream-klein-curacao', title: 'Klein Curaçao', place: 'Klein Curaçao, Curaçao', channel: 'SHOWME Caribbean', lat: 11.9854, lon: -68.646, videoId: '0ImA9IcyQwA' },
+    { id: 'stream-helsinki-port', title: 'Port of Helsinki - West Harbour', place: 'Helsinki, Finland', channel: 'Port of Helsinki', lat: 60.1561, lon: 24.9206, videoId: '6hPWq2IG08M' },
+    { id: 'stream-geirangerfjord', title: 'Geirangerfjord Cruise Port', place: 'Geiranger, Norway', channel: 'Geirangerfjord cruise port', lat: 62.1008, lon: 7.2047, videoId: 'yMSc-qqW3To' },
+    { id: 'stream-manarola', title: 'Manarola Cinque Terre', place: 'Manarola, Italy', channel: 'Paesaggi Digitali', lat: 44.1075, lon: 9.7239, videoId: 'QpqsJKI0Wfk' },
+    { id: 'stream-namib-desert', title: 'Namib Desert Live', place: 'Namib Desert, Namibia', channel: 'NamibiaCam', lat: -24.7275, lon: 15.2712, videoId: 'ydYDqZQpim8' },
+    { id: 'stream-tamariu', title: 'Tamariu Beach', place: 'Tamariu, Spain', channel: 'EarthCam', lat: 41.9177, lon: 3.2069, videoId: 'wiVzU1mcCTA' },
   ];
   const streamMarkers: MapMarker[] = LIVE_STREAMS.map((s) => ({ id: s.id, lat: s.lat, lon: s.lon, label: `STREAM — ${s.title}`, color: '#00B7FF' }));
   const [selectedStream, setSelectedStream] = useState<LiveStreamRecord | null>(null);
@@ -3227,7 +3244,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               {viewSel.streams && (
                 <div className="pointer-events-auto self-start rounded border border-[#00B7FF]/50 bg-[#0b0b0b]/90 px-2.5 py-2 font-mono text-[11px] text-[#B8B8B8] 2xl:self-stretch">
                   <span className="font-semibold text-[#00B7FF]">LIVE STREAMS — SOCIAL.</span>{' '}
-                  12 PUBLIC YOUTUBE LIVE STREAMS OF PLACES, CURATED FROM A PUBLIC DIRECTORY AND
+                  24 PUBLIC YOUTUBE LIVE STREAMS OF PLACES, CURATED FROM A PUBLIC DIRECTORY AND
                   VERIFIED LIVE + EMBEDDABLE ON NOV 25, 2026. THESE ARE SOCIAL LIVE VIDEO, NOT
                   TRAFFIC CAMERAS — THEY SHOW THE OFFICIAL YOUTUBE PLAYER. A STREAM CAN GO OFFLINE
                   AT ANY TIME; THE PLAYER SHOWS THE CURRENT STATE.
