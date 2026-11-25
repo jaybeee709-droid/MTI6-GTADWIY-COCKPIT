@@ -14,10 +14,13 @@ import {
 /* Flat world map engine (Phase 2, step 3 — owner directive 2026-11-23).
  *
  * THE MAP IS THE INTERFACE: a three.js WebGL plane under an
- * OrthographicCamera looking straight down. The plane carries, bottom
- * to top: the vendored Natural Earth VECTOR FLOOR (rendered to a
- * texture — always present, works offline, the map is never blank),
- * then keyless OSM raster tiles resolved through WorldData.baseMap,
+ * OrthographicCamera looking straight down — and, since v239, a
+ * PerspectiveCamera that takes over whenever the pitch is at or
+ * past 5°, so the map tilts down to water level and orbits the
+ * focus point. The plane carries, bottom to top: the vendored
+ * Natural Earth VECTOR FLOOR (rendered to a texture — always
+ * present, works offline, the map is never blank), then keyless
+ * OSM raster tiles resolved through WorldData.baseMap,
  * fetched ON SETTLE only (debounced after the gesture ends), viewport
  * tiles only. Markers are DOM elements positioned by projection —
  * keyboard-focusable, screen-reader labelled, 44px touch targets.
@@ -46,6 +49,10 @@ export interface MapViewReport {
   lat: number;
   zoom: number;
   level: MTI6ZoomLevel;
+  // v239 — tilt/orbit: the camera pitch (0 = straight down) and
+  // heading (0 = north up) the globe reports in its panel.
+  tilt: number;
+  yaw: number;
 }
 
 export interface MapEngineStatus {
@@ -105,6 +112,13 @@ interface WorldMapEngineProps {
   // v231 — Command Mode "What's here?": a tap on empty map
   // (not a marker, not a drag) reports the geographic point.
   onMapTap?: (p: { lat: number; lon: number }) => void;
+  // v239 — tilt/orbit: camera pitch in degrees (0 = straight
+  // down, 75 = near water level) and heading in degrees
+  // (0 = north up, clockwise). The globe owns the values and
+  // persists them; the engine reports drag changes back.
+  tilt?: number;
+  yaw?: number;
+  onTiltChange?: (tilt: number, yaw: number) => void;
 }
 
 interface ViewState {
@@ -117,6 +131,14 @@ const WORLD = 360; // projected world is 360 x 360 degree-units
 const INITIAL_VIEW: ViewState = { cx: 0, cy: 20, zoom: 1.15 };
 const SETTLE_MS = 250;
 const TILE_CACHE_MAX = 120;
+// v239 — tilt/orbit: the perspective camera's vertical field of
+// view; the pitch range; and the smallest pitch that switches
+// the engine from the orthographic camera to the perspective
+// one (below it the lookAt math with a world-up vector goes
+// degenerate, and the top-down framing is identical anyway).
+const TILT_FOV_DEG = 55;
+const TILT_MAX_DEG = 75;
+const TILT_MIN_PERSP_DEG = 5;
 
 function halfExtents(view: ViewState, w: number, h: number) {
   const halfH = 180 / Math.pow(2, view.zoom);
@@ -135,6 +157,82 @@ function clampView(view: ViewState, w: number, h: number): ViewState {
   const cx = halfW >= 180 ? 0 : Math.max(-(180 - halfW), Math.min(180 - halfW, view.cx));
   const cy = halfH >= 180 ? 0 : Math.max(-(180 - halfH), Math.min(180 - halfH, view.cy));
   return { cx, cy, zoom };
+}
+
+/* ---- v239 — tilt/orbit: perspective camera placement ----
+ * One function positions a perspective camera over the focus
+ * point, shared by the render loop and the DOM-marker
+ * projection so the two can never disagree. Pitch is measured
+ * from vertical (0 = straight down); heading 0 puts the camera
+ * south of the focus looking north, so north stays up on
+ * screen. The distance keeps the framing at the focus point
+ * identical to the top-down view at the same zoom.
+ *
+ * The layer stack (floor z=0, hillshade z=0.5, tiles z=1,
+ * night z=1.5) is built for the orthographic camera sitting
+ * 100 units up. A tilted camera at street zoom sits a fraction
+ * of a unit above the plane, so those absolute offsets would
+ * put the layers kilometres above the camera's far plane. In
+ * tilt mode the loop re-seats the three groups just above the
+ * floor, scaled to the camera distance (see TILT_LAYER_EPS).
+ */
+const TILT_LAYER_EPS = 0.002; // layer offsets, as a share of camera distance
+
+function placePerspCamera(
+  cam: THREE.PerspectiveCamera,
+  view: ViewState,
+  w: number,
+  h: number,
+  tiltDeg: number,
+  yawDeg: number,
+): number {
+  const { halfH } = halfExtents(view, w, h);
+  const fovRad = (TILT_FOV_DEG * Math.PI) / 180;
+  const dist = halfH / Math.tan(fovRad / 2);
+  const t = (Math.max(TILT_MIN_PERSP_DEG, tiltDeg) * Math.PI) / 180;
+  const y = (yawDeg * Math.PI) / 180;
+  cam.fov = TILT_FOV_DEG;
+  cam.aspect = w > 0 && h > 0 ? w / h : 1;
+  cam.near = dist * 0.01;
+  cam.far = dist * 100;
+  cam.position.set(
+    view.cx + dist * Math.sin(t) * Math.sin(y),
+    view.cy - dist * Math.sin(t) * Math.cos(y),
+    dist * Math.cos(t),
+  );
+  cam.up.set(0, 0, 1);
+  cam.lookAt(view.cx, view.cy, 0);
+  cam.updateProjectionMatrix();
+  cam.updateMatrixWorld(true);
+  return dist;
+}
+
+/** Project a geographic point to screen % through the active
+ * camera. Top-down (tilt < 5°) keeps the exact linear math the
+ * map has always used; tilted, the point goes through the
+ * perspective camera. Returns null when the point is behind
+ * the camera or off the screen. */
+function projectPoint(
+  lon: number,
+  lat: number,
+  view: ViewState,
+  w: number,
+  h: number,
+  tiltDeg: number,
+  yawDeg: number,
+): { left: number; top: number } | null {
+  if (tiltDeg < TILT_MIN_PERSP_DEG) {
+    const { halfW, halfH } = halfExtents(view, w, h);
+    return {
+      left: ((lon - (view.cx - halfW)) / (2 * halfW)) * 100,
+      top: ((view.cy + halfH - projectLat(lat)) / (2 * halfH)) * 100,
+    };
+  }
+  const cam = new THREE.PerspectiveCamera();
+  placePerspCamera(cam, view, w, h, tiltDeg, yawDeg);
+  const v = new THREE.Vector3(lon, projectLat(lat), 0).project(cam);
+  if (v.z > 1 || v.x < -1.05 || v.x > 1.05 || v.y < -1.05 || v.y > 1.05) return null;
+  return { left: ((v.x + 1) / 2) * 100, top: ((1 - v.y) / 2) * 100 };
 }
 
 /** Render the vendored Natural Earth geography to a canvas texture.
@@ -396,12 +494,25 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
   links = [],
   ringMarkerId,
   onMapTap,
+  tilt = 0,
+  yaw = 0,
+  onTiltChange,
 }) => {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   // v231 — the tap callback lives in a ref so the gesture
   // effect (mounted once) always calls the latest handler.
   const onMapTapRef = useRef(onMapTap);
   onMapTapRef.current = onMapTap;
+  // v239 — tilt/orbit: the pitch/heading live in refs so the
+  // render loop, the gesture handlers and the drift interval
+  // always read the latest values without re-subscribing; the
+  // change callback lives in a ref for the same reason.
+  const tiltRef = useRef(tilt);
+  tiltRef.current = tilt;
+  const yawRef = useRef(yaw);
+  yawRef.current = yaw;
+  const onTiltChangeRef = useRef(onTiltChange);
+  onTiltChangeRef.current = onTiltChange;
   const glRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [view, setView] = useState<ViewState>(INITIAL_VIEW);
@@ -445,6 +556,9 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     renderer: THREE.WebGLRenderer;
     scene: THREE.Scene;
     camera: THREE.OrthographicCamera;
+    // v239 — the tilt camera: same scene, used whenever the
+    // pitch is at or past 5°.
+    persp: THREE.PerspectiveCamera;
     tileGroup: THREE.Group;
     shadeGroup: THREE.Group;
   } | null>(null);
@@ -587,6 +701,9 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
   // is running, and the moment cinematic switches off. Applied
   // at most every 100 ms so the engine is not re-rendered
   // every frame.
+  // v239 — tilted, the drift becomes an ORBIT: the camera
+  // circles the focus point at 1°/s instead of sliding east,
+  // so WATER LEVEL + CINEMATIC reads as circling the land.
   useEffect(() => {
     if (!cinematic) return;
     let raf = 0;
@@ -597,8 +714,13 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
       last = t;
       acc += dt;
       if (acc >= 100 && !draggingRef.current && flyAnimRef.current === null) {
-        const v = viewRef.current;
-        applyView({ ...v, cx: v.cx + 0.0072 * (acc / 100) });
+        if (tiltRef.current >= TILT_MIN_PERSP_DEG) {
+          const nextYaw = (yawRef.current + 1 * (acc / 1000) + 360) % 360;
+          onTiltChangeRef.current?.(tiltRef.current, nextYaw);
+        } else {
+          const v = viewRef.current;
+          applyView({ ...v, cx: v.cx + 0.0072 * (acc / 100) });
+        }
         acc = 0;
       }
       raf = requestAnimationFrame(step);
@@ -637,6 +759,9 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     scene.background = new THREE.Color(MTI6_MAP.oceanDeep);
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 1000);
     camera.position.set(0, 0, 100);
+    // v239 — the tilt camera is created once beside the
+    // orthographic one; the loop positions it per frame.
+    const persp = new THREE.PerspectiveCamera(TILT_FOV_DEG, 1, 0.1, 1000);
 
     // The vector floor.
     const floorCanvas = buildFloorCanvas();
@@ -677,22 +802,43 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
       scene.add(nightMesh);
       nightMeshRef.current = nightMesh;
     }
-    threeRef.current = { renderer, scene, camera, tileGroup, shadeGroup };
+    threeRef.current = { renderer, scene, camera, persp, tileGroup, shadeGroup };
 
     let raf = 0;
     const loop = () => {
       try {
         const v = viewRef.current;
         const { w, h } = sizeRef.current;
-        const { halfW, halfH } = halfExtents(v, w, h);
-        camera.left = -halfW;
-        camera.right = halfW;
-        camera.top = halfH;
-        camera.bottom = -halfH;
-        camera.position.x = v.cx;
-        camera.position.y = v.cy;
-        camera.updateProjectionMatrix();
-        renderer.render(scene, camera);
+        const tilted = tiltRef.current >= TILT_MIN_PERSP_DEG;
+        if (tilted) {
+          // v239 — tilt mode: the perspective camera orbits
+          // the focus point; the layer stack is re-seated just
+          // above the floor, scaled to the camera distance
+          // (their absolute z=0.5/1/1.5 offsets belong to the
+          // orthographic camera 100 units up).
+          const dist = placePerspCamera(persp, v, w, h, tiltRef.current, yawRef.current);
+          const eps = dist * TILT_LAYER_EPS;
+          tileGroup.position.z = -1 + eps;
+          shadeGroup.position.z = -0.5 + eps * 0.5;
+          const night = nightMeshRef.current;
+          if (night) night.position.z = eps * 1.5;
+          renderer.render(scene, persp);
+        } else {
+          // Top-down: the layer stack back to its absolute seats.
+          tileGroup.position.z = 0;
+          shadeGroup.position.z = 0;
+          const night = nightMeshRef.current;
+          if (night) night.position.z = 1.5;
+          const { halfW, halfH } = halfExtents(v, w, h);
+          camera.left = -halfW;
+          camera.right = halfW;
+          camera.top = halfH;
+          camera.bottom = -halfH;
+          camera.position.x = v.cx;
+          camera.position.y = v.cy;
+          camera.updateProjectionMatrix();
+          renderer.render(scene, camera);
+        }
       } catch {
         // A renderer that fails mid-flight degrades to the honest
         // ENGINE_UNAVAILABLE state instead of taking the screen down.
@@ -768,6 +914,8 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
       lat: unprojectLat(view.cy),
       zoom: view.zoom,
       level: zoomLevelFor(view.zoom),
+      tilt: tiltRef.current,
+      yaw: yawRef.current,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
@@ -862,7 +1010,15 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     const tz = Math.max(0, Math.min(base.maxTileZoom, Math.round(v.zoom)));
     const n = Math.pow(2, tz);
     const tileSize = WORLD / n;
-    const { halfW, halfH } = halfExtents(v, w, h);
+    // v239 — tilted, the visible ground is a trapezoid reaching
+    // far past the top-down viewport toward the horizon, so the
+    // fetch box grows with the pitch (capped at 3×). The vector
+    // floor covers whatever the tiles do not reach.
+    const tiltRad = (tiltRef.current * Math.PI) / 180;
+    const fetchGrow = tiltRef.current >= TILT_MIN_PERSP_DEG ? Math.min(3, 1 + Math.tan(tiltRad)) : 1;
+    const { halfW: hw, halfH: hh } = halfExtents(v, w, h);
+    const halfW = hw * fetchGrow;
+    const halfH = hh * fetchGrow;
 
     const txMin = Math.max(0, Math.floor((v.cx - halfW + 180) / tileSize));
     const txMax = Math.min(n - 1, Math.floor((v.cx + halfW + 180) / tileSize));
@@ -1042,6 +1198,21 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     const worldAt = (px: number, py: number) => {
       const v = viewRef.current;
       const { w, h } = sizeRef.current;
+      if (tiltRef.current >= TILT_MIN_PERSP_DEG && w > 0 && h > 0) {
+        // v239 — tilted: raycast the screen point through the
+        // perspective camera onto the z=0 plane. A ray that
+        // misses the plane (sky above the horizon) falls back
+        // to the view centre.
+        const cam = new THREE.PerspectiveCamera();
+        placePerspCamera(cam, v, w, h, tiltRef.current, yawRef.current);
+        const ndc = new THREE.Vector2((px / w) * 2 - 1, 1 - (py / h) * 2);
+        const ray = new THREE.Raycaster();
+        ray.setFromCamera(ndc, cam);
+        const hit = new THREE.Vector3();
+        const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+        if (ray.ray.intersectPlane(plane, hit)) return { wx: hit.x, wy: hit.y };
+        return { wx: v.cx, wy: v.cy };
+      }
       const { halfW, halfH } = halfExtents(v, w, h);
       return {
         wx: v.cx + (px / w - 0.5) * 2 * halfW,
@@ -1102,12 +1273,25 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
       const { w, h } = sizeRef.current;
       if (w === 0 || h === 0) return;
       if (pointers.size === 1) {
-        const { halfW, halfH } = halfExtents(v, w, h);
-        applyView({
-          ...v,
-          cx: v.cx - ((now.x - prev.x) / w) * 2 * halfW,
-          cy: v.cy + ((now.y - prev.y) / h) * 2 * halfH,
-        });
+        if (tiltRef.current >= TILT_MIN_PERSP_DEG) {
+          // v239 — tilted, a drag ROTATES instead of panning:
+          // sideways turns the heading, up/down raises or
+          // lowers the pitch (0–75°). Panning returns at
+          // tilt 0 — the TOP VIEW button is one tap away.
+          const nextYaw = (yawRef.current + (now.x - prev.x) * 0.3 + 360) % 360;
+          const nextTilt = Math.max(
+            0,
+            Math.min(TILT_MAX_DEG, tiltRef.current - (now.y - prev.y) * 0.15),
+          );
+          onTiltChangeRef.current?.(nextTilt, nextYaw);
+        } else {
+          const { halfW, halfH } = halfExtents(v, w, h);
+          applyView({
+            ...v,
+            cx: v.cx - ((now.x - prev.x) / w) * 2 * halfW,
+            cy: v.cy + ((now.y - prev.y) / h) * 2 * halfH,
+          });
+        }
       } else if (pointers.size === 2) {
         const [a, b] = [...pointers.values()];
         const dist = Math.hypot(a.x - b.x, a.y - b.y);
@@ -1160,7 +1344,6 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { halfW, halfH } = halfExtents(view, size.w, size.h);
   const level = zoomLevelFor(view.zoom);
   const attribution = WorldData.baseMapStyle(baseStyle).attribution;
 
@@ -1169,7 +1352,7 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
       ref={wrapRef}
       className="relative h-full w-full touch-none select-none overflow-hidden"
       style={{ backgroundColor: MTI6_MAP.oceanDeep }}
-      aria-label="Flat world map. Drag to pan, scroll to zoom."
+      aria-label="Flat world map. Drag to pan, scroll to zoom. When tilted, drag rotates the view instead."
     >
       <div ref={glRef} className="absolute inset-0" />
 
@@ -1191,17 +1374,20 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
         {links.length > 0 && size.w > 0 && (
           <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
             {links.map((l) => {
-              const fx = ((l.from.lon - (view.cx - halfW)) / (2 * halfW)) * 100;
-              const fy = ((view.cy + halfH - projectLat(l.from.lat)) / (2 * halfH)) * 100;
-              const tx = ((l.to.lon - (view.cx - halfW)) / (2 * halfW)) * 100;
-              const ty = ((view.cy + halfH - projectLat(l.to.lat)) / (2 * halfH)) * 100;
+              // v239 — endpoints go through the same projection
+              // as the markers, so the lines track the map in
+              // tilt mode too; a line with an end off-screen
+              // (behind the camera) is not drawn.
+              const from = projectPoint(l.from.lon, l.from.lat, view, size.w, size.h, tilt, yaw);
+              const to = projectPoint(l.to.lon, l.to.lat, view, size.w, size.h, tilt, yaw);
+              if (!from || !to) return null;
               return (
                 <line
                   key={l.id}
-                  x1={fx}
-                  y1={fy}
-                  x2={tx}
-                  y2={ty}
+                  x1={from.left}
+                  y1={from.top}
+                  x2={to.left}
+                  y2={to.top}
                   vectorEffect="non-scaling-stroke"
                   stroke={defaultMarkerColor ?? MTI6_MAP.marker}
                   strokeWidth={1.5}
@@ -1214,10 +1400,11 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
         )}
         {size.w > 0 &&
           markers.map((m) => {
-            const wx = m.lon;
-            const wy = projectLat(m.lat);
-            const left = ((wx - (view.cx - halfW)) / (2 * halfW)) * 100;
-            const top = ((view.cy + halfH - wy) / (2 * halfH)) * 100;
+            // v239 — markers project through the active camera,
+            // so they stay pinned to the ground in tilt mode.
+            const p = projectPoint(m.lon, m.lat, view, size.w, size.h, tilt, yaw);
+            if (!p) return null;
+            const { left, top } = p;
             if (left < -5 || left > 105 || top < -5 || top > 105) return null;
             const color = m.color ?? defaultMarkerColor ?? MTI6_MAP.marker;
             return (
@@ -1271,7 +1458,11 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
         <button
           type="button"
           aria-label="Reset view"
-          onClick={() => applyView(INITIAL_VIEW)}
+          onClick={() => {
+            applyView(INITIAL_VIEW);
+            // v239 — a reset also returns the camera to top-down.
+            onTiltChangeRef.current?.(0, 0);
+          }}
           className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 bg-[#101010]/90 text-white hover:border-[#00B7FF]/60"
         >
           <RotateCcw className="h-4 w-4" />

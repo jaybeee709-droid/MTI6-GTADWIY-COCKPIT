@@ -176,11 +176,11 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // (Coverage = every layer's data state at once). Persisted —
   // the choice survives reloads.
   type MapLens = 'world' | 'crypto' | 'earnings' | 'security' | 'transit' | 'coverage';
-  const readViewSel = (): { base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean; cameras: boolean; quakes: boolean; disasters: boolean; streams: boolean; timeTravel: boolean; cinematic: boolean; simTime: number | null } => {
+  const readViewSel = (): { base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean; cameras: boolean; quakes: boolean; disasters: boolean; streams: boolean; timeTravel: boolean; cinematic: boolean; simTime: number | null; tilt: number; yaw: number } => {
     try {
       const raw = localStorage.getItem(MAP_VIEW_SEL_KEY);
-      if (!raw) return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false, cameras: false, quakes: false, disasters: false, streams: false, timeTravel: false, cinematic: false, simTime: null };
-      const parsed = JSON.parse(raw) as Partial<{ base: string; terrain: string; lens: string; night: unknown; places: unknown; flights: unknown; weather: unknown; cameras: unknown; quakes: unknown; disasters: unknown; streams: unknown; timeTravel: unknown; cinematic: unknown; simTime: unknown }>;
+      if (!raw) return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false, cameras: false, quakes: false, disasters: false, streams: false, timeTravel: false, cinematic: false, simTime: null, tilt: 0, yaw: 0 };
+      const parsed = JSON.parse(raw) as Partial<{ base: string; terrain: string; lens: string; night: unknown; places: unknown; flights: unknown; weather: unknown; cameras: unknown; quakes: unknown; disasters: unknown; streams: unknown; timeTravel: unknown; cinematic: unknown; simTime: unknown; tilt: unknown; yaw: unknown }>;
       return {
         base: parsed.base === 'satellite' || parsed.base === 'floor' ? (parsed.base as MapBaseStyle) : 'streets',
         terrain: parsed.terrain === 'hillshade' ? 'hillshade' : 'off',
@@ -208,13 +208,17 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
         timeTravel: parsed.timeTravel === true,
         cinematic: parsed.cinematic === true,
         simTime: typeof parsed.simTime === 'number' && Number.isFinite(parsed.simTime) ? parsed.simTime : null,
+        // v239 — tilt/orbit, top-down by default. An old saved
+        // selection without the keys reads 0.
+        tilt: typeof parsed.tilt === 'number' && Number.isFinite(parsed.tilt) ? Math.max(0, Math.min(75, parsed.tilt)) : 0,
+        yaw: typeof parsed.yaw === 'number' && Number.isFinite(parsed.yaw) ? ((parsed.yaw % 360) + 360) % 360 : 0,
       };
     } catch {
-      return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false, cameras: false, quakes: false, disasters: false, streams: false, timeTravel: false, cinematic: false, simTime: null };
+      return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false, cameras: false, quakes: false, disasters: false, streams: false, timeTravel: false, cinematic: false, simTime: null, tilt: 0, yaw: 0 };
     }
   };
   const [viewSel, setViewSelState] = useState(readViewSel);
-  const setViewSel = (next: Partial<{ base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean; cameras: boolean; quakes: boolean; disasters: boolean; streams: boolean; timeTravel: boolean; cinematic: boolean; simTime: number | null }>) => {
+  const setViewSel = (next: Partial<{ base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean; cameras: boolean; quakes: boolean; disasters: boolean; streams: boolean; timeTravel: boolean; cinematic: boolean; simTime: number | null; tilt: number; yaw: number }>) => {
     setViewSelState((prev) => {
       const merged = { ...prev, ...next };
       try {
@@ -2409,6 +2413,8 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     lat: 18.6,
     zoom: 1.15,
     level: 'World',
+    tilt: 0,
+    yaw: 0,
   });
   const [engineStatus, setEngineStatus] = useState<MapEngineStatus>({
     base: 'FLOOR',
@@ -2815,8 +2821,88 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 </button>
               ))}
             </span>
+            {/* v239 — tilt/orbit: the camera pitches down from
+                straight overhead to near water level (0–75°) and
+                turns in any direction. ON opens at 45°; OFF is
+                top-down. While tilted, a drag rotates the view
+                instead of panning. */}
+            <span className="flex items-center gap-1">
+              <span className="text-[#B8B8B8]">TILT</span>
+              {([true, false] as const).map((t) => (
+                <button
+                  key={String(t)}
+                  type="button"
+                  onClick={() => setViewSel(t ? { tilt: 45 } : { tilt: 0, yaw: 0 })}
+                  aria-pressed={(viewSel.tilt > 0) === t}
+                  className={`h-9 px-2.5 rounded border transition ${
+                    (viewSel.tilt > 0) === t
+                      ? 'border-[#00B7FF] bg-[#00B7FF]/15 text-white'
+                      : 'border-white/15 text-[#B8B8B8] hover:border-white/40'
+                  }`}
+                >
+                  {t ? 'ON' : 'OFF'}
+                </button>
+              ))}
+            </span>
             <span className="text-[#B8B8B8]">ZOOM TO z21 · DRAG · SCROLL · PINCH · DOUBLE-CLICK · TAP ANYWHERE — WHAT'S HERE?</span>
           </div>
+          {viewSel.tilt > 0 && (
+            <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-white/10 bg-[#0b0b0b] text-[11px] font-mono">
+              <span className="font-semibold text-white">TILT — 3D VIEW</span>
+              <label className="flex items-center gap-2 text-[#B8B8B8]">
+                ANGLE
+                <input
+                  type="range"
+                  min={0}
+                  max={75}
+                  step={1}
+                  value={Math.round(viewSel.tilt)}
+                  onChange={(e) => setViewSel({ tilt: Number(e.target.value) })}
+                  aria-label="Tilt angle"
+                  className="w-32 accent-[#00B7FF]"
+                />
+                <span className="text-white">{Math.round(viewSel.tilt)}°</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => setViewSel({ yaw: (viewSel.yaw - 15 + 360) % 360 })}
+                aria-label="Rotate left"
+                className="h-9 px-2.5 rounded border border-white/15 text-[#B8B8B8] hover:border-white/40"
+              >
+                ⟲ 15°
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewSel({ yaw: (viewSel.yaw + 15) % 360 })}
+                aria-label="Rotate right"
+                className="h-9 px-2.5 rounded border border-white/15 text-[#B8B8B8] hover:border-white/40"
+              >
+                15° ⟳
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  // WATER LEVEL: 70° at City zoom, cinematic on so
+                  // the camera slowly circles the land.
+                  setViewSel({ tilt: 70, cinematic: true });
+                  setMapFocus((f) => ({ lon: mapView.lon, lat: mapView.lat, nonce: (f?.nonce ?? 0) + 1 }));
+                }}
+                className="h-9 px-2.5 rounded border border-[#00B7FF] bg-[#00B7FF]/15 text-white"
+              >
+                WATER LEVEL
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewSel({ tilt: 0, yaw: 0 })}
+                className="h-9 px-2.5 rounded border border-white/15 text-[#B8B8B8] hover:border-white/40"
+              >
+                TOP VIEW
+              </button>
+              <span className="text-[#B8B8B8]">
+                DRAG ROTATES WHILE TILTED — SIDEWAYS TURNS, UP/DOWN RAISES OR LOWERS THE VIEW · SET TILT TO 0 TO PAN · WATER LEVEL IS 70° AT CITY ZOOM, CIRCLING WITH CINEMATIC
+              </span>
+            </div>
+          )}
           {viewSel.lens === 'coverage' && (
             <div className="flex flex-wrap gap-2 px-4 py-2 border-b border-white/10 bg-[#0b0b0b] text-[11px] font-mono">
               {LAYERS.map((l) => (
@@ -2841,6 +2927,9 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               night={viewSel.night}
               simTime={viewSel.simTime}
               cinematic={viewSel.cinematic}
+              tilt={viewSel.tilt}
+              yaw={viewSel.yaw}
+              onTiltChange={(t, y) => setViewSel({ tilt: t, yaw: y })}
               floorMode={floorMode}
               defaultMarkerColor={routeColor}
               markerPulse={markerPulse}
@@ -3589,6 +3678,15 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                     ? 'ON — drift + smooth fly-to, TOUR RUNNING'
                     : 'ON — slow drift + smooth fly-to (camera only)'
                   : 'OFF — turn on CINEMATIC in MAP VIEW'}
+              </div>
+              <div>
+                TILT:{' '}
+                {viewSel.tilt === 0
+                  ? 'TOP-DOWN — straight down (0°)'
+                  : `${Math.round(viewSel.tilt)}° — drag rotates the view; set 0 to pan`}
+              </div>
+              <div>
+                HEADING: {Math.round(viewSel.yaw)}° {COMPASS_8[Math.round(viewSel.yaw / 45) % 8]} — 0° is north up
               </div>
               <div>
                 MARKERS PLACED: {(transitOn ? transitStops.length : 0) + (viewSel.places ? poiMarkers.length : 0) + (viewSel.flights ? flightMarkers.length : 0) + (viewSel.cameras ? cameraMarkers.length : 0) + (viewSel.quakes ? quakeMarkers.length : 0) + (viewSel.disasters ? disasterMarkers.length : 0) + (viewSel.streams ? streamMarkers.length + twitchMarkers.length : 0) + (placeMarker ? 1 : 0)}

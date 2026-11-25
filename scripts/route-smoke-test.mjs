@@ -355,6 +355,7 @@ try {
   check('disasters toggle present', worldMapText.includes('DISASTERS'), 'MAP VIEW bar has DISASTERS (v234)');
   check('time toggle present', worldMapText.includes('TIME'), 'MAP VIEW bar has TIME (v228)');
   check('cinematic toggle present', worldMapText.includes('CINEMATIC'), 'MAP VIEW bar has CINEMATIC (v228)');
+  check('tilt toggle present', worldMapText.includes('TILT'), 'MAP VIEW bar has TILT (v239)');
   check(
     'time travel card gated',
     !worldMapText.includes('TIME TRAVEL — ARCHIVE-BACKED'),
