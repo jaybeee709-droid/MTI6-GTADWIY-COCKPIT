@@ -57,6 +57,20 @@ import {
   type BuildItemKind,
   type BuildItemStatus,
 } from '../build-queue';
+import {
+  BOT_BROWSER_REPO_URL,
+  BOT_BROWSER_SCOPE_LINE,
+  approveBuildForBrowser,
+  botBrowserSummary,
+  endBotBrowserSession,
+  loadBotBrowserSession,
+  loadBrowserLog,
+  markBotBrowserSignedIn,
+  requestBrowserAction,
+  revokeBuildForBrowser,
+  type BotBrowserAction,
+  type BotBrowserSession,
+} from '../bot-browser';
 import { listRadarCandidates, RADAR_CATEGORY_STATES, moneyRadarSummary } from '../money-radar';
 import { swapDeskSummary } from '../swap-desk';
 import { loadExecutorRuns, runDryRunCycle } from '../executor';
@@ -557,6 +571,86 @@ export const BotOperations: React.FC = () => {
     setNewBuildSpec('');
     setBuildMsg('BUILD ITEM ADDED — PREPARED, awaiting verification and Muse to implement.');
   };
+  // v245 — BOT BROWSER: governed in-app browser session for GitHub
+  // build work (Universal Search spec Phase 3). Daniel signs in
+  // once in the browser; bots act only on build items he approves;
+  // every action is requested, scope-checked, and logged —
+  // including refusals. The bot never acts inside GitHub: an
+  // approved in-scope page opens in a new tab for the owner to
+  // perform and verify. No commit or push action exists here.
+  const [browserSession, setBrowserSession] = useState<BotBrowserSession>(() =>
+    loadBotBrowserSession(),
+  );
+  const [browserLog, setBrowserLog] = useState<BotBrowserAction[]>(() => loadBrowserLog());
+  const [browserMsg, setBrowserMsg] = useState('');
+  const [browserItemId, setBrowserItemId] = useState('');
+  const [browserActionKind, setBrowserActionKind] = useState<'VIEW_REPO' | 'VIEW_PULLS' | 'CUSTOM'>(
+    'VIEW_REPO',
+  );
+  const [browserCustomUrl, setBrowserCustomUrl] = useState('');
+  const browserSummary = botBrowserSummary();
+  const openGithubSignIn = () => {
+    window.open(BOT_BROWSER_REPO_URL, '_blank', 'noopener,noreferrer');
+    setBrowserMsg(
+      'GITHUB OPENED IN A NEW TAB — SIGN IN THERE, THEN TAP "I SIGNED IN — CONFIRM SESSION". THE APP NEVER ASKS FOR YOUR PASSWORD.',
+    );
+  };
+  const confirmBrowserSignIn = () => {
+    setBrowserSession(markBotBrowserSignedIn());
+    setBrowserMsg(
+      'SESSION MARKED SIGNED IN — OWNER-CONFIRMED IN THIS BROWSER. THE APP CANNOT VERIFY A GITHUB SIGN-IN ITSELF; NO PASSWORD, TOKEN, OR COOKIE WAS STORED.',
+    );
+  };
+  const endBrowserSession = () => {
+    setBrowserSession(endBotBrowserSession());
+    setBrowserMsg(
+      'SESSION ENDED — NOT SIGNED IN. APPROVALS FOR BUILD ITEMS STAY (THEY ARE YOUR DECISIONS) UNTIL REVOKED.',
+    );
+  };
+  const toggleBrowserApproval = (itemId: string) => {
+    const s = loadBotBrowserSession();
+    if (s.approvedBuildIds.includes(itemId)) {
+      setBrowserSession(revokeBuildForBrowser(itemId));
+      setBrowserMsg(`Browser approval revoked for "${itemId}".`);
+    } else {
+      setBrowserSession(approveBuildForBrowser(itemId));
+      setBrowserMsg(
+        `Approved for browser work: "${itemId}". The bot may request in-scope GitHub pages for this item only.`,
+      );
+    }
+  };
+  const doBrowserAction = () => {
+    const item = buildQueue.find((b) => b.id === browserItemId) ?? null;
+    const url =
+      browserActionKind === 'VIEW_REPO'
+        ? `${BOT_BROWSER_REPO_URL}/tree/development`
+        : browserActionKind === 'VIEW_PULLS'
+          ? `${BOT_BROWSER_REPO_URL}/pulls`
+          : browserCustomUrl.trim();
+    const action =
+      browserActionKind === 'VIEW_REPO'
+        ? 'View repo code at development'
+        : browserActionKind === 'VIEW_PULLS'
+          ? 'View open pull requests'
+          : `Open custom page ${url}`;
+    if (browserActionKind === 'CUSTOM' && !url) {
+      setBrowserMsg('A custom page needs a GitHub URL.');
+      return;
+    }
+    const verdict = requestBrowserAction({
+      principalId: item?.principalId ?? null,
+      buildItemId: browserItemId || null,
+      action,
+      url,
+    });
+    setBrowserLog(loadBrowserLog());
+    if (verdict.openUrl) {
+      window.open(verdict.openUrl, '_blank', 'noopener,noreferrer');
+      setBrowserMsg(`OPENED FOR YOU — ${verdict.page}. ${verdict.detail}`);
+    } else {
+      setBrowserMsg(`REFUSED — ${verdict.detail}`);
+    }
+  };
   // v230 — TAKE OVER: Daniel takes a step himself (a sign-in, a
   // verification click, a password). The takeover is recorded
   // the moment it happens, and the task is BLOCKED until he
@@ -972,6 +1066,169 @@ export const BotOperations: React.FC = () => {
           </button>
         </div>
         {buildMsg && <p className="font-mono text-[10px] text-[#FFB020]">{buildMsg}</p>}
+      </div>
+
+      {/* BOT BROWSER (v245) — Universal Search spec Phase 3,
+          Browser/Computer Use: a governed in-app browser session
+          the bots use to reach GitHub and do build work on the
+          project repo, development branch only. Daniel signs in
+          once in the browser (his step; the app never asks for or
+          stores a password, token, or cookie). Bots act only on
+          build items he approves from the Build Queue. Every
+          action is requested, scope-checked, and logged —
+          including refusals. The bot never acts inside GitHub:
+          an approved in-scope page opens in a new tab for the
+          owner to perform and verify. No commit or push action
+          exists here; every push still needs his own tap. */}
+      <div className="rounded-xl border border-[#8B5CFF]/40 bg-[#101010] p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-mono text-xs text-[#8B5CFF]">
+            BOT BROWSER — GITHUB THROUGH A BROWSER IN THE APP
+          </span>
+          <span className="font-mono text-[10px] text-[#B8B8B8]">
+            SESSION:{' '}
+            {browserSession.state === 'SIGNED_IN' ? 'SIGNED IN — OWNER CONFIRMED' : 'NOT SIGNED IN'}
+          </span>
+        </div>
+        <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+          SCOPE: {BOT_BROWSER_SCOPE_LINE}. THE BOTS ACT ONLY ON BUILD ITEMS YOU APPROVE BELOW.
+          EVERY ACTION IS LOGGED — INCLUDING REFUSALS. THE BOT NEVER ACTS INSIDE GITHUB: AN
+          APPROVED IN-SCOPE PAGE OPENS IN A NEW TAB FOR YOU TO PERFORM AND VERIFY. NO COMMIT OR
+          PUSH ACTION EXISTS HERE — EVERY PUSH STILL NEEDS YOUR OWN TAP. NO AUTO-MERGE, NO MAIN,
+          NO FORCE-PUSH. NO PASSWORD, TOKEN, OR COOKIE IS EVER ASKED FOR OR STORED.
+        </p>
+        <p className="font-mono text-[9px] leading-relaxed text-[#FFB020]">
+          {browserSession.state === 'SIGNED_IN'
+            ? `SIGNED IN — OWNER-CONFIRMED IN THIS BROWSER${browserSession.signedInAt ? ` SINCE ${new Date(browserSession.signedInAt).toLocaleString()}` : ''}. THE APP CANNOT VERIFY A GITHUB SIGN-IN ITSELF.`
+            : 'NOT SIGNED IN — SIGN IN TO GITHUB IN THE BROWSER FIRST. UNTIL THEN EVERY BOT BROWSER ACTION IS REFUSED AND LOGGED AS SUCH.'}
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => openGithubSignIn()}
+            className="flex min-h-[44px] items-center rounded border border-[#8B5CFF]/60 px-3 font-mono text-[10px] text-white"
+          >
+            OPEN GITHUB TO SIGN IN
+          </button>
+          <button
+            type="button"
+            onClick={() => confirmBrowserSignIn()}
+            disabled={browserSession.state === 'SIGNED_IN'}
+            className="flex min-h-[44px] items-center rounded bg-[#8B5CFF] px-3 font-mono text-[10px] font-semibold text-white disabled:opacity-50"
+          >
+            I SIGNED IN — CONFIRM SESSION
+          </button>
+          <button
+            type="button"
+            onClick={() => endBrowserSession()}
+            disabled={browserSession.state !== 'SIGNED_IN'}
+            className="flex min-h-[44px] items-center rounded border border-white/15 px-3 font-mono text-[10px] text-white disabled:opacity-50"
+          >
+            END SESSION
+          </button>
+          <span className="font-mono text-[9px] text-[#B8B8B8]">
+            {browserSummary.approved} APPROVED · {browserSummary.logCount} LOGGED ·{' '}
+            {browserSummary.opened} OPENED FOR YOU · {browserSummary.refused} REFUSED
+          </span>
+        </div>
+        {buildQueue.filter((b) => b.status === 'PREPARED').length === 0 ? (
+          <p className="font-mono text-[10px] text-[#B8B8B8]">
+            NO PREPARED BUILD ITEMS — NOTHING TO APPROVE. THE BUILD QUEUE ABOVE IS THE TASK LIST.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {buildQueue
+              .filter((b) => b.status === 'PREPARED')
+              .map((item) => (
+                <div
+                  key={item.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-[#050505] p-3"
+                >
+                  <span className="text-xs font-semibold text-white">{item.title}</span>
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-[9px] text-[#B8B8B8]">
+                      {principalName(item.principalId)} ·{' '}
+                      {browserSession.approvedBuildIds.includes(item.id)
+                        ? 'APPROVED FOR BROWSER'
+                        : 'NOT APPROVED'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => toggleBrowserApproval(item.id)}
+                      aria-label={`Approve for browser ${item.id}`}
+                      className="flex min-h-[36px] items-center rounded border border-[#8B5CFF]/60 px-3 font-mono text-[10px] text-white"
+                    >
+                      {browserSession.approvedBuildIds.includes(item.id)
+                        ? 'REVOKE'
+                        : 'APPROVE FOR BROWSER'}
+                    </button>
+                  </span>
+                </div>
+              ))}
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={browserItemId}
+            onChange={(e) => setBrowserItemId(e.target.value)}
+            aria-label="Browser build item"
+            className="h-9 rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white outline-none focus:border-[#8B5CFF]"
+          >
+            <option value="">Build item for the browser…</option>
+            {buildQueue
+              .filter((b) => b.status === 'PREPARED')
+              .map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.title}
+                </option>
+              ))}
+          </select>
+          <select
+            value={browserActionKind}
+            onChange={(e) =>
+              setBrowserActionKind(e.target.value as 'VIEW_REPO' | 'VIEW_PULLS' | 'CUSTOM')
+            }
+            aria-label="Browser action"
+            className="h-9 rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white outline-none focus:border-[#8B5CFF]"
+          >
+            <option value="VIEW_REPO">VIEW REPO AT DEVELOPMENT</option>
+            <option value="VIEW_PULLS">VIEW OPEN PULL REQUESTS</option>
+            <option value="CUSTOM">CUSTOM PAGE (SCOPE-CHECKED)</option>
+          </select>
+          {browserActionKind === 'CUSTOM' && (
+            <input
+              value={browserCustomUrl}
+              onChange={(e) => setBrowserCustomUrl(e.target.value)}
+              placeholder="https://github.com/jaybeee709-droid/MTI6-GTADWIY-COCKPIT/…"
+              aria-label="Browser custom URL"
+              className="h-9 flex-1 min-w-[220px] rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white outline-none placeholder:text-[#666] focus:border-[#8B5CFF]"
+            />
+          )}
+          <button
+            type="button"
+            onClick={() => doBrowserAction()}
+            aria-label="Request browser action"
+            className="flex min-h-[36px] items-center rounded border border-[#8B5CFF]/60 px-3 font-mono text-[10px] text-white"
+          >
+            REQUEST BROWSER ACTION
+          </button>
+        </div>
+        {browserMsg && (
+          <p className="font-mono text-[10px] leading-relaxed text-white">{browserMsg}</p>
+        )}
+        {browserLog.length > 0 && (
+          <div className="space-y-1">
+            <span className="font-mono text-[10px] text-[#B8B8B8]">
+              ACTION LOG — EVERY REQUEST, INCLUDING REFUSALS:
+            </span>
+            {browserLog.slice(0, 10).map((a) => (
+              <p key={a.id} className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+                {new Date(a.at).toLocaleString()} · {a.result} · {a.action} · PAGE: {a.page} ·{' '}
+                {a.detail}
+              </p>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* NETWORK EARNING OPS (Gemini family 11 adoption, 2026-11-23):

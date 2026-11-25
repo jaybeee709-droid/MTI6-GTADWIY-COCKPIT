@@ -30,6 +30,7 @@ import { moneyRadarSummaryText } from './money-radar';
 import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
 import { loadHarvestAssignments, loadHarvestRecords } from './web-harvest';
 import { buildQueueSummaryText } from './build-queue';
+import { botBrowserSummaryText } from './bot-browser';
 
 // §69 WHY? for a named workspace: the recorded chain behind what
 // the workspace shows, from the registry + coverage records only.
@@ -229,6 +230,9 @@ export function answerLocally(raw: string): string | null {
 
   if (/(ready to build|build queue|build list|what.*build|builds ready|prepared to build)/.test(q))
     return buildQueueSummaryText();
+
+  if (/(bot browser|browser session|github browser|bots.*github|github.*bot)/.test(q))
+    return botBrowserSummaryText();
 
   if (/(harvest|scout)/.test(q)) {
     const recs = loadHarvestRecords();
