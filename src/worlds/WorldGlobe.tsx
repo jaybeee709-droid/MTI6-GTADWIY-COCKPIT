@@ -176,11 +176,11 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // (Coverage = every layer's data state at once). Persisted —
   // the choice survives reloads.
   type MapLens = 'world' | 'crypto' | 'earnings' | 'security' | 'transit' | 'coverage';
-  const readViewSel = (): { base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean; cameras: boolean; quakes: boolean; timeTravel: boolean; cinematic: boolean; simTime: number | null } => {
+  const readViewSel = (): { base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean; cameras: boolean; quakes: boolean; disasters: boolean; timeTravel: boolean; cinematic: boolean; simTime: number | null } => {
     try {
       const raw = localStorage.getItem(MAP_VIEW_SEL_KEY);
-      if (!raw) return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false, cameras: false, quakes: false, timeTravel: false, cinematic: false, simTime: null };
-      const parsed = JSON.parse(raw) as Partial<{ base: string; terrain: string; lens: string; night: unknown; places: unknown; flights: unknown; weather: unknown; cameras: unknown; quakes: unknown; timeTravel: unknown; cinematic: unknown; simTime: unknown }>;
+      if (!raw) return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false, cameras: false, quakes: false, disasters: false, timeTravel: false, cinematic: false, simTime: null };
+      const parsed = JSON.parse(raw) as Partial<{ base: string; terrain: string; lens: string; night: unknown; places: unknown; flights: unknown; weather: unknown; cameras: unknown; quakes: unknown; disasters: unknown; timeTravel: unknown; cinematic: unknown; simTime: unknown }>;
       return {
         base: parsed.base === 'satellite' || parsed.base === 'floor' ? (parsed.base as MapBaseStyle) : 'streets',
         terrain: parsed.terrain === 'hillshade' ? 'hillshade' : 'off',
@@ -199,6 +199,8 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
         // v233 — cameras + quakes, off by default.
         cameras: parsed.cameras === true,
         quakes: parsed.quakes === true,
+        // v234 — disasters, off by default.
+        disasters: parsed.disasters === true,
         // v228 — time travel + cinematic, off by default; a
         // persisted simulated time survives reloads.
         timeTravel: parsed.timeTravel === true,
@@ -206,11 +208,11 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
         simTime: typeof parsed.simTime === 'number' && Number.isFinite(parsed.simTime) ? parsed.simTime : null,
       };
     } catch {
-      return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false, cameras: false, quakes: false, timeTravel: false, cinematic: false, simTime: null };
+      return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false, cameras: false, quakes: false, disasters: false, timeTravel: false, cinematic: false, simTime: null };
     }
   };
   const [viewSel, setViewSelState] = useState(readViewSel);
-  const setViewSel = (next: Partial<{ base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean; cameras: boolean; quakes: boolean; timeTravel: boolean; cinematic: boolean; simTime: number | null }>) => {
+  const setViewSel = (next: Partial<{ base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean; cameras: boolean; quakes: boolean; disasters: boolean; timeTravel: boolean; cinematic: boolean; simTime: number | null }>) => {
     setViewSelState((prev) => {
       const merged = { ...prev, ...next };
       try {
@@ -401,6 +403,8 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     lon: number;
     area: string | null;
     imageUrl: string;
+    source: 'NYCDOT' | 'CALTRANS';
+    detail: string | null;
   }
   interface QuakeRecord {
     id: string;
@@ -430,6 +434,41 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     message: string;
     fetchedAt: number | null;
   }>({ state: 'idle', message: 'NOT QUERIED — USGS is ready; nothing has been polled.', fetchedAt: null });
+  // v234 — disasters: hurricanes, volcanoes, tornadoes and
+  // everything else the map does not have yet. Two sources:
+  // GDACS (global — tropical cyclones, volcanoes, floods,
+  // wildfires, earthquakes, droughts; current + recent, each
+  // pin carries its dates) via the gateway (no CORS header),
+  // and NWS severe alerts (tornadoes, hurricanes, severe
+  // storms) direct from the browser at the map centre point
+  // (api.weather.gov sends ACAO *). Markers are amber —
+  // warning, never red: red is an MTI6 critical alert only,
+  // and these are external severity ratings.
+  interface DisasterRecord {
+    id: string;
+    label: string;
+    type: string;
+    name: string;
+    country: string | null;
+    alertlevel: string | null;
+    iscurrent: boolean;
+    fromdate: string | null;
+    todate: string | null;
+    severitytext: string | null;
+    headline: string | null;
+    lat: number;
+    lon: number;
+    reportUrl: string | null;
+    source: 'GDACS' | 'NWS';
+  }
+  const [disasterMarkers, setDisasterMarkers] = useState<MapMarker[]>([]);
+  const [disasterRecords, setDisasterRecords] = useState<Record<string, DisasterRecord>>({});
+  const [selectedDisaster, setSelectedDisaster] = useState<DisasterRecord | null>(null);
+  const [disasterQuery, setDisasterQuery] = useState<{
+    state: 'idle' | 'loading' | 'ok' | 'error';
+    message: string;
+    fetchedAt: number | null;
+  }>({ state: 'idle', message: 'NOT QUERIED — GDACS + NWS are ready; nothing has been polled.', fetchedAt: null });
   const [transitQuery, setTransitQuery] = useState<{
     state: 'idle' | 'loading' | 'ok' | 'error';
     message: string;
@@ -475,7 +514,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // the map draws a link line from the focus to each one. Alerts
   // match only when an alert's recorded area names this place —
   // area is null unless the owner sets it at intake.
-  const focusPoint = selectedStop ?? selectedPoi ?? selectedFlight ?? selectedCamera ?? selectedQuake ?? tappedPoint ?? placeMarker;
+  const focusPoint = selectedStop ?? selectedPoi ?? selectedFlight ?? selectedCamera ?? selectedQuake ?? selectedDisaster ?? tappedPoint ?? placeMarker;
   const nearbyStops = useMemo(() => {
     if (!focusPoint) return [];
     return transitStops
@@ -990,40 +1029,53 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   };
 
   // v233 — CCTV on the map: NYCDOT traffic cameras via the
-  // gateway (the list sends no CORS header). The list covers
-  // New York City only; cameras are filtered to 50 km of the
-  // centre and capped at 40 nearest. Snapshots are still
-  // images, never video.
+  // gateway (the list sends no CORS header). v234 — the
+  // camera registry: every source has a coverage box, and the
+  // query runs only the sources whose box holds the centre.
+  // NYCDOT covers New York City; Caltrans covers California
+  // (ArcGIS FeatureServer, bbox query via the proxy). 511NY
+  // needs a free developer key and is NOT wired; the German
+  // Autobahn webcam API answers 200 but returns zero webcams.
+  // Cameras are filtered to 50 km of the centre and capped at
+  // 40 nearest. Snapshots are still images, never video.
   const CAMERA_MAX_DIST_M = 50000;
   const MAX_CAMERA_MARKERS = 40;
+  const CAMERA_SOURCES: { id: 'nycdot' | 'caltrans'; label: string; bbox: [number, number, number, number] }[] = [
+    { id: 'nycdot', label: 'NYCDOT', bbox: [-74.35, 40.45, -73.65, 40.95] },
+    { id: 'caltrans', label: 'CALTRANS', bbox: [-124.5, 32.5, -114.0, 42.0] },
+  ];
   const queryCameras = async () => {
     if (typeof fetch !== 'function') {
       setCameraQuery({ state: 'error', message: 'NO FETCH IN THIS ENVIRONMENT.', fetchedAt: null });
       return;
     }
-    setCameraQuery({ state: 'loading', message: 'QUERYING NYCDOT VIA THE PROXY…', fetchedAt: null });
-    try {
+    const inBox = (box: [number, number, number, number]): boolean =>
+      mapView.lon >= box[0] - 0.6 && mapView.lon <= box[2] + 0.6 &&
+      mapView.lat >= box[1] - 0.6 && mapView.lat <= box[3] + 0.6;
+    const covering = CAMERA_SOURCES.filter((s) => inBox(s.bbox));
+    if (covering.length === 0) {
+      setCameraQuery({
+        state: 'ok',
+        message: 'NO CAMERA SOURCE COVERS THIS AREA — COVERAGE SO FAR: NEW YORK CITY + CALIFORNIA. MOVE THE MAP INTO A COVERED AREA TO SEE CAMERAS.',
+        fetchedAt: Date.now(),
+      });
+      setCameraMarkers([]);
+      setCameraRecords({});
+      return;
+    }
+    setCameraQuery({ state: 'loading', message: `QUERYING ${covering.map((s) => s.label).join(' + ')} VIA THE PROXY…`, fetchedAt: null });
+    const fetchNycdot = async (): Promise<{ rec: CameraRecord; dist: number }[]> => {
       const res = await fetch('/api/mti6', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'cameras.nyc', payload: {} }),
       });
       const env = (await res.json().catch(() => null)) as
-        | { ok?: boolean; data?: unknown; error?: { code?: string; message?: string } }
+        | { ok?: boolean; data?: unknown; error?: { code?: string } }
         | null;
-      if (!env || !env.ok) {
-        const code = env?.error?.code ?? 'UPSTREAM_ERROR';
-        setCameraQuery({
-          state: 'error',
-          message: `QUERY FAILED (${code}) — no cameras are shown.`,
-          fetchedAt: null,
-        });
-        setCameraMarkers([]);
-        setCameraRecords({});
-        return;
-      }
+      if (!env || !env.ok) throw new Error(env?.error?.code ?? 'UPSTREAM_ERROR');
       const data = env.data as { cameras?: unknown[] } | null;
-      const near: { rec: CameraRecord; dist: number }[] = [];
+      const out: { rec: CameraRecord; dist: number }[] = [];
       if (data && Array.isArray(data.cameras)) {
         for (const raw of data.cameras) {
           if (!raw || typeof raw !== 'object') continue;
@@ -1036,43 +1088,105 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
           if (lat === null || lon === null || !id || !name || !imageUrl) continue;
           const dist = haversineM(mapView.lat, mapView.lon, lat, lon);
           if (dist > CAMERA_MAX_DIST_M) continue;
-          near.push({
+          out.push({
             rec: {
-              id: `cam-${id}`,
+              id: `cam-nyc-${id}`,
               label: name,
               lat,
               lon,
               area: typeof c.area === 'string' ? c.area : null,
               imageUrl,
+              source: 'NYCDOT',
+              detail: typeof c.area === 'string' ? c.area : null,
             },
             dist,
           });
         }
       }
-      near.sort((a, b) => a.dist - b.dist);
-      const kept = near.slice(0, MAX_CAMERA_MARKERS);
-      setCameraMarkers(kept.map((k) => ({ id: k.rec.id, lat: k.rec.lat, lon: k.rec.lon, label: k.rec.label, color: '#00B7FF' })));
-      const records: Record<string, CameraRecord> = {};
-      for (const k of kept) records[k.rec.id] = k.rec;
-      setCameraRecords(records);
-      if (kept.length === 0) {
-        setCameraQuery({
-          state: 'ok',
-          message: 'NO CAMERAS WITHIN 50 KM — this layer is New York City traffic cameras (NYCDOT); move the map to NYC to see them.',
-          fetchedAt: Date.now(),
-        });
-        return;
+      return out;
+    };
+    const fetchCaltrans = async (): Promise<{ rec: CameraRecord; dist: number }[]> => {
+      const box = {
+        minLon: Math.max(-124.5, mapView.lon - 0.6),
+        minLat: Math.max(32.5, mapView.lat - 0.45),
+        maxLon: Math.min(-114.0, mapView.lon + 0.6),
+        maxLat: Math.min(42.0, mapView.lat + 0.45),
+      };
+      const res = await fetch('/api/mti6', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cameras.california', payload: box }),
+      });
+      const env = (await res.json().catch(() => null)) as
+        | { ok?: boolean; data?: unknown; error?: { code?: string } }
+        | null;
+      if (!env || !env.ok) throw new Error(env?.error?.code ?? 'UPSTREAM_ERROR');
+      const data = env.data as { cameras?: unknown[] } | null;
+      const out: { rec: CameraRecord; dist: number }[] = [];
+      if (data && Array.isArray(data.cameras)) {
+        for (const raw of data.cameras) {
+          if (!raw || typeof raw !== 'object') continue;
+          const c = raw as Record<string, unknown>;
+          const lat = typeof c.lat === 'number' ? c.lat : null;
+          const lon = typeof c.lon === 'number' ? c.lon : null;
+          const id = typeof c.id === 'number' ? c.id : null;
+          const name = typeof c.name === 'string' ? c.name : null;
+          const imageUrl = typeof c.imageUrl === 'string' ? c.imageUrl : null;
+          if (lat === null || lon === null || id === null || !name || !imageUrl) continue;
+          const dist = haversineM(mapView.lat, mapView.lon, lat, lon);
+          if (dist > CAMERA_MAX_DIST_M) continue;
+          const route = typeof c.route === 'string' ? c.route : null;
+          const county = typeof c.county === 'string' ? c.county : null;
+          const nearby = typeof c.nearbyPlace === 'string' ? c.nearbyPlace : null;
+          out.push({
+            rec: {
+              id: `cam-ca-${id}`,
+              label: name,
+              lat,
+              lon,
+              area: county,
+              imageUrl,
+              source: 'CALTRANS',
+              detail: [route, county, nearby].filter((x) => x !== null).join(' · ') || null,
+            },
+            dist,
+          });
+        }
       }
+      return out;
+    };
+    const results = await Promise.allSettled(
+      covering.map((s) => (s.id === 'nycdot' ? fetchNycdot() : fetchCaltrans())),
+    );
+    const perSource: string[] = [];
+    const near: { rec: CameraRecord; dist: number }[] = [];
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled') {
+        perSource.push(`${covering[i].label}: ${r.value.length}`);
+        near.push(...r.value);
+      } else {
+        perSource.push(`${covering[i].label}: FAILED (${r.reason instanceof Error ? r.reason.message : 'UPSTREAM_ERROR'})`);
+      }
+    });
+    near.sort((a, b) => a.dist - b.dist);
+    const kept = near.slice(0, MAX_CAMERA_MARKERS);
+    setCameraMarkers(kept.map((k) => ({ id: k.rec.id, lat: k.rec.lat, lon: k.rec.lon, label: k.rec.label, color: '#00B7FF' })));
+    const records: Record<string, CameraRecord> = {};
+    for (const k of kept) records[k.rec.id] = k.rec;
+    setCameraRecords(records);
+    if (kept.length === 0) {
       setCameraQuery({
         state: 'ok',
-        message: `LIVE · ${kept.length} CAMERAS WITHIN 50 KM OF THE CENTRE`,
+        message: `NO CAMERAS WITHIN 50 KM — ${perSource.join(' · ')}. COVERAGE SO FAR: NEW YORK CITY + CALIFORNIA.`,
         fetchedAt: Date.now(),
       });
-    } catch {
-      setCameraQuery({ state: 'error', message: 'QUERY FAILED (NETWORK) — no cameras are shown.', fetchedAt: null });
-      setCameraMarkers([]);
-      setCameraRecords({});
+      return;
     }
+    setCameraQuery({
+      state: 'ok',
+      message: `LIVE · ${kept.length} CAMERAS WITHIN 50 KM OF THE CENTRE — ${perSource.join(' · ')}`,
+      fetchedAt: Date.now(),
+    });
   };
 
   // v233 — live earthquake layer: the USGS past-day feed,
@@ -1158,6 +1272,218 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
       setQuakeMarkers([]);
       setQuakeRecords({});
     }
+  };
+
+  // v234 — disasters: GDACS (global, via the gateway) + NWS
+  // severe alerts (US, direct at the map centre point).
+  // GDACS events are current + recent — each pin carries its
+  // dates, current ones first. NWS alerts are placed at the
+  // centre of their warning area (the warning covers a region;
+  // the pin is its centre, never the whole region).
+  const MAX_DISASTER_MARKERS = 40;
+  const SEVERE_NWS_EVENTS = new Set([
+    'Tornado Warning',
+    'Tornado Watch',
+    'Severe Thunderstorm Warning',
+    'Severe Thunderstorm Watch',
+    'Hurricane Warning',
+    'Hurricane Watch',
+    'Tropical Storm Warning',
+    'Tropical Storm Watch',
+    'Flash Flood Warning',
+    'Flood Warning',
+    'Extreme Wind Warning',
+    'Blizzard Warning',
+    'Winter Storm Warning',
+    'Ice Storm Warning',
+    'High Wind Warning',
+    'Red Flag Warning',
+    'Dust Storm Warning',
+    'Tsunami Warning',
+    'Tsunami Watch',
+  ]);
+  const queryDisasters = async () => {
+    if (typeof fetch !== 'function') {
+      setDisasterQuery({ state: 'error', message: 'NO FETCH IN THIS ENVIRONMENT.', fetchedAt: null });
+      return;
+    }
+    setDisasterQuery({ state: 'loading', message: 'QUERYING GDACS + NWS…', fetchedAt: null });
+    const fetchGdacs = async (): Promise<DisasterRecord[]> => {
+      const res = await fetch('/api/mti6', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'disasters.gdacs', payload: {} }),
+      });
+      const env = (await res.json().catch(() => null)) as
+        | { ok?: boolean; data?: unknown; error?: { code?: string } }
+        | null;
+      if (!env || !env.ok) throw new Error(env?.error?.code ?? 'UPSTREAM_ERROR');
+      const data = env.data as { events?: unknown[] } | null;
+      const out: (DisasterRecord & { score: number; modified: string })[] = [];
+      if (data && Array.isArray(data.events)) {
+        for (const raw of data.events) {
+          if (!raw || typeof raw !== 'object') continue;
+          const e = raw as Record<string, unknown>;
+          const type = typeof e.type === 'string' ? e.type : null;
+          const id = typeof e.id === 'string' ? e.id : null;
+          const name = typeof e.name === 'string' ? e.name : null;
+          const lat = typeof e.lat === 'number' ? e.lat : null;
+          const lon = typeof e.lon === 'number' ? e.lon : null;
+          if (!type || !id || !name || lat === null || lon === null) continue;
+          const alertlevel = typeof e.alertlevel === 'string' ? e.alertlevel : null;
+          out.push({
+            id: `dis-${id}`,
+            label: `${type} — ${name}${alertlevel !== null ? ` (${alertlevel})` : ''}`,
+            type,
+            name,
+            country: typeof e.country === 'string' ? e.country : null,
+            alertlevel,
+            iscurrent: e.iscurrent === true,
+            fromdate: typeof e.fromdate === 'string' ? e.fromdate : null,
+            todate: typeof e.todate === 'string' ? e.todate : null,
+            severitytext: typeof e.severitytext === 'string' ? e.severitytext : null,
+            headline: null,
+            lat,
+            lon,
+            reportUrl: typeof e.reportUrl === 'string' ? e.reportUrl : null,
+            source: 'GDACS',
+            score: typeof e.alertscore === 'number' ? e.alertscore : 0,
+            modified: typeof e.todate === 'string' ? e.todate : '',
+          });
+        }
+      }
+      out.sort((a, b) => {
+        if (a.iscurrent !== b.iscurrent) return a.iscurrent ? -1 : 1;
+        if (b.score !== a.score) return b.score - a.score;
+        return b.modified.localeCompare(a.modified);
+      });
+      return out.map(({ score: _s, modified: _m, ...rec }) => rec);
+    };
+    const fetchNws = async (): Promise<{ recs: DisasterRecord[]; skipped: number }> => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      let res: Response;
+      try {
+        res = await fetch(
+          `https://api.weather.gov/alerts/active?status=actual&message_type=alert&point=${mapView.lat.toFixed(4)},${mapView.lon.toFixed(4)}`,
+          { signal: controller.signal },
+        );
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as {
+        features?: {
+          id?: string;
+          properties?: { event?: unknown; headline?: unknown; areaDesc?: unknown; expires?: unknown };
+          geometry?: { type?: string; coordinates?: unknown } | null;
+        }[];
+      };
+      const recs: DisasterRecord[] = [];
+      let skipped = 0;
+      let n = 0;
+      if (data && Array.isArray(data.features)) {
+        for (const f of data.features) {
+          const event = typeof f?.properties?.event === 'string' ? f.properties.event : null;
+          if (!event || !SEVERE_NWS_EVENTS.has(event)) continue;
+          const geom = f?.geometry ?? null;
+          let lon: number | null = null;
+          let lat: number | null = null;
+          if (geom && geom.type === 'Polygon' && Array.isArray(geom.coordinates) && Array.isArray(geom.coordinates[0]) && geom.coordinates[0].length > 0) {
+            const ring = geom.coordinates[0] as unknown[];
+            let sx = 0;
+            let sy = 0;
+            let cnt = 0;
+            for (const pt of ring) {
+              if (Array.isArray(pt) && typeof pt[0] === 'number' && typeof pt[1] === 'number') {
+                sx += pt[0];
+                sy += pt[1];
+                cnt += 1;
+              }
+            }
+            if (cnt > 0) {
+              lon = sx / cnt;
+              lat = sy / cnt;
+            }
+          } else if (geom && geom.type === 'MultiPolygon' && Array.isArray(geom.coordinates) && Array.isArray(geom.coordinates[0]) && Array.isArray(geom.coordinates[0][0]) && geom.coordinates[0][0].length > 0) {
+            const ring = geom.coordinates[0][0] as unknown[];
+            let sx = 0;
+            let sy = 0;
+            let cnt = 0;
+            for (const pt of ring) {
+              if (Array.isArray(pt) && typeof pt[0] === 'number' && typeof pt[1] === 'number') {
+                sx += pt[0];
+                sy += pt[1];
+                cnt += 1;
+              }
+            }
+            if (cnt > 0) {
+              lon = sx / cnt;
+              lat = sy / cnt;
+            }
+          }
+          if (lat === null || lon === null) {
+            skipped += 1;
+            continue;
+          }
+          n += 1;
+          const headline = typeof f?.properties?.headline === 'string' ? f.properties.headline : null;
+          const areaDesc = typeof f?.properties?.areaDesc === 'string' ? f.properties.areaDesc : null;
+          recs.push({
+            id: `dis-nws-${n}`,
+            label: `${event.toUpperCase()} — ${areaDesc ?? 'AT THE CENTRE'}`,
+            type: event,
+            name: headline ?? event,
+            country: 'United States',
+            alertlevel: null,
+            iscurrent: true,
+            fromdate: null,
+            todate: typeof f?.properties?.expires === 'string' ? f.properties.expires : null,
+            severitytext: null,
+            headline,
+            lat,
+            lon,
+            reportUrl: null,
+            source: 'NWS',
+          });
+        }
+      }
+      return { recs, skipped };
+    };
+    const results = await Promise.allSettled([fetchGdacs(), fetchNws()]);
+    const gdacs = results[0].status === 'fulfilled' ? results[0].value : null;
+    const nws = results[1].status === 'fulfilled' ? results[1].value : null;
+    if (gdacs === null && nws === null) {
+      setDisasterQuery({
+        state: 'error',
+        message: 'GDACS QUERY FAILED · NWS QUERY FAILED — no disasters are shown.',
+        fetchedAt: null,
+      });
+      setDisasterMarkers([]);
+      setDisasterRecords({});
+      return;
+    }
+    const all = [...(gdacs ?? []), ...(nws?.recs ?? [])];
+    const kept = all.slice(0, MAX_DISASTER_MARKERS);
+    setDisasterMarkers(kept.map((d) => ({ id: d.id, lat: d.lat, lon: d.lon, label: d.label, color: '#FFB020' })));
+    const records: Record<string, DisasterRecord> = {};
+    for (const d of kept) records[d.id] = d;
+    setDisasterRecords(records);
+    const typeCounts: Record<string, number> = {};
+    for (const d of gdacs ?? []) typeCounts[d.type] = (typeCounts[d.type] ?? 0) + 1;
+    const gdacsPart =
+      gdacs === null
+        ? 'GDACS FAILED'
+        : `GDACS ${gdacs.length} EVENTS (${['TC', 'VO', 'FL', 'WF', 'EQ', 'DR'].map((t) => `${t} ${typeCounts[t] ?? 0}`).join(' · ')})`;
+    const nwsPart =
+      nws === null
+        ? 'NWS FAILED'
+        : `NWS AT CENTRE: ${nws.recs.length} SEVERE ALERT${nws.recs.length === 1 ? '' : 'S'}${nws.skipped > 0 ? ` · ${nws.skipped} WITHOUT A MAPPABLE AREA NOT PLACED` : ''}`;
+    setDisasterQuery({
+      state: 'ok',
+      message: `LIVE · ${gdacsPart} · ${nwsPart}`,
+      fetchedAt: Date.now(),
+    });
   };
 
   const queryTransitStops = async () => {
@@ -1562,6 +1888,30 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 </button>
               ))}
             </span>
+            {/* v234 — disasters: hurricanes, volcanoes, tornadoes
+                and everything else (GDACS global + NWS severe
+                alerts at the centre). Off by default. */}
+            <span className="flex items-center gap-1">
+              <span className="text-[#B8B8B8]">DISASTERS</span>
+              {([true, false] as const).map((d) => (
+                <button
+                  key={String(d)}
+                  type="button"
+                  onClick={() => {
+                    setViewSel({ disasters: d });
+                    if (d) queryDisasters();
+                  }}
+                  aria-pressed={viewSel.disasters === d}
+                  className={`h-9 px-2.5 rounded border transition ${
+                    viewSel.disasters === d
+                      ? 'border-[#00B7FF] bg-[#00B7FF]/15 text-white'
+                      : 'border-white/15 text-[#B8B8B8] hover:border-white/40'
+                  }`}
+                >
+                  {d ? 'ON' : 'OFF'}
+                </button>
+              ))}
+            </span>
             {/* v228 — Time travel + cinematic (vision slice 5).
                 TIME opens the TIME TRAVEL card; CINEMATIC runs the
                 slow-drift camera and smooth fly-to. Both off by
@@ -1649,7 +1999,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               floorMode={floorMode}
               defaultMarkerColor={routeColor}
               markerPulse={markerPulse}
-              markers={[...(transitOn ? transitStops : []), ...(viewSel.places ? poiMarkers : []), ...(viewSel.flights ? flightMarkers : []), ...(viewSel.cameras ? cameraMarkers : []), ...(viewSel.quakes ? quakeMarkers : []), ...(placeMarker ? [placeMarker] : []), ...(tappedPoint ? [tappedPoint] : [])]}
+              markers={[...(transitOn ? transitStops : []), ...(viewSel.places ? poiMarkers : []), ...(viewSel.flights ? flightMarkers : []), ...(viewSel.cameras ? cameraMarkers : []), ...(viewSel.quakes ? quakeMarkers : []), ...(viewSel.disasters ? disasterMarkers : []), ...(placeMarker ? [placeMarker] : []), ...(tappedPoint ? [tappedPoint] : [])]}
               focusPoint={mapFocus}
               links={focusLinks}
               ringMarkerId={focusPoint?.id}
@@ -1668,6 +2018,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   setSelectedFlight(null);
                   setSelectedCamera(null);
                   setSelectedQuake(null);
+                  setSelectedDisaster(null);
                   return;
                 }
                 if (m.id.startsWith('poi-')) {
@@ -1676,6 +2027,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   setSelectedFlight(null);
                   setSelectedCamera(null);
                   setSelectedQuake(null);
+                  setSelectedDisaster(null);
                   setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                   setDeparturesDay('TODAY');
                   return;
@@ -1686,6 +2038,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   setSelectedFlight(flightRecords[m.id] ?? null);
                   setSelectedCamera(null);
                   setSelectedQuake(null);
+                  setSelectedDisaster(null);
                   setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                   setDeparturesDay('TODAY');
                   return;
@@ -1696,6 +2049,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   setSelectedFlight(null);
                   setSelectedCamera(cameraRecords[m.id] ?? null);
                   setSelectedQuake(null);
+                  setSelectedDisaster(null);
                   setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                   setDeparturesDay('TODAY');
                   return;
@@ -1706,6 +2060,18 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   setSelectedFlight(null);
                   setSelectedCamera(null);
                   setSelectedQuake(quakeRecords[m.id] ?? null);
+                  setSelectedDisaster(null);
+                  setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
+                  setDeparturesDay('TODAY');
+                  return;
+                }
+                if (m.id.startsWith('dis-')) {
+                  setSelectedStop(null);
+                  setSelectedPoi(null);
+                  setSelectedFlight(null);
+                  setSelectedCamera(null);
+                  setSelectedQuake(null);
+                  setSelectedDisaster(disasterRecords[m.id] ?? null);
                   setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                   setDeparturesDay('TODAY');
                   return;
@@ -1715,6 +2081,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 setSelectedFlight(null);
                 setSelectedCamera(null);
                 setSelectedQuake(null);
+                setSelectedDisaster(null);
                 setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                 setDeparturesDay('TODAY');
               }}
@@ -1867,8 +2234,9 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                     {cameraQuery.state === 'loading' ? 'QUERYING…' : 'QUERY CAMERAS NEAR CENTRE'}
                   </button>
                   <div className="mt-1">
-                    NYC ONLY — NEW YORK CITY TRAFFIC CAMERAS. SNAPSHOTS, NOT VIDEO. WINDY WEBCAMS NEED A
-                    FREE API KEY AND ARE NOT WIRED.
+                    COVERAGE SO FAR: NEW YORK CITY + CALIFORNIA. SNAPSHOTS, NOT VIDEO. 511NY NEEDS A FREE
+                    DEVELOPER KEY AND IS NOT WIRED; WINDY WEBCAMS NEED A FREE API KEY AND ARE NOT WIRED.
+                    MORE STATES FOLLOW THE SAME PATTERN.
                   </div>
                 </div>
               )}
@@ -1896,11 +2264,42 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   </button>
                 </div>
               )}
+              {/* v234 — disasters: hurricanes, volcanoes, tornadoes
+                  and everything else. GDACS is global (current +
+                  recent events, each pin carries its dates); NWS
+                  is US severe alerts at the map centre point.
+                  Amber markers are warnings, never MTI6 alerts. */}
+              {viewSel.disasters && (
+                <div className="pointer-events-auto self-start rounded border border-[#00B7FF]/50 bg-[#0b0b0b]/90 px-2.5 py-2 font-mono text-[11px] text-[#B8B8B8] 2xl:self-stretch">
+                  <span className="font-semibold text-[#00B7FF]">DISASTERS — LIVE QUERY.</span>{' '}
+                  {disasterQuery.message}
+                  {disasterQuery.fetchedAt !== null && (
+                    <>
+                      {' '}
+                      SOURCES: GDACS + NWS · FETCHED{' '}
+                      {new Date(disasterQuery.fetchedAt).toLocaleTimeString('en-US', { hour12: false })}
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={queryDisasters}
+                    disabled={disasterQuery.state === 'loading'}
+                    className="ml-2 font-semibold text-white underline decoration-[#00B7FF] underline-offset-2 disabled:opacity-50"
+                  >
+                    {disasterQuery.state === 'loading' ? 'QUERYING…' : 'QUERY DISASTERS'}
+                  </button>
+                  <div className="mt-1">
+                    GDACS = WORLD EVENTS, CURRENT + RECENT (DATES ON EACH PIN) — HURRICANES, VOLCANOES,
+                    FLOODS, WILDFIRES, EARTHQUAKES, DROUGHTS. NWS = SEVERE ALERTS AT THE MAP CENTRE —
+                    TORNADOES, HURRICANES, SEVERE STORMS. AMBER MEANS WARNING, NOT AN MTI6 ALERT.
+                  </div>
+                </div>
+              )}
               {/* v228 — Time travel (archive-backed): a simulated
                   UTC time moves the day/night terminator (NOAA solar
                   position — the same math, a different clock) and
                   reads the app's own fetch archive as of that time.
-                  Live layers (transit, flights, weather, places, cameras, quakes)
+                  Live layers (transit, flights, weather, places, cameras, quakes, disasters)
                   have no history — they keep showing the present
                   and say so. */}
               {viewSel.timeTravel && (
@@ -2182,7 +2581,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   : 'OFF — turn on CINEMATIC in MAP VIEW'}
               </div>
               <div>
-                MARKERS PLACED: {(transitOn ? transitStops.length : 0) + (viewSel.places ? poiMarkers.length : 0) + (viewSel.flights ? flightMarkers.length : 0) + (viewSel.cameras ? cameraMarkers.length : 0) + (viewSel.quakes ? quakeMarkers.length : 0) + (placeMarker ? 1 : 0)}
+                MARKERS PLACED: {(transitOn ? transitStops.length : 0) + (viewSel.places ? poiMarkers.length : 0) + (viewSel.flights ? flightMarkers.length : 0) + (viewSel.cameras ? cameraMarkers.length : 0) + (viewSel.quakes ? quakeMarkers.length : 0) + (viewSel.disasters ? disasterMarkers.length : 0) + (placeMarker ? 1 : 0)}
                 {transitOn && transitStops.length > 0
                   ? ' — Transitland stops (sourced locations)'
                   : ' — no verified locations'}
@@ -2379,9 +2778,10 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   <div className="font-mono text-[10px] text-white">CAMERA — SNAPSHOT</div>
                   <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
                     <span className="text-white">{selectedCamera.label}</span>
-                    {selectedCamera.area !== null && (
+                    {' '}· SOURCE: <span className="text-white">{selectedCamera.source}</span>
+                    {selectedCamera.detail !== null && (
                       <>
-                        {' '}· AREA: <span className="text-white">{selectedCamera.area}</span>
+                        {' '}· <span className="text-white">{selectedCamera.detail}</span>
                       </>
                     )}
                   </p>
@@ -2429,6 +2829,70 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                       </>
                     )}
                   </p>
+                </div>
+              )}
+              {selectedDisaster && (
+                <div>
+                  <div className="font-mono text-[10px] text-white">DISASTER — SNAPSHOT</div>
+                  <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    TYPE: <span className="text-white">{selectedDisaster.type}</span>
+                    {' '}· NAME: <span className="text-white">{selectedDisaster.name}</span>
+                    {selectedDisaster.alertlevel !== null && (
+                      <>
+                        {' '}· LEVEL: <span className="text-white">{selectedDisaster.alertlevel}</span>
+                      </>
+                    )}
+                    {selectedDisaster.country !== null && (
+                      <>
+                        {' '}· WHERE: <span className="text-white">{selectedDisaster.country}</span>
+                      </>
+                    )}
+                  </p>
+                  <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    SOURCE: <span className="text-white">{selectedDisaster.source}</span>
+                    {selectedDisaster.source === 'GDACS' && (
+                      <>
+                        {' '}· {selectedDisaster.iscurrent ? 'CURRENT' : 'RECENT'}
+                        {selectedDisaster.fromdate !== null && (
+                          <>
+                            {' '}· FROM: <span className="text-white">{selectedDisaster.fromdate.slice(0, 10)}</span>
+                          </>
+                        )}
+                        {selectedDisaster.todate !== null && (
+                          <>
+                            {' '}· TO: <span className="text-white">{selectedDisaster.todate.slice(0, 10)}</span>
+                          </>
+                        )}
+                      </>
+                    )}
+                    {selectedDisaster.source === 'NWS' && (
+                      <>
+                        {' '}· PIN IS THE CENTRE OF THE WARNING AREA — THE WARNING COVERS A REGION
+                        {selectedDisaster.todate !== null && (
+                          <>
+                            {' '}· EXPIRES: <span className="text-white">{new Date(selectedDisaster.todate).toLocaleString('en-US', { hour12: false })}</span>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </p>
+                  {selectedDisaster.severitytext !== null && (
+                    <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                      <span className="text-white">{selectedDisaster.severitytext}</span>
+                    </p>
+                  )}
+                  {selectedDisaster.headline !== null && (
+                    <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                      <span className="text-white">{selectedDisaster.headline}</span>
+                    </p>
+                  )}
+                  {selectedDisaster.reportUrl !== null && (
+                    <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                      <a href={selectedDisaster.reportUrl} target="_blank" rel="noreferrer" className="font-semibold text-white underline decoration-[#00B7FF] underline-offset-2">
+                        GDACS EVENT REPORT
+                      </a>
+                    </p>
+                  )}
                 </div>
               )}
               <div>

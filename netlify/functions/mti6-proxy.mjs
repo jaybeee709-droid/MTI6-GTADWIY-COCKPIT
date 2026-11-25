@@ -74,6 +74,28 @@
 // ISS position API (api.open-notify.org) was probed twice and
 // is unreachable from this host (fetch failed both times);
 // Windy webcams need a free API key and are not wired.
+//
+// DISASTERS + CALIFORNIA CAMERAS (added 2026-11-25, v234 —
+// the owner's "every state city and country cameras too" and
+// "hurricanes, volcano, tornados, everything"): two more
+// narrowly scoped actions. disasters.gdacs reads the GDACS
+// global disaster list (keyless; sends no CORS header, so the
+// proxy is the only route) and normalizes it to { id, type,
+// name, country, alertlevel, alertscore, iscurrent, fromdate,
+// todate, severitytext, lat, lon, reportUrl } — tropical
+// cyclones, volcanoes, floods, wildfires, earthquakes and
+// droughts, current and recent (each pin carries its dates).
+// NWS severe alerts (tornadoes, hurricanes, severe storms)
+// are fetched DIRECTLY by the browser — api.weather.gov sends
+// ACAO * — at the map centre point, and stay out of the proxy.
+// cameras.california reads the Caltrans CCTV ArcGIS
+// FeatureServer (keyless public data; sends no CORS header)
+// with a validated bounding box, and returns in-service
+// cameras with a snapshot image URL only. 511NY needs a free
+// developer key (request form, weekly review) and is NOT
+// wired; the German Autobahn webcam API answers 200 but
+// returns zero webcams on every road probed (A1/A3/A7/A9),
+// so it is NOT wired either.
 
 const MAX_BODY_BYTES = 65536;
 const STAR_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
@@ -86,6 +108,11 @@ const TRANSITLAND_REST_BASE = "https://transit.land/api/v2/rest";
 const ADSB_LOL_BASE = "https://api.adsb.lol/v2";
 const NYCDOT_CAMERAS_URL = "https://webcams.nyctmc.org/api/cameras";
 const MAX_CAMERAS = 400;
+const GDACS_EVENTS_URL = "https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH";
+const MAX_DISASTERS = 100;
+const CALTRANS_CCTV_BASE = "https://caltrans-gis.dot.ca.gov/arcgis/rest/services/CHhighway/CCTV/FeatureServer/0/query";
+const MAX_CALTRANS_CAMERAS = 200;
+const MAX_BBOX_SPAN_DEG = 12;
 const MAX_FLIGHT_DIST_NM = 100;
 const MAX_FLIGHTS = 40;
 const UPSTREAM_TIMEOUT_MS = 10000;
@@ -788,6 +815,181 @@ async function handleCamerasNyc(payload) {
   return envelope(true, "nycdot", { cameras }, null, 200);
 }
 
+// ------------------------------------------------------------------
+// Disasters: disasters.gdacs (GDACS global disaster list) —
+// same discipline: validate first, normalize everything that
+// comes back, static error strings, never echo the upstream
+// body. The action takes no parameters: the client filters by
+// type and distance.
+// ------------------------------------------------------------------
+
+function disastersFail(code, message, status) {
+  return envelope(false, "gdacs", null, { code, message }, status);
+}
+
+const GDACS_TYPES = new Set(["DR", "TC", "EQ", "VO", "FL", "WF"]);
+
+async function handleDisastersGdacs(payload) {
+  if (!isPlainObject(payload)) {
+    return disastersFail("INVALID_REQUEST", "disasters.gdacs payload must be an object.", 400);
+  }
+  const bad = unknownKey(payload, new Set([]));
+  if (bad) {
+    return disastersFail("INVALID_REQUEST", "Unknown parameter \"" + bad + "\" for disasters.gdacs.", 400);
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(GDACS_EVENTS_URL, {
+      signal: controller.signal,
+      headers: { Accept: "application/json" }
+    });
+  } catch {
+    return disastersFail("UPSTREAM_ERROR", "GDACS could not be reached.", 502);
+  } finally {
+    clearTimeout(timer);
+  }
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  if (!res.ok || data === null || typeof data !== "object" || !Array.isArray(data.features)) {
+    return disastersFail("UPSTREAM_ERROR", "GDACS returned an unexpected error.", 502);
+  }
+  const events = [];
+  for (const f of data.features) {
+    if (!f || typeof f !== "object") continue;
+    const p = f.properties && typeof f.properties === "object" ? f.properties : null;
+    const coords = f.geometry && Array.isArray(f.geometry.coordinates) ? f.geometry.coordinates : null;
+    if (!p || !coords) continue;
+    const type = typeof p.eventtype === "string" ? p.eventtype : null;
+    const eventid = typeof p.eventid === "number" ? p.eventid : null;
+    const lon = typeof coords[0] === "number" && Number.isFinite(coords[0]) ? coords[0] : null;
+    const lat = typeof coords[1] === "number" && Number.isFinite(coords[1]) ? coords[1] : null;
+    if (!type || !GDACS_TYPES.has(type) || eventid === null || lat === null || lon === null) continue;
+    const sev = p.severitydata && typeof p.severitydata === "object" ? p.severitydata : null;
+    const url = p.url && typeof p.url === "object" ? p.url : null;
+    events.push({
+      id: type + "-" + eventid,
+      type,
+      name: typeof p.name === "string" && p.name.length > 0 ? p.name : (typeof p.eventname === "string" ? p.eventname : "UNNAMED"),
+      country: typeof p.country === "string" && p.country.length > 0 ? p.country : null,
+      alertlevel: typeof p.alertlevel === "string" && p.alertlevel.length > 0 ? p.alertlevel : null,
+      alertscore: typeof p.alertscore === "number" && Number.isFinite(p.alertscore) ? p.alertscore : null,
+      iscurrent: p.iscurrent === true || p.iscurrent === "true",
+      fromdate: typeof p.fromdate === "string" ? p.fromdate : null,
+      todate: typeof p.todate === "string" ? p.todate : null,
+      severitytext: sev && typeof sev.severitytext === "string" ? sev.severitytext : null,
+      lat,
+      lon,
+      reportUrl: url && typeof url.report === "string" && url.report.length > 0 ? url.report : null
+    });
+    if (events.length >= MAX_DISASTERS) break;
+  }
+  return envelope(true, "gdacs", { events }, null, 200);
+}
+
+// ------------------------------------------------------------------
+// California cameras: cameras.california (Caltrans CCTV ArcGIS
+// FeatureServer) — same discipline: validate the bounding box
+// first (no upstream call for bad input), normalize everything
+// that comes back, static error strings, never echo the
+// upstream body. Only in-service cameras with a snapshot image
+// URL are returned.
+// ------------------------------------------------------------------
+
+function caltransFail(code, message, status) {
+  return envelope(false, "caltrans", null, { code, message }, status);
+}
+
+function validateCaltransBbox(payload) {
+  if (!isPlainObject(payload)) {
+    return { error: caltransFail("INVALID_REQUEST", "cameras.california payload must be an object.", 400) };
+  }
+  const bad = unknownKey(payload, new Set(["minLon", "minLat", "maxLon", "maxLat"]));
+  if (bad) {
+    return { error: caltransFail("INVALID_REQUEST", "Unknown parameter \"" + bad + "\" for cameras.california.", 400) };
+  }
+  const nums = ["minLon", "minLat", "maxLon", "maxLat"].map((k) => payload[k]);
+  if (nums.some((v) => !isFiniteNumber(v))) {
+    return { error: caltransFail("INVALID_REQUEST", "minLon, minLat, maxLon and maxLat must all be numbers.", 400) };
+  }
+  const [minLon, minLat, maxLon, maxLat] = nums;
+  if (minLon < -180 || maxLon > 180 || minLat < -90 || maxLat > 90 || minLon >= maxLon || minLat >= maxLat) {
+    return { error: caltransFail("INVALID_REQUEST", "The bounding box must be a valid lon/lat range.", 400) };
+  }
+  if (maxLon - minLon > MAX_BBOX_SPAN_DEG || maxLat - minLat > MAX_BBOX_SPAN_DEG) {
+    return { error: caltransFail("INVALID_REQUEST", "The bounding box span must be at most 12 degrees per side.", 400) };
+  }
+  return { minLon, minLat, maxLon, maxLat };
+}
+
+async function handleCamerasCalifornia(payload) {
+  const validated = validateCaltransBbox(payload);
+  if (validated.error) return validated.error;
+  const params = new URLSearchParams({
+    where: "1=1",
+    outFields: "OBJECTID,locationName,nearbyPlace,longitude,latitude,inService,currentImageURL,county,route",
+    f: "json",
+    returnGeometry: "false",
+    resultRecordCount: String(MAX_CALTRANS_CAMERAS),
+    geometry: validated.minLon + "," + validated.minLat + "," + validated.maxLon + "," + validated.maxLat,
+    geometryType: "esriGeometryEnvelope",
+    spatialRel: "esriSpatialRelIntersects",
+    inSR: "4326"
+  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(CALTRANS_CCTV_BASE + "?" + params.toString(), {
+      signal: controller.signal,
+      headers: { Accept: "application/json" }
+    });
+  } catch {
+    return caltransFail("UPSTREAM_ERROR", "Caltrans could not be reached.", 502);
+  } finally {
+    clearTimeout(timer);
+  }
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  if (!res.ok || data === null || typeof data !== "object" || !Array.isArray(data.features)) {
+    return caltransFail("UPSTREAM_ERROR", "Caltrans returned an unexpected error.", 502);
+  }
+  const cameras = [];
+  for (const f of data.features) {
+    if (!f || typeof f !== "object") continue;
+    const a = f.attributes && typeof f.attributes === "object" ? f.attributes : null;
+    if (!a) continue;
+    const id = typeof a.OBJECTID === "number" ? a.OBJECTID : null;
+    const name = typeof a.locationName === "string" && a.locationName.length > 0 ? a.locationName : null;
+    const lat = typeof a.latitude === "number" && Number.isFinite(a.latitude) ? a.latitude : null;
+    const lon = typeof a.longitude === "number" && Number.isFinite(a.longitude) ? a.longitude : null;
+    const imageUrl = typeof a.currentImageURL === "string" && a.currentImageURL.length > 0 ? a.currentImageURL : null;
+    const inService = a.inService === true || a.inService === "True";
+    if (id === null || !name || lat === null || lon === null || !imageUrl || !inService) continue;
+    cameras.push({
+      id,
+      name,
+      lat,
+      lon,
+      nearbyPlace: typeof a.nearbyPlace === "string" && a.nearbyPlace.length > 0 ? a.nearbyPlace : null,
+      county: typeof a.county === "string" && a.county.length > 0 ? a.county : null,
+      route: typeof a.route === "string" && a.route.length > 0 ? a.route : null,
+      imageUrl
+    });
+    if (cameras.length >= MAX_CALTRANS_CAMERAS) break;
+  }
+  return envelope(true, "caltrans", { cameras }, null, 200);
+}
+
 export default async (req) => {
   if (req.method !== "POST") {
     return fail("METHOD_NOT_ALLOWED", "POST required.", 405);
@@ -825,8 +1027,8 @@ export default async (req) => {
     case "gateway.status": {
       const star = readStarConfig();
       return envelope(true, "gateway", {
-        providers: ["transitland", "star", "coingecko", "geoapify", "locationiq", "adsb.lol", "nycdot"],
-        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures", "star.chat", "market.prices", "geo.geocode", "flights.nearby", "cameras.nyc"],
+        providers: ["transitland", "star", "coingecko", "geoapify", "locationiq", "adsb.lol", "nycdot", "gdacs", "caltrans"],
+        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures", "star.chat", "market.prices", "geo.geocode", "flights.nearby", "cameras.nyc", "disasters.gdacs", "cameras.california"],
         providersConfigured: {
           transitland: readTransitlandKey() !== null,
           star: star.configured,
@@ -834,7 +1036,9 @@ export default async (req) => {
           geoapify: readPipelineKeys().geoapify !== null,
           locationiq: readPipelineKeys().locationiq !== null,
           adsb: true,
-          nycdot: true
+          nycdot: true,
+          gdacs: true,
+          caltrans: true
         },
         star: { configured: star.configured, model: star.configured ? star.model : null },
         note: "Providers sit behind the proxy as Capability Router providers; configured means the server's Netlify variable exists (presence only, never a value). CoinGecko also answers keyless at public limits. STAR chat is available when star.configured is true; otherwise STAR remains in demo mode."
@@ -866,6 +1070,14 @@ export default async (req) => {
     case "cameras.nyc": {
       const payload = body.payload === undefined ? {} : body.payload;
       return handleCamerasNyc(payload);
+    }
+    case "disasters.gdacs": {
+      const payload = body.payload === undefined ? {} : body.payload;
+      return handleDisastersGdacs(payload);
+    }
+    case "cameras.california": {
+      const payload = body.payload === undefined ? {} : body.payload;
+      return handleCamerasCalifornia(payload);
     }
     default:
       return fail("UNSUPPORTED_ACTION", "That MTI6 action is not enabled.", 400);
