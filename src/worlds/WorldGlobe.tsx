@@ -11,7 +11,8 @@ import {
 import type { ViewMode, WorldId } from '../App';
 import { useCockpitDb } from '../hooks/useCockpitDb';
 import { MTI6_LAYER } from '../tokens';
-import { EARNINGS_LOCATION_RULES } from '../world-data';
+import { EARNINGS_LOCATION_RULES, type MapBaseStyle } from '../world-data';
+import type { MapTerrainMode } from './WorldMapEngine';
 import { fmtTime, useProvenanceLog } from '../live-data';
 import {
   WorldMapEngine,
@@ -135,6 +136,52 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   const [activeLayers, setActiveLayers] = useState<LayerId[]>(['base']);
   const [focusedLayer, setFocusedLayer] = useState<LayerId>('base');
   const [sphereOpen, setSphereOpen] = useState<boolean>(false);
+  // v222 — map-view selector (Daniel: "zoom all the way in like
+  // Google Maps to real world view"). BASE switches the tile source
+  // (Streets / Satellite / Floor), TERRAIN adds the AWS hillshade
+  // overlay, LENS focuses the map on one intelligence dimension
+  // (Coverage = every layer's data state at once). Persisted —
+  // the choice survives reloads.
+  type MapLens = 'world' | 'crypto' | 'earnings' | 'security' | 'transit' | 'coverage';
+  const MAP_VIEW_SEL_KEY = 'mti6_map_view_v1';
+  const readViewSel = (): { base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens } => {
+    try {
+      const raw = localStorage.getItem(MAP_VIEW_SEL_KEY);
+      if (!raw) return { base: 'streets', terrain: 'off', lens: 'world' };
+      const parsed = JSON.parse(raw) as Partial<{ base: string; terrain: string; lens: string }>;
+      return {
+        base: parsed.base === 'satellite' || parsed.base === 'floor' ? (parsed.base as MapBaseStyle) : 'streets',
+        terrain: parsed.terrain === 'hillshade' ? 'hillshade' : 'off',
+        lens: ['world', 'crypto', 'earnings', 'security', 'transit', 'coverage'].includes(parsed.lens ?? '')
+          ? (parsed.lens as MapLens)
+          : 'world',
+      };
+    } catch {
+      return { base: 'streets', terrain: 'off', lens: 'world' };
+    }
+  };
+  const [viewSel, setViewSelState] = useState(readViewSel);
+  const setViewSel = (next: Partial<{ base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens }>) => {
+    setViewSelState((prev) => {
+      const merged = { ...prev, ...next };
+      try {
+        localStorage.setItem(MAP_VIEW_SEL_KEY, JSON.stringify(merged));
+      } catch {
+        // Persistence is a nicety — the selection still applies.
+      }
+      return merged;
+    });
+  };
+  const applyLens = (lens: MapLens) => {
+    setViewSel({ lens });
+    if (lens === 'world' || lens === 'coverage') {
+      setFocusedLayer('base');
+      return;
+    }
+    const id = lens as LayerId;
+    if (!activeLayers.includes(id)) setActiveLayers([...activeLayers, id]);
+    setFocusedLayer(id);
+  };
   const provenance = useProvenanceLog();
   // Live transit (A2): stops fetched through the /api/mti6 proxy
   // (Transitland) for the map centre, on the owner's explicit query —
@@ -422,6 +469,10 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     tileZoom: 0,
     tilesLoaded: 0,
     tilesFailed: 0,
+    overZoom: false,
+    nativeTileZoom: 19,
+    terrain: 'OFF',
+    shadeTiles: 0,
   });
   const lastLevelRef = useRef<string>('World');
 
@@ -456,11 +507,13 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   const cryptoOn = activeLayers.includes('crypto');
   const transitOn = activeLayers.includes('transit');
   const baseLabel =
-    engineStatus.base === 'RASTER'
-      ? 'OSM RASTER'
-      : engineStatus.base === 'FLOOR'
-        ? 'VECTOR FLOOR'
-        : 'ENGINE UNAVAILABLE';
+    engineStatus.base === 'ENGINE_UNAVAILABLE'
+      ? 'ENGINE UNAVAILABLE'
+      : viewSel.base === 'satellite'
+        ? 'ESRI SATELLITE'
+        : viewSel.base === 'floor'
+          ? 'VECTOR FLOOR'
+          : 'OSM RASTER';
 
   return (
     <div className="min-h-screen bg-[#050505] text-white p-4 md:p-6 space-y-5" style={SPACE_BG}>
@@ -540,8 +593,89 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
             <span className="px-2 py-0.5 rounded border border-[#00B7FF]/40 bg-[#00B7FF]/10 text-[#00B7FF]">CockpitDB: {cockpitDb.status} ({cockpitDb.storeCount} stores)</span>
           </div>
 
+          {/* v222 — MAP VIEW selector: base style, terrain hillshade,
+              lens. 44px targets; the lens focuses the map on one
+              intelligence dimension, Coverage shows every layer's
+              data state at once. */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2 border-b border-white/10 bg-[#0b0b0b] text-[11px] font-mono">
+            <span className="font-semibold text-white">MAP VIEW</span>
+            <span className="flex items-center gap-1">
+              <span className="text-[#B8B8B8]">BASE</span>
+              {(['streets', 'satellite', 'floor'] as const).map((b) => (
+                <button
+                  key={b}
+                  type="button"
+                  onClick={() => setViewSel({ base: b })}
+                  aria-pressed={viewSel.base === b}
+                  className={`h-9 px-2.5 rounded border transition ${
+                    viewSel.base === b
+                      ? 'border-[#00B7FF] bg-[#00B7FF]/15 text-white'
+                      : 'border-white/15 text-[#B8B8B8] hover:border-white/40'
+                  }`}
+                >
+                  {b === 'streets' ? 'STREETS' : b === 'satellite' ? 'SATELLITE' : 'FLOOR'}
+                </button>
+              ))}
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="text-[#B8B8B8]">TERRAIN</span>
+              {(['off', 'hillshade'] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setViewSel({ terrain: t })}
+                  aria-pressed={viewSel.terrain === t}
+                  className={`h-9 px-2.5 rounded border transition ${
+                    viewSel.terrain === t
+                      ? 'border-[#00B7FF] bg-[#00B7FF]/15 text-white'
+                      : 'border-white/15 text-[#B8B8B8] hover:border-white/40'
+                  }`}
+                >
+                  {t === 'off' ? 'OFF' : 'HILLSHADE'}
+                </button>
+              ))}
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="text-[#B8B8B8]">LENS</span>
+              {(['world', 'crypto', 'earnings', 'security', 'transit', 'coverage'] as const).map((l) => (
+                <button
+                  key={l}
+                  type="button"
+                  onClick={() => applyLens(l)}
+                  aria-pressed={viewSel.lens === l}
+                  className={`h-9 px-2.5 rounded border transition ${
+                    viewSel.lens === l
+                      ? 'border-[#00B7FF] bg-[#00B7FF]/15 text-white'
+                      : 'border-white/15 text-[#B8B8B8] hover:border-white/40'
+                  }`}
+                >
+                  {l.toUpperCase()}
+                </button>
+              ))}
+            </span>
+            <span className="text-[#B8B8B8]">ZOOM TO z21 · DRAG · SCROLL · PINCH · DOUBLE-CLICK</span>
+          </div>
+          {viewSel.lens === 'coverage' && (
+            <div className="flex flex-wrap gap-2 px-4 py-2 border-b border-white/10 bg-[#0b0b0b] text-[11px] font-mono">
+              {LAYERS.map((l) => (
+                <span
+                  key={l.id}
+                  title={l.statusText}
+                  className="px-2 py-1 rounded border border-white/15 bg-[#101010] text-[#B8B8B8]"
+                >
+                  <span className="text-white">{l.label}</span>
+                  {': '}
+                  {activeLayers.includes(l.id) ? 'ON' : 'OFF'}
+                </span>
+              ))}
+              <span className="px-2 py-1 text-[#B8B8B8]">Data Coverage: NO DATA / PARTIAL — hover a layer for its status</span>
+            </div>
+          )}
+
           <div className="relative w-full h-[58dvh] min-h-[340px] md:aspect-[2/1] md:h-auto xl:aspect-none xl:flex-1 xl:min-h-[460px] bg-[#050505]">
             <WorldMapEngine
+              baseStyle={viewSel.base}
+              terrain={viewSel.terrain}
               markers={[...(transitOn ? transitStops : []), ...(placeMarker ? [placeMarker] : [])]}
               focusPoint={mapFocus}
               onViewChange={handleViewChange}
@@ -787,8 +921,22 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
             <div className="text-xs text-[#B8B8B8] space-y-1 font-mono">
               <div>CENTRE: {fmtLon(mapView.lon)} · {fmtLat(mapView.lat)}</div>
               <div>LEVEL: {mapView.level} · z{mapView.zoom.toFixed(1)}</div>
-              <div>TILES: {engineStatus.tilesLoaded} loaded · {engineStatus.tilesFailed} failed (floor beneath)</div>
-              <div>TERRAIN: CANDIDATE — hillshade not rendered</div>
+              <div>
+                TILES: {engineStatus.tilesLoaded} loaded · {engineStatus.tilesFailed} failed (floor beneath)
+                {engineStatus.overZoom
+                  ? ` · OVER-ZOOM ×${Math.pow(2, Math.max(0, Math.round(mapView.zoom) - engineStatus.nativeTileZoom))} (native z${engineStatus.nativeTileZoom})`
+                  : ''}
+              </div>
+              <div>
+                TERRAIN:{' '}
+                {engineStatus.terrain === 'HILLSHADE'
+                  ? `HILLSHADE — AWS Terrain Tiles · ${engineStatus.shadeTiles} shade tiles (native z15)`
+                  : engineStatus.terrain === 'LOADING'
+                    ? 'LOADING — AWS Terrain Tiles…'
+                    : engineStatus.terrain === 'FAILED'
+                      ? 'FAILED — hillshade tiles did not load (base still shows)'
+                      : 'OFF — turn on HILLSHADE in MAP VIEW'}
+              </div>
               <div>
                 MARKERS PLACED: {(transitOn ? transitStops.length : 0) + (placeMarker ? 1 : 0)}
                 {transitOn && transitStops.length > 0

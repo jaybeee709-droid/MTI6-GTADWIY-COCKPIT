@@ -134,8 +134,8 @@ export const TERRAIN_CHAIN: ChainEntry[] = [
     id: 'aws-terrain-tiles',
     label: 'AWS Terrain Tiles (terrarium)',
     costClass: 'FREE_WITH_LIMITS',
-    state: 'CANDIDATE',
-    note: 'Elevation candidate. Registered only — hillshade is not rendered until the provider-adapter package wires it with the governor.',
+    state: 'IN_CHAIN',
+    note: 'Elevation wired in v222 — terrarium tiles, fetch-on-settle, viewport-only, CORS-clean (ACAO *), native z15 (over-zoomed past z15). Hillshade renders between the floor and the raster as a transparent overlay; flat ground stays transparent.',
   },
 ];
 
@@ -190,11 +190,44 @@ export interface BaseMapResolution {
   maxTileZoom: number;
 }
 
+export type MapBaseStyle = 'streets' | 'satellite' | 'floor';
+
 export const WorldData = {
   /** Base imagery capability. Keyless chain head: OSM raster over the
    *  vendored vector floor. The engine falls back to the floor when a
    *  tile fails — the fallback is a render state, not an error. */
   baseMap(_lat: number, _lon: number, _zoom: number): BaseMapResolution {
+    return WorldData.baseMapStyle('streets');
+  },
+
+  /** Base style resolution (v222 — the map-view selector). Streets is
+   *  the OSM raster; Satellite is Esri World Imagery (keyless with
+   *  attribution, CORS-clean, native to z19); Floor is the vendored
+   *  vector floor with no tiles at all. Both raster sources serve to
+   *  z19 — past that the engine over-zooms the native tiles and says
+   *  so in the Map Position panel. */
+  baseMapStyle(style: MapBaseStyle): BaseMapResolution {
+    if (style === 'satellite') {
+      return {
+        kind: 'raster',
+        sourceId: 'esri-world-imagery',
+        sourceLabel: 'Esri World Imagery (satellite)',
+        tileUrlTemplate:
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        attribution: 'Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+        maxTileZoom: 19,
+      };
+    }
+    if (style === 'floor') {
+      return {
+        kind: 'raster',
+        sourceId: 'natural-earth-floor',
+        sourceLabel: 'Natural Earth vector floor (no tiles)',
+        tileUrlTemplate: '',
+        attribution: 'Natural Earth (public domain)',
+        maxTileZoom: 0,
+      };
+    }
     return {
       kind: 'raster',
       sourceId: 'osm-raster',
@@ -214,14 +247,15 @@ export const WorldData = {
     };
   },
 
-  /** Terrain capability — honest candidate state, not rendered yet. */
+  /** Terrain capability — wired in v222: hillshade renders from
+   *  the AWS terrarium tiles (see WorldMapEngine syncShade). */
   terrain(
     _lat: number,
     _lon: number,
     _zoom: number,
-  ): { status: 'CANDIDATE'; sourceLabel: string; note: string } {
+  ): { status: 'IN_CHAIN'; sourceLabel: string; note: string } {
     return {
-      status: 'CANDIDATE',
+      status: 'IN_CHAIN',
       sourceLabel: TERRAIN_CHAIN[0].label,
       note: TERRAIN_CHAIN[0].note,
     };

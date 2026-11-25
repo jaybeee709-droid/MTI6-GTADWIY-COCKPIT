@@ -189,6 +189,38 @@ try {
     `${navLabels.length} nav buttons${missingNav.length ? `; missing: ${missingNav.join(', ')}` : ''}`,
   );
 
+  // v222 — MAP VIEW selector on the World Globe (base style,
+  // terrain hillshade, lens row) + the Map Position panel's live
+  // TERRAIN line. The default route is the World Map, so these are
+  // in the DOM on first paint.
+  const globeText = main().textContent;
+  check('map-view selector present', globeText.includes('MAP VIEW'), 'MAP VIEW bar in main');
+  check(
+    'base style buttons present',
+    ['STREETS', 'SATELLITE', 'FLOOR'].every((t) => globeText.includes(t)),
+    'STREETS / SATELLITE / FLOOR',
+  );
+  check(
+    'terrain toggle present',
+    globeText.includes('HILLSHADE'),
+    'TERRAIN OFF / HILLSHADE',
+  );
+  check(
+    'lens row present',
+    ['LENS', 'COVERAGE'].every((t) => globeText.includes(t)),
+    'LENS WORLD / CRYPTO / EARNINGS / SECURITY / TRANSIT / COVERAGE',
+  );
+  check(
+    'map position terrain line reads OFF by default',
+    globeText.includes('TERRAIN: OFF'),
+    'TERRAIN: OFF — turn on HILLSHADE in MAP VIEW',
+  );
+  check(
+    'deep-zoom hint present',
+    globeText.includes('ZOOM TO z21'),
+    'ZOOM TO z21 · DRAG · SCROLL · PINCH · DOUBLE-CLICK',
+  );
+
   // STAR orb present.
   const starOrb = document.querySelector('button[aria-label="STAR Orb"]');
   check('STAR orb button present', !!starOrb, starOrb ? 'aria-label="STAR Orb"' : 'not found');

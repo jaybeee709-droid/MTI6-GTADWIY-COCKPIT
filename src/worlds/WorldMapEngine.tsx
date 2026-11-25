@@ -8,6 +8,7 @@ import {
   getWorldGeo,
   projectLat,
   unprojectLat,
+  type MapBaseStyle,
 } from '../world-data';
 
 /* Flat world map engine (Phase 2, step 3 — owner directive 2026-11-23).
@@ -52,7 +53,17 @@ export interface MapEngineStatus {
   tileZoom: number;
   tilesLoaded: number;
   tilesFailed: number;
+  // v222 — deep zoom + terrain honesty: overZoom is true when the
+  // view zoom is past the tile source's native max (the native tiles
+  // are scaled up and the panel says so); terrain reports the
+  // hillshade layer's own state.
+  overZoom: boolean;
+  nativeTileZoom: number;
+  terrain: 'OFF' | 'HILLSHADE' | 'LOADING' | 'FAILED';
+  shadeTiles: number;
 }
+
+export type MapTerrainMode = 'off' | 'hillshade';
 
 interface WorldMapEngineProps {
   markers?: MapMarker[];
@@ -63,6 +74,9 @@ interface WorldMapEngineProps {
   // the point at City zoom (D5: z10–12). Points only ever come
   // from a real provider result — never from a guess.
   focusPoint?: { lon: number; lat: number; nonce: number } | null;
+  // v222 — map-view selector: base style and terrain hillshade.
+  baseStyle?: MapBaseStyle;
+  terrain?: MapTerrainMode;
 }
 
 interface ViewState {
@@ -83,7 +97,12 @@ function halfExtents(view: ViewState, w: number, h: number) {
 }
 
 function clampView(view: ViewState, w: number, h: number): ViewState {
-  const zoom = Math.max(0, Math.min(20, view.zoom));
+  // v222 — deep zoom: the cap is 21 (Google Maps street level).
+  // Tile sources serve natively to z19 (terrain to z15); past that
+  // the native tiles are scaled up and the panel labels it
+  // OVER-ZOOM. The named Location level (D5, maxZoom 20) still
+  // reads 'Location' at 21 — zoomLevelFor falls through to it.
+  const zoom = Math.max(0, Math.min(21, view.zoom));
   const { halfW, halfH } = halfExtents({ ...view, zoom }, w, h);
   const cx = halfW >= 180 ? 0 : Math.max(-(180 - halfW), Math.min(180 - halfW, view.cx));
   const cy = halfH >= 180 ? 0 : Math.max(-(180 - halfH), Math.min(180 - halfH, view.cy));
@@ -160,6 +179,97 @@ function buildFloorCanvas(): HTMLCanvasElement | null {
   return canvas;
 }
 
+/* ---- terrain hillshade (v222) ----
+ * AWS Terrain Tiles serve terrarium PNGs: elevation (metres) is
+ * encoded per pixel as (R*256 + G + B/256) - 32768. The bucket
+ * returns Access-Control-Allow-Origin: * (verified 2026-11-25),
+ * so the browser can read the pixels. A standard 315°/45° hillshade
+ * is computed from the elevation grid; flat ground (slope ~ 0)
+ * renders fully transparent, lit slopes faint white, shadowed
+ * slopes dark — the shade is an overlay, never a replacement for
+ * the base. Native terrarium zoom is z15; past that the z15 tile
+ * is reused at the larger mesh size (over-zoom, labelled). */
+const TERRAIN_TILE_URL =
+  'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+const TERRAIN_MAX_ZOOM = 15;
+
+function decodeTerrariumToHillshade(img: HTMLImageElement, cellSizeM: number): HTMLCanvasElement | null {
+  const S = 256;
+  const src = document.createElement('canvas');
+  src.width = S;
+  src.height = S;
+  const sctx = src.getContext('2d');
+  if (!sctx) return null;
+  sctx.drawImage(img, 0, 0);
+  let data: Uint8ClampedArray;
+  try {
+    data = sctx.getImageData(0, 0, S, S).data;
+  } catch {
+    return null; // tainted canvas — the tile is unusable, not an error
+  }
+  // Elevation grid, one value per pixel.
+  const elev = new Float32Array(S * S);
+  for (let i = 0; i < S * S; i += 1) {
+    const r = data[i * 4];
+    const g = data[i * 4 + 1];
+    const b = data[i * 4 + 2];
+    elev[i] = r * 256 + g + b / 256 - 32768;
+  }
+  const out = document.createElement('canvas');
+  out.width = S;
+  out.height = S;
+  const octx = out.getContext('2d');
+  if (!octx) return null;
+  const imgData = octx.createImageData(S, S);
+  const od = imgData.data;
+  // Hillshade: sun azimuth 315°, altitude 45°. cellSizeM is the
+  // ground metres per pixel at this tile zoom (passed in by the
+  // caller) — the shade needs relative relief, not survey precision.
+  const az = (315 * Math.PI) / 180;
+  const alt = (45 * Math.PI) / 180;
+  const cosAlt = Math.cos(alt);
+  const sinAlt = Math.sin(alt);
+  for (let y = 0; y < S; y += 1) {
+    for (let x = 0; x < S; x += 1) {
+      const i = y * S + x;
+      const xl = elev[y * S + Math.max(0, x - 1)];
+      const xr = elev[y * S + Math.min(S - 1, x + 1)];
+      const yt = elev[Math.max(0, y - 1) * S + x];
+      const yb = elev[Math.min(S - 1, y + 1) * S + x];
+      const dzdx = (xr - xl) / (2 * cellSizeM);
+      const dzdy = (yb - yt) / (2 * cellSizeM);
+      const slope = Math.atan(Math.hypot(dzdx, dzdy));
+      const aspect = Math.atan2(dzdy, -dzdx);
+      const shade =
+        sinAlt * Math.cos(slope) + cosAlt * Math.sin(slope) * Math.cos(az - aspect);
+      const s01 = Math.max(0, Math.min(1, (shade + 1) / 2));
+      const o = i * 4;
+      if (s01 > 0.5) {
+        // Lit slope: faint white, stronger the steeper the light.
+        od[o] = 255;
+        od[o + 1] = 255;
+        od[o + 2] = 255;
+        od[o + 3] = Math.round((s01 - 0.5) * 2 * 46);
+      } else if (s01 < 0.5) {
+        // Shadowed slope: dark, stronger the deeper the shadow.
+        od[o] = 0;
+        od[o + 1] = 0;
+        od[o + 2] = 0;
+        od[o + 3] = Math.round((0.5 - s01) * 2 * 140);
+      } else {
+        od[o + 3] = 0; // flat — fully transparent
+      }
+    }
+  }
+  octx.putImageData(imgData, 0, 0);
+  return out;
+}
+
+interface ShadeEntry {
+  mesh: THREE.Mesh;
+  loaded: boolean;
+}
+
 interface TileEntry {
   mesh: THREE.Mesh;
   loaded: boolean;
@@ -171,12 +281,28 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
   onStatusChange,
   onMarkerSelect,
   focusPoint = null,
+  baseStyle = 'streets',
+  terrain = 'off',
 }) => {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const glRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [view, setView] = useState<ViewState>(INITIAL_VIEW);
   const [engineDown, setEngineDown] = useState(false);
+
+  // v222 — hillshade tile cache (parallel to the raster cache).
+  const shadeRef = useRef<Map<string, ShadeEntry>>(new Map());
+  const shadeLoadingRef = useRef<Set<string>>(new Set());
+  const shadeFailedRef = useRef<Set<string>>(new Set());
+  const terrainStateRef = useRef<MapEngineStatus['terrain']>('OFF');
+  // v222 — tile source changes (streets <-> satellite <-> floor) must
+  // clear the raster cache: tile keys are z/x/y and would otherwise
+  // show the old source's tiles under the new one.
+  const lastBaseStyleRef = useRef<MapBaseStyle>(baseStyle);
+  const baseStyleRef = useRef(baseStyle);
+  baseStyleRef.current = baseStyle;
+  const terrainRef = useRef(terrain);
+  terrainRef.current = terrain;
 
   // Geocode focus: a new nonce recentres on the provider-returned
   // point at City zoom. Guarded for jsdom (no layout) like the
@@ -197,6 +323,7 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     scene: THREE.Scene;
     camera: THREE.OrthographicCamera;
     tileGroup: THREE.Group;
+    shadeGroup: THREE.Group;
   } | null>(null);
   const tilesRef = useRef<Map<string, TileEntry>>(new Map());
   const loadingRef = useRef<Set<string>>(new Set());
@@ -206,6 +333,10 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     tileZoom: 0,
     tilesLoaded: 0,
     tilesFailed: 0,
+    overZoom: false,
+    nativeTileZoom: 19,
+    terrain: 'OFF',
+    shadeTiles: 0,
   });
 
   const applyView = (next: ViewState) => {
@@ -261,7 +392,12 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
 
     const tileGroup = new THREE.Group();
     scene.add(tileGroup);
-    threeRef.current = { renderer, scene, camera, tileGroup };
+    // v222 — hillshade group sits between the floor (z=0) and the
+    // raster tiles (z=1): the shade darkens relief without hiding
+    // either layer beneath or above it.
+    const shadeGroup = new THREE.Group();
+    scene.add(shadeGroup);
+    threeRef.current = { renderer, scene, camera, tileGroup, shadeGroup };
 
     let raf = 0;
     const loop = () => {
@@ -295,6 +431,12 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
         (entry.mesh.material as THREE.Material).dispose();
       });
       tilesRef.current.clear();
+      shadeRef.current.forEach((entry) => {
+        entry.mesh.geometry.dispose();
+        (entry.mesh.material as THREE.MeshBasicMaterial).map?.dispose();
+        (entry.mesh.material as THREE.Material).dispose();
+      });
+      shadeRef.current.clear();
       floorMat.map?.dispose();
       floorMat.dispose();
       floor.geometry.dispose();
@@ -353,24 +495,63 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
   /* ---- tiles: fetch on SETTLE, viewport only ---- */
   useEffect(() => {
     if (engineDown) return;
-    const t = setTimeout(() => syncTiles(), SETTLE_MS);
+    const t = setTimeout(() => {
+      syncTiles();
+      syncShade();
+    }, SETTLE_MS);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, size, engineDown]);
+  }, [view, size, engineDown, baseStyle, terrain]);
 
-  const reportStatus = (tileZoom: number) => {
+  const reportStatus = (tileZoom: number, nativeTileZoom: number) => {
     let loaded = 0;
     tilesRef.current.forEach((e) => {
       if (e.loaded) loaded += 1;
+    });
+    let shadeLoaded = 0;
+    shadeRef.current.forEach((e) => {
+      if (e.loaded) shadeLoaded += 1;
     });
     const next: MapEngineStatus = {
       base: loaded > 0 ? 'RASTER' : 'FLOOR',
       tileZoom,
       tilesLoaded: loaded,
       tilesFailed: failedRef.current.size,
+      overZoom: Math.round(viewRef.current.zoom) > nativeTileZoom,
+      nativeTileZoom,
+      terrain: terrainStateRef.current,
+      shadeTiles: shadeLoaded,
     };
     statusRef.current = next;
     onStatusChange?.(next);
+  };
+
+  /** Remove every raster tile mesh (source change or floor mode). */
+  const clearTiles = () => {
+    const three = threeRef.current;
+    if (!three) return;
+    tilesRef.current.forEach((entry) => {
+      three.tileGroup.remove(entry.mesh);
+      entry.mesh.geometry.dispose();
+      (entry.mesh.material as THREE.MeshBasicMaterial).map?.dispose();
+      (entry.mesh.material as THREE.Material).dispose();
+    });
+    tilesRef.current.clear();
+    loadingRef.current.clear();
+  };
+
+  /** Remove every hillshade mesh (terrain off, or a view reset). */
+  const clearShade = () => {
+    const three = threeRef.current;
+    if (!three) return;
+    shadeRef.current.forEach((entry) => {
+      three.shadeGroup.remove(entry.mesh);
+      entry.mesh.geometry.dispose();
+      (entry.mesh.material as THREE.MeshBasicMaterial).map?.dispose();
+      (entry.mesh.material as THREE.Material).dispose();
+    });
+    shadeRef.current.clear();
+    shadeLoadingRef.current.clear();
   };
 
   const syncTiles = () => {
@@ -379,7 +560,22 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     const v = viewRef.current;
     const { w, h } = sizeRef.current;
     if (w === 0 || h === 0) return;
-    const base = WorldData.baseMap(unprojectLat(v.cy), v.cx, v.zoom);
+    const style = baseStyleRef.current;
+    // A source change invalidates the whole raster cache (same
+    // z/x/y keys, different imagery) — clear before syncing.
+    if (lastBaseStyleRef.current !== style) {
+      lastBaseStyleRef.current = style;
+      clearTiles();
+    }
+    const base = WorldData.baseMapStyle(style);
+    // Floor mode: no tiles at all — the vector floor is the map.
+    if (style === 'floor' || !base.tileUrlTemplate) {
+      clearTiles();
+      three.tileGroup.visible = false;
+      reportStatus(0, 0);
+      return;
+    }
+    three.tileGroup.visible = true;
     const tz = Math.max(0, Math.min(base.maxTileZoom, Math.round(v.zoom)));
     const n = Math.pow(2, tz);
     const tileSize = WORLD / n;
@@ -420,7 +616,7 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
             mat.needsUpdate = true;
             entry.loaded = true;
             mesh.visible = true;
-            reportStatus(tz);
+            reportStatus(tz, base.maxTileZoom);
           },
           undefined,
           () => {
@@ -432,7 +628,7 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
             mesh.geometry.dispose();
             mat.dispose();
             tilesRef.current.delete(key);
-            reportStatus(tz);
+            reportStatus(tz, base.maxTileZoom);
           },
         );
       }
@@ -450,7 +646,103 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
         tilesRef.current.delete(key);
       });
     }
-    reportStatus(tz);
+    reportStatus(tz, base.maxTileZoom);
+  };
+
+  /* ---- terrain hillshade: fetch on SETTLE, viewport only ---- */
+  const syncShade = () => {
+    const three = threeRef.current;
+    if (!three) return;
+    if (terrainRef.current !== 'hillshade') {
+      if (shadeRef.current.size > 0) clearShade();
+      if (terrainStateRef.current !== 'OFF') {
+        terrainStateRef.current = 'OFF';
+        reportStatus(Math.round(viewRef.current.zoom), 19);
+      }
+      return;
+    }
+    const v = viewRef.current;
+    const { w, h } = sizeRef.current;
+    if (w === 0 || h === 0) return;
+    // Terrarium serves natively to z15; past that the z15 tile is
+    // reused at the larger mesh size (over-zoom, labelled).
+    const tz = Math.max(0, Math.min(TERRAIN_MAX_ZOOM, Math.round(v.zoom)));
+    const n = Math.pow(2, tz);
+    const tileSize = WORLD / n;
+    const { halfW, halfH } = halfExtents(v, w, h);
+    const txMin = Math.max(0, Math.floor((v.cx - halfW + 180) / tileSize));
+    const txMax = Math.min(n - 1, Math.floor((v.cx + halfW + 180) / tileSize));
+    const tyMin = Math.max(0, Math.floor((180 - (v.cy + halfH)) / tileSize));
+    const tyMax = Math.min(n - 1, Math.floor((180 - (v.cy - halfH)) / tileSize));
+    // Ground metres per pixel at this tile zoom (equator figure;
+    // latitude-corrected per tile row below via the centre lat).
+    const latRad = (unprojectLat(v.cy) * Math.PI) / 180;
+    const cellSizeM = (40075016 * Math.cos(latRad)) / Math.pow(2, tz + 8);
+    const needed = new Set<string>();
+    for (let tx = txMin; tx <= txMax; tx += 1) {
+      for (let ty = tyMin; ty <= tyMax; ty += 1) {
+        const key = `shade/${tz}/${tx}/${ty}`;
+        needed.add(key);
+        if (shadeRef.current.has(key) || shadeLoadingRef.current.has(key)) continue;
+        shadeLoadingRef.current.add(key);
+        const url = TERRAIN_TILE_URL.replace('{z}', String(tz)).replace('{x}', String(tx)).replace('{y}', String(ty));
+        const mat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false });
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(tileSize, tileSize), mat);
+        mesh.position.set(-180 + (tx + 0.5) * tileSize, 180 - (ty + 0.5) * tileSize, 0.5);
+        mesh.visible = false;
+        three.shadeGroup.add(mesh);
+        const entry: ShadeEntry = { mesh, loaded: false };
+        shadeRef.current.set(key, entry);
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          shadeLoadingRef.current.delete(key);
+          const shadeCanvas = decodeTerrariumToHillshade(img, cellSizeM);
+          if (!shadeCanvas) {
+            shadeFailedRef.current.add(key);
+            three.shadeGroup.remove(mesh);
+            mesh.geometry.dispose();
+            mat.dispose();
+            shadeRef.current.delete(key);
+            terrainStateRef.current = 'FAILED';
+            reportStatus(Math.round(viewRef.current.zoom), 19);
+            return;
+          }
+          const tex = new THREE.CanvasTexture(shadeCanvas);
+          tex.colorSpace = THREE.SRGBColorSpace;
+          mat.map = tex;
+          mat.needsUpdate = true;
+          entry.loaded = true;
+          mesh.visible = true;
+          terrainStateRef.current = 'HILLSHADE';
+          reportStatus(Math.round(viewRef.current.zoom), 19);
+        };
+        img.onerror = () => {
+          shadeLoadingRef.current.delete(key);
+          shadeFailedRef.current.add(key);
+          three.shadeGroup.remove(mesh);
+          mesh.geometry.dispose();
+          mat.dispose();
+          shadeRef.current.delete(key);
+          terrainStateRef.current = 'FAILED';
+          reportStatus(Math.round(viewRef.current.zoom), 19);
+        };
+        if (terrainStateRef.current === 'OFF') terrainStateRef.current = 'LOADING';
+        img.src = url;
+      }
+    }
+    if (shadeRef.current.size > TILE_CACHE_MAX) {
+      shadeRef.current.forEach((entry, key) => {
+        if (shadeRef.current.size <= TILE_CACHE_MAX) return;
+        if (needed.has(key)) return;
+        three.shadeGroup.remove(entry.mesh);
+        entry.mesh.geometry.dispose();
+        (entry.mesh.material as THREE.MeshBasicMaterial).map?.dispose();
+        (entry.mesh.material as THREE.Material).dispose();
+        shadeRef.current.delete(key);
+      });
+    }
+    reportStatus(Math.round(viewRef.current.zoom), 19);
   };
 
   /* ---- gestures: drag pan, wheel zoom-to-cursor, pinch, dblclick ---- */
@@ -474,7 +766,7 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
       const { w, h } = sizeRef.current;
       if (w === 0 || h === 0) return;
       const { wx, wy } = worldAt(px, py);
-      const clampedZoom = Math.max(0, Math.min(20, nextZoom));
+      const clampedZoom = Math.max(0, Math.min(21, nextZoom));
       const { halfW, halfH } = halfExtents({ ...v, zoom: clampedZoom }, w, h);
       applyView({
         cx: wx - (px / w - 0.5) * 2 * halfW,
@@ -546,7 +838,7 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
 
   const { halfW, halfH } = halfExtents(view, size.w, size.h);
   const level = zoomLevelFor(view.zoom);
-  const attribution = WorldData.baseMap(0, 0, view.zoom).attribution;
+  const attribution = WorldData.baseMapStyle(baseStyle).attribution;
 
   return (
     <div
