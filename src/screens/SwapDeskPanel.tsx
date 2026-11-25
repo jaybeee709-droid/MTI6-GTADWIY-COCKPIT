@@ -7,17 +7,24 @@
  * gate + fresh quote + the venue's own interface). Fetch
  * discipline matches the app: quotes and balances load on
  * button press only, through the governed live-data chains,
- * and every figure carries its provenance. */
+ * and every figure carries its provenance. F2 (v247): a radar
+ * strip prepares a swap from a Money Radar candidate
+ * (prepareFromCandidate in src/swap-desk.ts) — same ladder,
+ * same approval, same handoff gate. */
 import React, { useState } from 'react';
 import {
   SWAPPABLE_TOKENS,
   SWAP_DESK_LAW,
   DESK_CAPITAL_BOUNDARY_USD,
+  CANDIDATE_DEFAULT_AMOUNT_USD,
+  CANDIDATE_FROM_SYMBOL,
   loadWatchWallet,
   saveWatchWallet,
   clearWatchWallet,
   loadPreparedSwaps,
   prepareSwap,
+  prepareFromCandidate,
+  resolveCandidateAsset,
   approvePreparedSwap,
   handoffSwap,
   quoteFreshness,
@@ -26,6 +33,7 @@ import {
   type PreparedSwap,
   type WatchWallet,
 } from '../swap-desk';
+import { listRadarCandidates, type RadarCandidate } from '../money-radar';
 import {
   fetchSwapQuote,
   fetchAddressBalances,
@@ -65,6 +73,17 @@ export const SwapDeskPanel: React.FC = () => {
   const [quote, setQuote] = useState<Observation<SwapQuote> | null>(null);
   const [quoteBusy, setQuoteBusy] = useState(false);
   const [prepBusy, setPrepBusy] = useState(false);
+  /* F2 (v247) — radar candidates, strongest first. The ranking is
+   * the shared helper the BotOperations TEAM LOOP panel uses
+   * (listRadarCandidates: evidence count descending); the desk
+   * reuses it, it does not re-rank. Selection defaults to the
+   * strongest candidate (candidates[0]). */
+  const [candidates, setCandidates] = useState<RadarCandidate[]>(() => listRadarCandidates());
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
+  const [candidateAmount, setCandidateAmount] = useState(String(CANDIDATE_DEFAULT_AMOUNT_USD));
+  const [candidateBusy, setCandidateBusy] = useState(false);
+  const selectedCandidate = candidates.find((c) => c.id === selectedCandidateId) ?? candidates[0] ?? null;
+  const selectedResolution = selectedCandidate ? resolveCandidateAsset(selectedCandidate) : null;
   const [msg, setMsg] = useState<string | null>(null);
   const [swaps, setSwaps] = useState<PreparedSwap[]>(() => loadPreparedSwaps());
   const [handoffBusy, setHandoffBusy] = useState<string | null>(null);
@@ -167,6 +186,32 @@ export const SwapDeskPanel: React.FC = () => {
   const doApprove = (id: string) => {
     approvePreparedSwap(id);
     setSwaps(loadPreparedSwaps());
+  };
+
+  /* F2 (v247) — prepare a swap from the selected radar candidate.
+   * The prepared swap lands in the same list below with the same
+   * approve → SIGN HANDOFF flow; the desk records no fills. */
+  const doPrepareFromCandidate = async () => {
+    if (!selectedCandidate || candidateBusy) return;
+    const amountUsd = Number(candidateAmount);
+    if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
+      setMsg('Candidate amount must be a positive USD number.');
+      return;
+    }
+    setCandidateBusy(true);
+    try {
+      const r = await prepareFromCandidate(selectedCandidate, { amountUsd });
+      if (!r.ok) {
+        setMsg(r.error);
+        return;
+      }
+      setSwaps(loadPreparedSwaps());
+      setMsg(
+        `Prepared from radar candidate ${selectedCandidate.asset}: ${r.swap.fromAmount} ${r.swap.fromSymbol} → ~${r.swap.toAmount} ${r.swap.toSymbol} on ${r.swap.network} (quote: ${r.swap.quoteSource ?? 'unknown'}, ${r.swap.quoteStatus}). PREPARED only — approve it below, then SIGN HANDOFF takes it to your wallet.`,
+      );
+    } finally {
+      setCandidateBusy(false);
+    }
   };
 
   const doHandoff = async (id: string) => {
@@ -321,6 +366,88 @@ export const SwapDeskPanel: React.FC = () => {
         </div>
       </div>
 
+      {/* From Money Radar — F2 (v247): prepare from a candidate.
+          Strongest first (shared listRadarCandidates ranking).
+          A candidate is an UNVERIFIED radar record, not a
+          recommendation; preparing it runs a Honeypot.is pre-check
+          and the sign handoff runs the gate again. Gap, stated
+          honestly: the shared candidate shape carries no network,
+          so a candidate resolves Base-first by preference, not by
+          its pool's chain — and assets that are not catalogue
+          tokens (SOL, DOGE, new-protocol symbols, LP symbols)
+          refuse instead of preparing. */}
+      <div className="space-y-1.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className={micro}>FROM MONEY RADAR — PREPARE FROM CANDIDATE (F2)</span>
+          <button type="button" className={btn} onClick={() => setCandidates(listRadarCandidates())}>
+            REFRESH CANDIDATES
+          </button>
+        </div>
+        {candidates.length === 0 ? (
+          <p className="text-[11px] text-[#B8B8B8]">
+            No radar candidates yet — run Money Radar first. Candidates are UNVERIFIED records in the opportunity
+            store; preparing one is not a trade.
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="block min-w-0 flex-1">
+                <span className={micro}>CANDIDATE — STRONGEST FIRST (BY EVIDENCE)</span>
+                <select
+                  className={inputCls}
+                  value={selectedCandidate?.id ?? ''}
+                  onChange={(e) => setSelectedCandidateId(e.target.value)}
+                  aria-label="Radar candidate"
+                >
+                  {candidates.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.asset} · {c.boardState} · EVIDENCE {c.evidenceCount} · {c.freshness}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block w-24">
+                <span className={micro}>AMOUNT ({CANDIDATE_FROM_SYMBOL} $)</span>
+                <input
+                  className={inputCls}
+                  value={candidateAmount}
+                  onChange={(e) => setCandidateAmount(e.target.value)}
+                  aria-label="Candidate amount in USDC"
+                />
+              </label>
+              <button
+                type="button"
+                className={btn}
+                onClick={doPrepareFromCandidate}
+                disabled={candidateBusy || !selectedCandidate || (selectedResolution !== null && !selectedResolution.ok)}
+              >
+                {candidateBusy ? 'PREPARING…' : 'PREPARE FROM CANDIDATE'}
+              </button>
+            </div>
+            {selectedCandidate && selectedResolution && (
+              selectedResolution.ok ? (
+                <p className="font-mono text-[11px] text-[#E8EAF0]">
+                  RESOLVES TO {selectedResolution.token.symbol} ON {selectedResolution.network.toUpperCase()} —
+                  CATALOGUED, SWAPPABLE · {CANDIDATE_FROM_SYMBOL} → {selectedResolution.token.symbol} · $
+                  {candidateAmount} (INSIDE THE ${DESK_CAPITAL_BOUNDARY_USD} BOUNDARY)
+                  {selectedResolution.aliasedFrom
+                    ? ` · ${selectedResolution.aliasedFrom} → ${selectedResolution.token.symbol} (WRAPPED FORM)`
+                    : ''}
+                </p>
+              ) : (
+                <p className="text-[11px] leading-relaxed text-[#B8B8B8]">{selectedResolution.reason}</p>
+              )
+            )}
+            <p className="text-[11px] leading-relaxed text-[#B8B8B8]">
+              A candidate is an UNVERIFIED radar record, not a recommendation. Preparing it runs a Honeypot.is
+              pre-check on the token you would receive (a honeypot flag refuses the preparation); the sign handoff
+              runs the gate again with a fresh quote. A prepared swap is not a trade — it still needs your approval
+              and your own signature in your wallet.
+            </p>
+          </>
+        )}
+      </div>
+
       {/* Quote + prepare */}
       <div className="space-y-1.5">
         <div className={micro}>QUOTE + PREPARE ({tokensOn.length} SWAPPABLE TOKENS ON {network.toUpperCase()})</div>
@@ -378,7 +505,7 @@ export const SwapDeskPanel: React.FC = () => {
             <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-white/10 px-2 py-1.5">
               <span className="font-mono text-[11px] text-[#E8EAF0]">
                 {s.fromAmount} {s.fromSymbol} → ~{s.toAmount} {s.toSymbol}
-                <span className="text-[#8A93A3]"> · {s.network.toUpperCase()} · {s.quoteSource ?? '—'} · {s.state}{s.state === 'PREPARED' ? ` · QUOTE ${quoteFreshness(s)}` : ''}</span>
+                <span className="text-[#8A93A3]"> · {s.network.toUpperCase()} · {s.quoteSource ?? '—'} · {s.state}{s.state === 'PREPARED' ? ` · QUOTE ${quoteFreshness(s)}` : ''}{s.candidateAsset ? ` · FROM RADAR ${s.candidateAsset}` : ''}</span>
               </span>
               {s.state === 'PREPARED' && (
                 <button type="button" className={btn} onClick={() => doApprove(s.id)}>

@@ -164,6 +164,11 @@ export interface PreparedSwap {
    * to his own wallet. The desk still signed nothing. */
   handedOffAt?: number | null;
   handoffVenue?: string | null;
+  /** F2 (v247) — radar provenance: the candidate this
+   * preparation came from, when it came from one. Manual
+   * preparations leave these unset. */
+  candidateId?: string | null;
+  candidateAsset?: string | null;
   safety?: {
     checkedAt: number;
     toIsHoneypot: boolean | null;
@@ -231,6 +236,213 @@ export async function prepareSwap(
   };
   savePreparedSwaps([swap, ...loadPreparedSwaps()]);
   return { ok: true, swap, obs };
+}
+
+/* ---------------- F2 (v247): prepare from a radar candidate ---------
+ * The desk consumes Money Radar candidates from the opportunity
+ * store (mti6_opportunities_v1) — the same records the BotOperations
+ * TEAM LOOP panel ranks with listRadarCandidates() (strongest =
+ * most evidence first). A candidate is an UNVERIFIED radar record,
+ * never a recommendation, and preparing from one changes nothing
+ * about the ladder: the swap is born PREPARED, still needs the
+ * owner's own approval tap, and still passes the live Honeypot.is
+ * gate at handoff before any signing link is produced.
+ *
+ * Resolution rules (all refusals are honest, never silent):
+ *   - The candidate must name an asset; a candidate without one
+ *     resolves to nothing.
+ *   - An EXPIRED board state is never prepared.
+ *   - The asset must resolve to a CATALOGUE-VERIFIED swappable
+ *     token (Ethereum + Base, recorded decimals only). Radar
+ *     assets are market symbols, not token symbols, so exactly
+ *     two explicit aliases exist — ETH → WETH and BTC → WBTC,
+ *     the wrapped on-chain forms — and the substitution is shown
+ *     in the desk, never silent. Anything else must match a
+ *     catalogue symbol exactly (case-insensitive). No fuzzy
+ *     matching, no guessing: SOL, DOGE, XRP, new-protocol symbols
+ *     and pool/LP symbols that are not catalogue tokens refuse.
+ *   - Network: an explicit option wins, then the pool chain
+ *     recorded on the raw opportunity record (assetRef.chain),
+ *     then Base (the low-fee leg for the $50 start), then
+ *     Ethereum. Note the reduced RadarCandidate shape carries no
+ *     chain — see the gap note in the panel — so most candidates
+ *     resolve by the Base-first preference, not by pool chain.
+ *   - From leg is USDC (the D6 pilot leg) for the given USD
+ *     amount; default $10, the D6 pilot size, inside the $50
+ *     boundary. The $50 stablecoin boundary is enforced here
+ *     and again inside prepareSwap.
+ *   - Honeypot.is pre-check on the token to receive: only a
+ *     positive honeypot flag refuses the preparation. An
+ *     unreachable check (NO_DATA) is recorded as UNMEASURED and
+ *     does not block preparation — the handoff gate re-runs the
+ *     check with a fresh quote before any link is produced, so a
+ *     token that turns honeypot between prepare and handoff is
+ *     still refused there.
+ * The prepared record carries its radar provenance
+ * (candidateId / candidateAsset) so the chain radar → desk →
+ * handoff stays auditable. A prepared/handed-off swap is NOT a
+ * trade: the desk records no fills. */
+export interface RadarCandidateInput {
+  id: string;
+  title?: string;
+  /** Reduced RadarCandidate shape (listRadarCandidates). */
+  asset?: string;
+  boardState?: string;
+  signalIds?: string[];
+  evidenceCount?: number;
+  freshness?: string;
+  /** Full opportunity-store record shape: the radar object plus
+   * the pool chain hint (assetRef.chain). */
+  radar?: {
+    asset?: string | null;
+    type?: string;
+    boardState?: string;
+    signalIds?: string[];
+    evidenceCount?: number;
+    sourceCount?: number;
+    supportStatus?: string;
+    freshness?: string;
+  } | null;
+  assetRef?: { chain?: string } | null;
+}
+
+export interface PrepareFromCandidateOptions {
+  /** USD amount of the USDC from leg. Default 10 (D6 pilot size). */
+  amountUsd?: number;
+  /** From token symbol. Default 'USDC' (the D6 pilot leg). */
+  fromSymbol?: string;
+  /** Explicit network override; otherwise resolved (see above). */
+  network?: DeskNetwork;
+}
+
+/** Default candidate preparation: $10 of USDC — the D6 pilot size
+ * ($10/trade), inside the $50 D3 capital boundary. */
+export const CANDIDATE_DEFAULT_AMOUNT_USD = 10;
+export const CANDIDATE_FROM_SYMBOL = 'USDC';
+
+/** Radar assets are market symbols, not token symbols: ETH is the
+ * native asset whose swappable on-chain form is WETH; BTC's is
+ * WBTC. The alias is shown in the desk so the substitution is
+ * never silent. */
+const CANDIDATE_ASSET_ALIASES: Record<string, string> = { ETH: 'WETH', BTC: 'WBTC' };
+
+function candidateAssetRaw(candidate: RadarCandidateInput): string {
+  return (candidate.radar?.asset ?? candidate.asset ?? '').trim();
+}
+
+function candidateBoardState(candidate: RadarCandidateInput): string {
+  return (candidate.radar?.boardState ?? candidate.boardState ?? '').trim().toUpperCase();
+}
+
+/** Resolve a radar candidate's asset to a catalogue-verified
+ * swappable token. Pure (no network calls) so the desk UI can
+ * show per-candidate resolvability without preparing anything. */
+export function resolveCandidateAsset(
+  candidate: RadarCandidateInput,
+  preferredNetwork?: DeskNetwork,
+):
+  | { ok: true; token: SwappableToken; network: DeskNetwork; aliasedFrom: string | null }
+  | { ok: false; reason: string } {
+  const rawAsset = candidateAssetRaw(candidate);
+  if (!rawAsset) {
+    return { ok: false, reason: 'This radar candidate names no asset, so there is nothing to resolve it to.' };
+  }
+  if (candidateBoardState(candidate) === 'EXPIRED') {
+    return {
+      ok: false,
+      reason: `Candidate asset ${rawAsset} is EXPIRED on the radar board — stale candidates are never prepared.`,
+    };
+  }
+  const upper = rawAsset.toUpperCase();
+  const symbol = CANDIDATE_ASSET_ALIASES[upper] ?? upper;
+  const aliasedFrom = symbol !== upper ? rawAsset : null;
+  const chainHint =
+    typeof candidate.assetRef?.chain === 'string' ? candidate.assetRef.chain.trim().toLowerCase() : '';
+  const hinted: DeskNetwork | null =
+    chainHint === 'base'
+      ? 'base'
+      : chainHint === 'ethereum' || chainHint === 'ethereum mainnet' || chainHint === 'eth'
+        ? 'ethereum'
+        : null;
+  const order: DeskNetwork[] = [];
+  for (const n of [preferredNetwork, hinted, 'base', 'ethereum'] as (DeskNetwork | null | undefined)[]) {
+    if (n && !order.includes(n)) order.push(n);
+  }
+  for (const network of order) {
+    const token = swappableBySymbol(symbol, network);
+    if (token) return { ok: true, token, network, aliasedFrom };
+  }
+  return {
+    ok: false,
+    reason: `${rawAsset} is a radar candidate but is not a catalogued swappable token on Ethereum or Base — the desk only prepares swaps for catalogue tokens with recorded decimals. No swap was prepared.`,
+  };
+}
+
+/** Prepare a swap from a radar candidate. Returns the same
+ * { ok, swap, obs } shape as prepareSwap; a refusal returns
+ * { ok: false, error, reason } with the reason in both fields
+ * (error matches prepareSwap's contract, reason names it). */
+export async function prepareFromCandidate(
+  candidate: RadarCandidateInput,
+  options: PrepareFromCandidateOptions = {},
+): Promise<
+  | { ok: true; swap: PreparedSwap; obs: Observation<SwapQuote> }
+  | { ok: false; error: string; reason: string }
+> {
+  if (!candidate || typeof candidate.id !== 'string' || !candidate.id) {
+    const reason = 'No radar candidate was passed to prepare — a candidate record with an id is required.';
+    return { ok: false, error: reason, reason };
+  }
+  const amountUsd = options.amountUsd ?? CANDIDATE_DEFAULT_AMOUNT_USD;
+  if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
+    const reason = `Amount $${String(options.amountUsd)} is not a valid positive USD amount for a candidate preparation.`;
+    return { ok: false, error: reason, reason };
+  }
+  const fromSymbol = (options.fromSymbol ?? CANDIDATE_FROM_SYMBOL).trim().toUpperCase();
+  const resolved = resolveCandidateAsset(candidate, options.network);
+  if (!resolved.ok) return { ok: false, error: resolved.reason, reason: resolved.reason };
+  const { token: to, network } = resolved;
+  if (to.symbol === fromSymbol) {
+    const reason = `Candidate asset ${to.symbol} is the from token (${fromSymbol}) — a swap from a token to itself is refused.`;
+    return { ok: false, error: reason, reason };
+  }
+  const from = swappableBySymbol(fromSymbol, network);
+  if (!from) {
+    const reason = `${fromSymbol} is not swappable on ${network}, so the candidate leg ${fromSymbol} → ${to.symbol} cannot be priced there.`;
+    return { ok: false, error: reason, reason };
+  }
+  if (USD_STABLES.has(from.symbol) && amountUsd > DESK_CAPITAL_BOUNDARY_USD) {
+    const reason = `Over the D3 capital boundary: $${amountUsd} ${from.symbol} exceeds the $${DESK_CAPITAL_BOUNDARY_USD} starting capital Daniel set. Lower the amount, or Daniel raises the boundary as his own recorded decision.`;
+    return { ok: false, error: reason, reason };
+  }
+  /* Honeypot.is pre-check on the token to receive (v247): only a
+   * positive honeypot flag refuses. NO_DATA is UNMEASURED, not a
+   * pass — the handoff gate re-runs this check before any link. */
+  const safetyObs = await fetchHoneypotCheck(to.address, network === 'base' ? 8453 : 1);
+  if (safetyObs.value?.isHoneypot === true) {
+    const reason = `SECURITY GATE: Honeypot.is flags ${to.symbol} as a HONEYPOT (you could buy but not sell). Preparation refused — nothing was prepared and nothing was sent anywhere.`;
+    return { ok: false, error: reason, reason };
+  }
+  const r = await prepareSwap(from.symbol, to.symbol, String(amountUsd), network);
+  if (!r.ok) return { ok: false, error: r.error, reason: r.error };
+  /* Tag the record with its radar provenance and the pre-check
+   * outcome, so radar → desk → handoff stays auditable. */
+  const swaps = loadPreparedSwaps();
+  const s = swaps.find((x) => x.id === r.swap.id);
+  if (s) {
+    s.candidateId = candidate.id;
+    s.candidateAsset = candidateAssetRaw(candidate);
+    s.safety = {
+      checkedAt: Date.now(),
+      toIsHoneypot: safetyObs.value ? safetyObs.value.isHoneypot : null,
+      toRisk: safetyObs.value?.risk ?? null,
+      fromSupport: from.support,
+      toSupport: to.support,
+    };
+    savePreparedSwaps(swaps);
+    return { ok: true, swap: s, obs: r.obs };
+  }
+  return { ok: true, swap: r.swap, obs: r.obs };
 }
 
 /** The owner's own act, in his own app: approve one specific

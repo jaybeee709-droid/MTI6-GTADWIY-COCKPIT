@@ -12,6 +12,7 @@ import {
   Layout,
   Lock,
   MapPin,
+  Monitor,
   Palette,
   PieChart,
   Power,
@@ -64,6 +65,7 @@ import {
   type PositionRecord,
 } from '../positions';
 import { RISK_DIMENSIONS } from '../cost-risk-data';
+import { DevicesPanel } from './DevicesPanel';
 import {
   loadSimulations,
   saveSimulations,
@@ -2307,6 +2309,24 @@ export const SettingsWorld: React.FC<{
             </button>
           </div>
         )}
+      </div>
+
+      {/* DEVICES (v247 part 6, owner refinement #5, 2026-11-25): every
+          connected screen/monitor/display, how it is connected, and
+          which panels are cast or pinned to each — with the cast/pin
+          controls surfaced here, so all screens are managed from
+          Settings. The panel itself reports honestly what the
+          Window Management API can and cannot see. */}
+      <div className="rounded-2xl border border-white/10 bg-[#101010] p-5">
+        <div className="mb-1 flex items-center gap-2">
+          <Monitor className="h-4 w-4 text-[#00B7FF]" />
+          <h3 className="text-sm font-semibold uppercase tracking-wider">Devices</h3>
+        </div>
+        <p className="mb-3 text-xs text-[#B8B8B8]">
+          Connected screens, monitors &amp; displays — what is connected, how it is connected, and
+          which panels are cast or pinned to each screen.
+        </p>
+        <DevicesPanel />
       </div>
     </div>
   );
