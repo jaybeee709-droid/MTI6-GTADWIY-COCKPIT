@@ -854,6 +854,35 @@ export interface RadarSummary {
   protocolRadar: { protocol: string; pools: number; watchedTvlUsd: number; signals: number }[];
 }
 
+/* Radar candidates for the D6 dry-run executor (v219): the
+ * opportunity-store records carrying a radar object, newest
+ * evidence first. The executor evaluates these and only these
+ * — a candidate is a record with provenance, never a trade. */
+export interface RadarCandidate {
+  id: string;
+  asset: string;
+  boardState: string;
+  signalIds: string[];
+  evidenceCount: number;
+  freshness: string;
+}
+
+export function listRadarCandidates(): RadarCandidate[] {
+  const opps = loadOpps();
+  return opps
+    .filter((r) => r.radar && typeof r.radar === 'object')
+    .map((r) => ({
+      id: String(r.id ?? ''),
+      asset: String(r.radar?.asset ?? ''),
+      boardState: String(r.radar?.boardState ?? ''),
+      signalIds: Array.isArray(r.radar?.signalIds) ? (r.radar.signalIds as unknown[]).map(String) : [],
+      evidenceCount: Number(r.radar?.evidenceCount ?? 0),
+      freshness: String(r.radar?.freshness ?? ''),
+    }))
+    .filter((c) => c.asset)
+    .sort((a, b) => b.evidenceCount - a.evidenceCount);
+}
+
 export function moneyRadarSummary(): RadarSummary {
   const now = Date.now();
   const signals = loadSignals();

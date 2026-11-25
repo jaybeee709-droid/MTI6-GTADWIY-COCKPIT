@@ -37,6 +37,7 @@ import {
 } from '../live-data';
 import { ProvenanceChip } from '../ProvenanceChip';
 import { CapabilityLadderPanel } from './CapabilityLadderPanel';
+import { ExecutorPanel } from './ExecutorPanel';
 
 const micro = 'font-mono text-[10px] tracking-widest text-[#8A93A3]';
 const btn =
@@ -344,6 +345,10 @@ export const SwapDeskPanel: React.FC = () => {
           progression from the wallet-infrastructure branch,
           rendered fresh with live states */}
       <CapabilityLadderPanel />
+
+      {/* D6 executor console (v219) — dry-run only: decides
+          and logs, never signs */}
+      <ExecutorPanel />
     </section>
   );
 };

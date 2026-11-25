@@ -268,6 +268,23 @@ try {
     seenText.push(await settledMainText());
   }
   const allSeen = routeTexts.join('\n') + '\n' + seenText.join('\n');
+
+  // D6 executor console + Command Decision Board (v219): the
+  // executor panel renders on Crypto Market, dry-run only, and
+  // the board renders on Cockpit Status. The executor must
+  // never claim a live execution.
+  const marketText = routeTexts[ROUTES.findIndex(([l]) => l === 'Crypto Market')] ?? '';
+  check(
+    'D6 executor console present, dry-run only',
+    marketText.includes('D6 EXECUTOR') && marketText.includes('DRY_RUN') && !marketText.includes('LIVE_EXECUTION'),
+    'executor panel on Crypto Market, DRY_RUN, no live-execution claim',
+  );
+  const statusText = routeTexts[ROUTES.findIndex(([l]) => l === 'Cockpit Status')] ?? '';
+  check(
+    'Command Decision Board present',
+    statusText.includes('COMMAND DECISION BOARD') && statusText.includes('D6 Autonomous Executor'),
+    'decision board on Cockpit Status with the D6 row',
+  );
   check(
     'honest state NOT_CONNECTED appears',
     allSeen.includes('NOT_CONNECTED'),

@@ -20,6 +20,7 @@ import { loadRawArchive, RAW_ARCHIVE_EXCERPT_CHARS, RAW_ARCHIVE_MAX, rawArchiveS
 import { loadReplaySummary, replaySummaryText } from '../archive-replay';
 import { useProvenanceLog, type ProvenanceRecord } from '../live-data';
 import { REGISTERED_SOURCES, SOURCE_REGISTRY_EXCLUSIONS } from '../source-registry-data';
+import { DecisionBoardPanel } from './DecisionBoardPanel';
 
 /* Source Health (Fabric priority 3): states are DERIVED, never
  * asserted — from this session's provenance log (what the app
@@ -183,6 +184,10 @@ export const CockpitStatusScreen: React.FC = () => {
         subtitle="COMMAND CENTER — system widgets, panels, quick actions, recent activity"
         note="Local stores and live layers are not wired in this React build: every value below is NOT_CONNECTED / NO_DATA, never zero."
       />
+
+      {/* Command Decision Board (v219) — the queue that is not
+          code: decisions, authorizations, inputs, activations */}
+      <DecisionBoardPanel />
 
       <Panel title="Search your cockpit">
         <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-[#151515] px-3 py-2">
