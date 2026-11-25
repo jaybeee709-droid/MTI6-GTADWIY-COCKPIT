@@ -350,6 +350,8 @@ try {
   check('places toggle present', worldMapText.includes('PLACES'), 'MAP VIEW bar has PLACES');
   check('flights toggle present', worldMapText.includes('FLIGHTS'), 'MAP VIEW bar has FLIGHTS');
   check('weather toggle present', worldMapText.includes('WEATHER'), 'MAP VIEW bar has WEATHER');
+  check('cameras toggle present', worldMapText.includes('CAMERAS'), 'MAP VIEW bar has CAMERAS (v233)');
+  check('quakes toggle present', worldMapText.includes('QUAKES'), 'MAP VIEW bar has QUAKES (v233)');
   check('time toggle present', worldMapText.includes('TIME'), 'MAP VIEW bar has TIME (v228)');
   check('cinematic toggle present', worldMapText.includes('CINEMATIC'), 'MAP VIEW bar has CINEMATIC (v228)');
   check(

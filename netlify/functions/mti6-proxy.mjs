@@ -57,6 +57,23 @@
 // (27–28 aircraft near NYC). Weather stays out of the proxy:
 // Met Norway (locationforecast compact) sends ACAO * and is
 // fetched directly from the browser.
+//
+// CAMERAS (added 2026-11-25, v233 CCTV on the map — the owner's
+// "Add cctv and other sources like that to our map too"): one
+// more narrowly scoped action, cameras.nyc, behind the same
+// discipline. The upstream is the NYCDOT traffic-camera list —
+// a keyless public feed (name, position, area, online flag,
+// snapshot image URL per camera). It sends no CORS header, so
+// a browser fetch cannot read the list; the proxy is the only
+// route. The action takes no parameters and returns online
+// cameras only, normalized to { id, name, lat, lon, area,
+// imageUrl }; the upstream body is never echoed. The snapshot
+// images themselves are plain <img> loads from the browser
+// (display needs no CORS). USGS earthquakes stay out of the
+// proxy: the feed sends ACAO * and is fetched directly. The
+// ISS position API (api.open-notify.org) was probed twice and
+// is unreachable from this host (fetch failed both times);
+// Windy webcams need a free API key and are not wired.
 
 const MAX_BODY_BYTES = 65536;
 const STAR_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
@@ -67,6 +84,8 @@ const STAR_MAX_CONTENT_CHARS = 2000;
 const STAR_ROLES = new Set(["system", "user", "assistant"]);
 const TRANSITLAND_REST_BASE = "https://transit.land/api/v2/rest";
 const ADSB_LOL_BASE = "https://api.adsb.lol/v2";
+const NYCDOT_CAMERAS_URL = "https://webcams.nyctmc.org/api/cameras";
+const MAX_CAMERAS = 400;
 const MAX_FLIGHT_DIST_NM = 100;
 const MAX_FLIGHTS = 40;
 const UPSTREAM_TIMEOUT_MS = 10000;
@@ -704,6 +723,71 @@ async function handleFlightsNearby(payload) {
   return envelope(true, "adsb.lol", { aircraft: aircraft.slice(0, MAX_FLIGHTS) }, null, 200);
 }
 
+// ------------------------------------------------------------------
+// Cameras: cameras.nyc (NYCDOT traffic cameras) — same
+// discipline: validate first, normalize everything that comes
+// back, static error strings, never echo the upstream body.
+// The action takes no parameters: the client filters the online
+// list by distance from the map centre.
+// ------------------------------------------------------------------
+
+function camerasFail(code, message, status) {
+  return envelope(false, "nycdot", null, { code, message }, status);
+}
+
+async function handleCamerasNyc(payload) {
+  if (!isPlainObject(payload)) {
+    return camerasFail("INVALID_REQUEST", "cameras.nyc payload must be an object.", 400);
+  }
+  const bad = unknownKey(payload, new Set([]));
+  if (bad) {
+    return camerasFail("INVALID_REQUEST", "Unknown parameter \"" + bad + "\" for cameras.nyc.", 400);
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(NYCDOT_CAMERAS_URL, {
+      signal: controller.signal,
+      headers: { Accept: "application/json" }
+    });
+  } catch {
+    return camerasFail("UPSTREAM_ERROR", "NYCDOT could not be reached.", 502);
+  } finally {
+    clearTimeout(timer);
+  }
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  if (!res.ok || !Array.isArray(data)) {
+    return camerasFail("UPSTREAM_ERROR", "NYCDOT returned an unexpected error.", 502);
+  }
+  const cameras = [];
+  for (const row of data) {
+    if (!row || typeof row !== "object") continue;
+    const id = typeof row.id === "string" && row.id.length > 0 ? row.id : null;
+    const name = typeof row.name === "string" && row.name.length > 0 ? row.name : null;
+    const lat = typeof row.latitude === "number" && Number.isFinite(row.latitude) ? row.latitude : null;
+    const lon = typeof row.longitude === "number" && Number.isFinite(row.longitude) ? row.longitude : null;
+    const imageUrl = typeof row.imageUrl === "string" && row.imageUrl.length > 0 ? row.imageUrl : null;
+    const online = row.isOnline === true || row.isOnline === "true";
+    if (!id || !name || lat === null || lon === null || !imageUrl || !online) continue;
+    cameras.push({
+      id,
+      name,
+      lat,
+      lon,
+      area: typeof row.area === "string" && row.area.length > 0 ? row.area : null,
+      imageUrl
+    });
+    if (cameras.length >= MAX_CAMERAS) break;
+  }
+  return envelope(true, "nycdot", { cameras }, null, 200);
+}
+
 export default async (req) => {
   if (req.method !== "POST") {
     return fail("METHOD_NOT_ALLOWED", "POST required.", 405);
@@ -741,15 +825,16 @@ export default async (req) => {
     case "gateway.status": {
       const star = readStarConfig();
       return envelope(true, "gateway", {
-        providers: ["transitland", "star", "coingecko", "geoapify", "locationiq", "adsb.lol"],
-        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures", "star.chat", "market.prices", "geo.geocode", "flights.nearby"],
+        providers: ["transitland", "star", "coingecko", "geoapify", "locationiq", "adsb.lol", "nycdot"],
+        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures", "star.chat", "market.prices", "geo.geocode", "flights.nearby", "cameras.nyc"],
         providersConfigured: {
           transitland: readTransitlandKey() !== null,
           star: star.configured,
           coingecko: readPipelineKeys().coingecko !== null,
           geoapify: readPipelineKeys().geoapify !== null,
           locationiq: readPipelineKeys().locationiq !== null,
-          adsb: true
+          adsb: true,
+          nycdot: true
         },
         star: { configured: star.configured, model: star.configured ? star.model : null },
         note: "Providers sit behind the proxy as Capability Router providers; configured means the server's Netlify variable exists (presence only, never a value). CoinGecko also answers keyless at public limits. STAR chat is available when star.configured is true; otherwise STAR remains in demo mode."
@@ -777,6 +862,10 @@ export default async (req) => {
     case "flights.nearby": {
       const payload = body.payload === undefined ? {} : body.payload;
       return handleFlightsNearby(payload);
+    }
+    case "cameras.nyc": {
+      const payload = body.payload === undefined ? {} : body.payload;
+      return handleCamerasNyc(payload);
     }
     default:
       return fail("UNSUPPORTED_ACTION", "That MTI6 action is not enabled.", 400);

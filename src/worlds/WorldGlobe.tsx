@@ -176,11 +176,11 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // (Coverage = every layer's data state at once). Persisted —
   // the choice survives reloads.
   type MapLens = 'world' | 'crypto' | 'earnings' | 'security' | 'transit' | 'coverage';
-  const readViewSel = (): { base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean; timeTravel: boolean; cinematic: boolean; simTime: number | null } => {
+  const readViewSel = (): { base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean; cameras: boolean; quakes: boolean; timeTravel: boolean; cinematic: boolean; simTime: number | null } => {
     try {
       const raw = localStorage.getItem(MAP_VIEW_SEL_KEY);
-      if (!raw) return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false, timeTravel: false, cinematic: false, simTime: null };
-      const parsed = JSON.parse(raw) as Partial<{ base: string; terrain: string; lens: string; night: unknown; places: unknown; flights: unknown; weather: unknown; timeTravel: unknown; cinematic: unknown; simTime: unknown }>;
+      if (!raw) return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false, cameras: false, quakes: false, timeTravel: false, cinematic: false, simTime: null };
+      const parsed = JSON.parse(raw) as Partial<{ base: string; terrain: string; lens: string; night: unknown; places: unknown; flights: unknown; weather: unknown; cameras: unknown; quakes: unknown; timeTravel: unknown; cinematic: unknown; simTime: unknown }>;
       return {
         base: parsed.base === 'satellite' || parsed.base === 'floor' ? (parsed.base as MapBaseStyle) : 'streets',
         terrain: parsed.terrain === 'hillshade' ? 'hillshade' : 'off',
@@ -196,6 +196,9 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
         // v227 — flights + weather, off by default.
         flights: parsed.flights === true,
         weather: parsed.weather === true,
+        // v233 — cameras + quakes, off by default.
+        cameras: parsed.cameras === true,
+        quakes: parsed.quakes === true,
         // v228 — time travel + cinematic, off by default; a
         // persisted simulated time survives reloads.
         timeTravel: parsed.timeTravel === true,
@@ -203,11 +206,11 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
         simTime: typeof parsed.simTime === 'number' && Number.isFinite(parsed.simTime) ? parsed.simTime : null,
       };
     } catch {
-      return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false, timeTravel: false, cinematic: false, simTime: null };
+      return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false, cameras: false, quakes: false, timeTravel: false, cinematic: false, simTime: null };
     }
   };
   const [viewSel, setViewSelState] = useState(readViewSel);
-  const setViewSel = (next: Partial<{ base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean; timeTravel: boolean; cinematic: boolean; simTime: number | null }>) => {
+  const setViewSel = (next: Partial<{ base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean; cameras: boolean; quakes: boolean; timeTravel: boolean; cinematic: boolean; simTime: number | null }>) => {
     setViewSelState((prev) => {
       const merged = { ...prev, ...next };
       try {
@@ -379,6 +382,54 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     message: string;
     fetchedAt: number | null;
   }>({ state: 'idle', message: 'NOT QUERIED — Met Norway is ready; nothing has been polled.', fetchedAt: null });
+  // v233 — CCTV + live layers on the map (owner: "Add cctv and
+  // other sources like that to our map too"). Cameras are the
+  // NYCDOT traffic-camera list via the gateway (the list sends
+  // no CORS header, so a browser fetch cannot read it — the
+  // proxy is the only route, same as adsb.lol in v227); each
+  // snapshot is a plain <img> load (display needs no CORS).
+  // Quakes are the USGS past-day feed, direct from the browser
+  // (it sends ACAO * and was verified live: 237 quakes). Windy
+  // webcams need a free API key and are NOT wired; the ISS
+  // position API was probed twice and is unreachable from this
+  // host (fetch failed both times). Camera snapshots are still
+  // images, never video.
+  interface CameraRecord {
+    id: string;
+    label: string;
+    lat: number;
+    lon: number;
+    area: string | null;
+    imageUrl: string;
+  }
+  interface QuakeRecord {
+    id: string;
+    label: string;
+    mag: number;
+    place: string;
+    time: number;
+    lat: number;
+    lon: number;
+    depth: number | null;
+    url: string | null;
+  }
+  const [cameraMarkers, setCameraMarkers] = useState<MapMarker[]>([]);
+  const [cameraRecords, setCameraRecords] = useState<Record<string, CameraRecord>>({});
+  const [selectedCamera, setSelectedCamera] = useState<CameraRecord | null>(null);
+  const [camImgNonce, setCamImgNonce] = useState(0);
+  const [cameraQuery, setCameraQuery] = useState<{
+    state: 'idle' | 'loading' | 'ok' | 'error';
+    message: string;
+    fetchedAt: number | null;
+  }>({ state: 'idle', message: 'NOT QUERIED — NYCDOT is ready; nothing has been polled.', fetchedAt: null });
+  const [quakeMarkers, setQuakeMarkers] = useState<MapMarker[]>([]);
+  const [quakeRecords, setQuakeRecords] = useState<Record<string, QuakeRecord>>({});
+  const [selectedQuake, setSelectedQuake] = useState<QuakeRecord | null>(null);
+  const [quakeQuery, setQuakeQuery] = useState<{
+    state: 'idle' | 'loading' | 'ok' | 'error';
+    message: string;
+    fetchedAt: number | null;
+  }>({ state: 'idle', message: 'NOT QUERIED — USGS is ready; nothing has been polled.', fetchedAt: null });
   const [transitQuery, setTransitQuery] = useState<{
     state: 'idle' | 'loading' | 'ok' | 'error';
     message: string;
@@ -424,7 +475,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // the map draws a link line from the focus to each one. Alerts
   // match only when an alert's recorded area names this place —
   // area is null unless the owner sets it at intake.
-  const focusPoint = selectedStop ?? selectedPoi ?? selectedFlight ?? tappedPoint ?? placeMarker;
+  const focusPoint = selectedStop ?? selectedPoi ?? selectedFlight ?? selectedCamera ?? selectedQuake ?? tappedPoint ?? placeMarker;
   const nearbyStops = useMemo(() => {
     if (!focusPoint) return [];
     return transitStops
@@ -938,6 +989,177 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     }
   };
 
+  // v233 — CCTV on the map: NYCDOT traffic cameras via the
+  // gateway (the list sends no CORS header). The list covers
+  // New York City only; cameras are filtered to 50 km of the
+  // centre and capped at 40 nearest. Snapshots are still
+  // images, never video.
+  const CAMERA_MAX_DIST_M = 50000;
+  const MAX_CAMERA_MARKERS = 40;
+  const queryCameras = async () => {
+    if (typeof fetch !== 'function') {
+      setCameraQuery({ state: 'error', message: 'NO FETCH IN THIS ENVIRONMENT.', fetchedAt: null });
+      return;
+    }
+    setCameraQuery({ state: 'loading', message: 'QUERYING NYCDOT VIA THE PROXY…', fetchedAt: null });
+    try {
+      const res = await fetch('/api/mti6', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cameras.nyc', payload: {} }),
+      });
+      const env = (await res.json().catch(() => null)) as
+        | { ok?: boolean; data?: unknown; error?: { code?: string; message?: string } }
+        | null;
+      if (!env || !env.ok) {
+        const code = env?.error?.code ?? 'UPSTREAM_ERROR';
+        setCameraQuery({
+          state: 'error',
+          message: `QUERY FAILED (${code}) — no cameras are shown.`,
+          fetchedAt: null,
+        });
+        setCameraMarkers([]);
+        setCameraRecords({});
+        return;
+      }
+      const data = env.data as { cameras?: unknown[] } | null;
+      const near: { rec: CameraRecord; dist: number }[] = [];
+      if (data && Array.isArray(data.cameras)) {
+        for (const raw of data.cameras) {
+          if (!raw || typeof raw !== 'object') continue;
+          const c = raw as Record<string, unknown>;
+          const lat = typeof c.lat === 'number' ? c.lat : null;
+          const lon = typeof c.lon === 'number' ? c.lon : null;
+          const id = typeof c.id === 'string' ? c.id : null;
+          const name = typeof c.name === 'string' ? c.name : null;
+          const imageUrl = typeof c.imageUrl === 'string' ? c.imageUrl : null;
+          if (lat === null || lon === null || !id || !name || !imageUrl) continue;
+          const dist = haversineM(mapView.lat, mapView.lon, lat, lon);
+          if (dist > CAMERA_MAX_DIST_M) continue;
+          near.push({
+            rec: {
+              id: `cam-${id}`,
+              label: name,
+              lat,
+              lon,
+              area: typeof c.area === 'string' ? c.area : null,
+              imageUrl,
+            },
+            dist,
+          });
+        }
+      }
+      near.sort((a, b) => a.dist - b.dist);
+      const kept = near.slice(0, MAX_CAMERA_MARKERS);
+      setCameraMarkers(kept.map((k) => ({ id: k.rec.id, lat: k.rec.lat, lon: k.rec.lon, label: k.rec.label, color: '#00B7FF' })));
+      const records: Record<string, CameraRecord> = {};
+      for (const k of kept) records[k.rec.id] = k.rec;
+      setCameraRecords(records);
+      if (kept.length === 0) {
+        setCameraQuery({
+          state: 'ok',
+          message: 'NO CAMERAS WITHIN 50 KM — this layer is New York City traffic cameras (NYCDOT); move the map to NYC to see them.',
+          fetchedAt: Date.now(),
+        });
+        return;
+      }
+      setCameraQuery({
+        state: 'ok',
+        message: `LIVE · ${kept.length} CAMERAS WITHIN 50 KM OF THE CENTRE`,
+        fetchedAt: Date.now(),
+      });
+    } catch {
+      setCameraQuery({ state: 'error', message: 'QUERY FAILED (NETWORK) — no cameras are shown.', fetchedAt: null });
+      setCameraMarkers([]);
+      setCameraRecords({});
+    }
+  };
+
+  // v233 — live earthquake layer: the USGS past-day feed,
+  // direct from the browser (it sends ACAO *). Magnitude 2.5
+  // and up only, strongest first, capped at 40 markers.
+  const QUAKE_MIN_MAG = 2.5;
+  const MAX_QUAKE_MARKERS = 40;
+  const queryQuakes = async () => {
+    if (typeof fetch !== 'function') {
+      setQuakeQuery({ state: 'error', message: 'NO FETCH IN THIS ENVIRONMENT.', fetchedAt: null });
+      return;
+    }
+    setQuakeQuery({ state: 'loading', message: 'QUERYING USGS…', fetchedAt: null });
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      let res: Response;
+      try {
+        res = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson', {
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as {
+        features?: {
+          id?: string;
+          properties?: { mag?: unknown; place?: unknown; time?: unknown; url?: unknown };
+          geometry?: { coordinates?: unknown };
+        }[];
+      };
+      const found: QuakeRecord[] = [];
+      if (data && Array.isArray(data.features)) {
+        for (const f of data.features) {
+          const mag = typeof f?.properties?.mag === 'number' ? f.properties.mag : null;
+          const place = typeof f?.properties?.place === 'string' ? f.properties.place : null;
+          const time = typeof f?.properties?.time === 'number' ? f.properties.time : null;
+          const coords = Array.isArray(f?.geometry?.coordinates) ? f.geometry.coordinates : null;
+          const lon = coords && typeof coords[0] === 'number' ? coords[0] : null;
+          const lat = coords && typeof coords[1] === 'number' ? coords[1] : null;
+          const depth = coords && typeof coords[2] === 'number' ? coords[2] : null;
+          const id = typeof f?.id === 'string' && f.id.length > 0 ? f.id : null;
+          if (mag === null || !Number.isFinite(mag) || mag < QUAKE_MIN_MAG || !place || time === null || lat === null || lon === null || !id) continue;
+          found.push({
+            id: `quake-${id}`,
+            label: `M${mag.toFixed(1)} — ${place}`,
+            mag,
+            place,
+            time,
+            lat,
+            lon,
+            depth,
+            url: typeof f?.properties?.url === 'string' ? f.properties.url : null,
+          });
+        }
+      }
+      found.sort((a, b) => b.mag - a.mag);
+      const kept = found.slice(0, MAX_QUAKE_MARKERS);
+      setQuakeMarkers(kept.map((q) => ({ id: q.id, lat: q.lat, lon: q.lon, label: q.label, color: '#FFB020' })));
+      const records: Record<string, QuakeRecord> = {};
+      for (const q of kept) records[q.id] = q;
+      setQuakeRecords(records);
+      if (kept.length === 0) {
+        setQuakeQuery({
+          state: 'ok',
+          message: 'NO QUAKES — USGS answered; nothing at magnitude 2.5 or above in the past day.',
+          fetchedAt: Date.now(),
+        });
+        return;
+      }
+      setQuakeQuery({
+        state: 'ok',
+        message: `LIVE · ${kept.length} QUAKES, PAST 24 H · STRONGEST FIRST, MAG ${kept[kept.length - 1].mag.toFixed(1)} AND UP`,
+        fetchedAt: Date.now(),
+      });
+    } catch {
+      setQuakeQuery({
+        state: 'error',
+        message: 'QUERY FAILED (NETWORK) — USGS did not answer; no quakes are shown.',
+        fetchedAt: null,
+      });
+      setQuakeMarkers([]);
+      setQuakeRecords({});
+    }
+  };
+
   const queryTransitStops = async () => {
     if (typeof fetch !== 'function') {
       setTransitQuery({ state: 'error', message: 'NO FETCH IN THIS ENVIRONMENT.', fetchedAt: null });
@@ -1295,6 +1517,51 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 </button>
               ))}
             </span>
+            {/* v233 — CCTV + live layers: NYCDOT traffic cameras
+                (via the gateway) and USGS earthquakes (direct).
+                Both off by default; turning one on queries it. */}
+            <span className="flex items-center gap-1">
+              <span className="text-[#B8B8B8]">CAMERAS</span>
+              {([true, false] as const).map((c) => (
+                <button
+                  key={String(c)}
+                  type="button"
+                  onClick={() => {
+                    setViewSel({ cameras: c });
+                    if (c) queryCameras();
+                  }}
+                  aria-pressed={viewSel.cameras === c}
+                  className={`h-9 px-2.5 rounded border transition ${
+                    viewSel.cameras === c
+                      ? 'border-[#00B7FF] bg-[#00B7FF]/15 text-white'
+                      : 'border-white/15 text-[#B8B8B8] hover:border-white/40'
+                  }`}
+                >
+                  {c ? 'ON' : 'OFF'}
+                </button>
+              ))}
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="text-[#B8B8B8]">QUAKES</span>
+              {([true, false] as const).map((q) => (
+                <button
+                  key={String(q)}
+                  type="button"
+                  onClick={() => {
+                    setViewSel({ quakes: q });
+                    if (q) queryQuakes();
+                  }}
+                  aria-pressed={viewSel.quakes === q}
+                  className={`h-9 px-2.5 rounded border transition ${
+                    viewSel.quakes === q
+                      ? 'border-[#00B7FF] bg-[#00B7FF]/15 text-white'
+                      : 'border-white/15 text-[#B8B8B8] hover:border-white/40'
+                  }`}
+                >
+                  {q ? 'ON' : 'OFF'}
+                </button>
+              ))}
+            </span>
             {/* v228 — Time travel + cinematic (vision slice 5).
                 TIME opens the TIME TRAVEL card; CINEMATIC runs the
                 slow-drift camera and smooth fly-to. Both off by
@@ -1382,7 +1649,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               floorMode={floorMode}
               defaultMarkerColor={routeColor}
               markerPulse={markerPulse}
-              markers={[...(transitOn ? transitStops : []), ...(viewSel.places ? poiMarkers : []), ...(viewSel.flights ? flightMarkers : []), ...(placeMarker ? [placeMarker] : []), ...(tappedPoint ? [tappedPoint] : [])]}
+              markers={[...(transitOn ? transitStops : []), ...(viewSel.places ? poiMarkers : []), ...(viewSel.flights ? flightMarkers : []), ...(viewSel.cameras ? cameraMarkers : []), ...(viewSel.quakes ? quakeMarkers : []), ...(placeMarker ? [placeMarker] : []), ...(tappedPoint ? [tappedPoint] : [])]}
               focusPoint={mapFocus}
               links={focusLinks}
               ringMarkerId={focusPoint?.id}
@@ -1399,12 +1666,16 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   setSelectedStop(null);
                   setSelectedPoi(null);
                   setSelectedFlight(null);
+                  setSelectedCamera(null);
+                  setSelectedQuake(null);
                   return;
                 }
                 if (m.id.startsWith('poi-')) {
                   setSelectedStop(null);
                   setSelectedPoi(poiRecords[m.id] ?? null);
                   setSelectedFlight(null);
+                  setSelectedCamera(null);
+                  setSelectedQuake(null);
                   setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                   setDeparturesDay('TODAY');
                   return;
@@ -1413,6 +1684,28 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   setSelectedStop(null);
                   setSelectedPoi(null);
                   setSelectedFlight(flightRecords[m.id] ?? null);
+                  setSelectedCamera(null);
+                  setSelectedQuake(null);
+                  setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
+                  setDeparturesDay('TODAY');
+                  return;
+                }
+                if (m.id.startsWith('cam-')) {
+                  setSelectedStop(null);
+                  setSelectedPoi(null);
+                  setSelectedFlight(null);
+                  setSelectedCamera(cameraRecords[m.id] ?? null);
+                  setSelectedQuake(null);
+                  setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
+                  setDeparturesDay('TODAY');
+                  return;
+                }
+                if (m.id.startsWith('quake-')) {
+                  setSelectedStop(null);
+                  setSelectedPoi(null);
+                  setSelectedFlight(null);
+                  setSelectedCamera(null);
+                  setSelectedQuake(quakeRecords[m.id] ?? null);
                   setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                   setDeparturesDay('TODAY');
                   return;
@@ -1420,6 +1713,8 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 setSelectedStop(m);
                 setSelectedPoi(null);
                 setSelectedFlight(null);
+                setSelectedCamera(null);
+                setSelectedQuake(null);
                 setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                 setDeparturesDay('TODAY');
               }}
@@ -1547,11 +1842,65 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   </button>
                 </div>
               )}
+              {/* v233 — CCTV on the map: NYCDOT traffic cameras via
+                  the gateway (the list sends no CORS header).
+                  Snapshots are still images, never video; tap a
+                  camera marker to see its latest snapshot. Windy
+                  webcams need a free API key and are not wired. */}
+              {viewSel.cameras && (
+                <div className="pointer-events-auto self-start rounded border border-[#00B7FF]/50 bg-[#0b0b0b]/90 px-2.5 py-2 font-mono text-[11px] text-[#B8B8B8] 2xl:self-stretch">
+                  <span className="font-semibold text-[#00B7FF]">CAMERAS — LIVE QUERY.</span>{' '}
+                  {cameraQuery.message}
+                  {cameraQuery.fetchedAt !== null && (
+                    <>
+                      {' '}
+                      SOURCE: NYCDOT · FETCHED{' '}
+                      {new Date(cameraQuery.fetchedAt).toLocaleTimeString('en-US', { hour12: false })}
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={queryCameras}
+                    disabled={cameraQuery.state === 'loading'}
+                    className="ml-2 font-semibold text-white underline decoration-[#00B7FF] underline-offset-2 disabled:opacity-50"
+                  >
+                    {cameraQuery.state === 'loading' ? 'QUERYING…' : 'QUERY CAMERAS NEAR CENTRE'}
+                  </button>
+                  <div className="mt-1">
+                    NYC ONLY — NEW YORK CITY TRAFFIC CAMERAS. SNAPSHOTS, NOT VIDEO. WINDY WEBCAMS NEED A
+                    FREE API KEY AND ARE NOT WIRED.
+                  </div>
+                </div>
+              )}
+              {/* v233 — live earthquakes: the USGS past-day feed,
+                  direct from the browser (ACAO *). Magnitude 2.5
+                  and up, strongest first. */}
+              {viewSel.quakes && (
+                <div className="pointer-events-auto self-start rounded border border-[#00B7FF]/50 bg-[#0b0b0b]/90 px-2.5 py-2 font-mono text-[11px] text-[#B8B8B8] 2xl:self-stretch">
+                  <span className="font-semibold text-[#00B7FF]">QUAKES — LIVE QUERY.</span>{' '}
+                  {quakeQuery.message}
+                  {quakeQuery.fetchedAt !== null && (
+                    <>
+                      {' '}
+                      SOURCE: USGS · FETCHED{' '}
+                      {new Date(quakeQuery.fetchedAt).toLocaleTimeString('en-US', { hour12: false })}
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={queryQuakes}
+                    disabled={quakeQuery.state === 'loading'}
+                    className="ml-2 font-semibold text-white underline decoration-[#00B7FF] underline-offset-2 disabled:opacity-50"
+                  >
+                    {quakeQuery.state === 'loading' ? 'QUERYING…' : 'QUERY QUAKES — PAST 24 H'}
+                  </button>
+                </div>
+              )}
               {/* v228 — Time travel (archive-backed): a simulated
                   UTC time moves the day/night terminator (NOAA solar
                   position — the same math, a different clock) and
                   reads the app's own fetch archive as of that time.
-                  Live layers (transit, flights, weather, places)
+                  Live layers (transit, flights, weather, places, cameras, quakes)
                   have no history — they keep showing the present
                   and say so. */}
               {viewSel.timeTravel && (
@@ -1833,7 +2182,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   : 'OFF — turn on CINEMATIC in MAP VIEW'}
               </div>
               <div>
-                MARKERS PLACED: {(transitOn ? transitStops.length : 0) + (viewSel.places ? poiMarkers.length : 0) + (viewSel.flights ? flightMarkers.length : 0) + (placeMarker ? 1 : 0)}
+                MARKERS PLACED: {(transitOn ? transitStops.length : 0) + (viewSel.places ? poiMarkers.length : 0) + (viewSel.flights ? flightMarkers.length : 0) + (viewSel.cameras ? cameraMarkers.length : 0) + (viewSel.quakes ? quakeMarkers.length : 0) + (placeMarker ? 1 : 0)}
                 {transitOn && transitStops.length > 0
                   ? ' — Transitland stops (sourced locations)'
                   : ' — no verified locations'}
@@ -2022,6 +2371,63 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   </p>
                   <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
                     A snapshot at fetch time — aircraft move; re-query flights to refresh.
+                  </p>
+                </div>
+              )}
+              {selectedCamera && (
+                <div>
+                  <div className="font-mono text-[10px] text-white">CAMERA — SNAPSHOT</div>
+                  <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    <span className="text-white">{selectedCamera.label}</span>
+                    {selectedCamera.area !== null && (
+                      <>
+                        {' '}· AREA: <span className="text-white">{selectedCamera.area}</span>
+                      </>
+                    )}
+                  </p>
+                  <img
+                    key={camImgNonce}
+                    src={`${selectedCamera.imageUrl}?t=${camImgNonce}`}
+                    alt={`NYCDOT traffic camera snapshot — ${selectedCamera.label}`}
+                    className="mt-1 w-full max-w-[320px] rounded border border-white/15"
+                  />
+                  <p className="mt-1 font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    A STILL IMAGE FROM NYCDOT — NOT VIDEO.{' '}
+                    <button
+                      type="button"
+                      onClick={() => setCamImgNonce((n) => n + 1)}
+                      className="font-semibold text-white underline decoration-[#00B7FF] underline-offset-2"
+                    >
+                      REFRESH SNAPSHOT
+                    </button>
+                  </p>
+                </div>
+              )}
+              {selectedQuake && (
+                <div>
+                  <div className="font-mono text-[10px] text-white">QUAKE — SNAPSHOT</div>
+                  <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    MAGNITUDE: <span className="text-white">M{selectedQuake.mag.toFixed(1)}</span>
+                    {' '}· PLACE: <span className="text-white">{selectedQuake.place}</span>
+                    {' '}· TIME:{' '}
+                    <span className="text-white">
+                      {new Date(selectedQuake.time).toLocaleString('en-US', { hour12: false })}
+                    </span>
+                    {' '}· DEPTH:{' '}
+                    <span className="text-white">
+                      {selectedQuake.depth !== null ? `${selectedQuake.depth.toFixed(1)} KM` : 'UNKNOWN'}
+                    </span>
+                  </p>
+                  <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    PAST 24 H, USGS FEED.
+                    {selectedQuake.url !== null && (
+                      <>
+                        {' '}
+                        <a href={selectedQuake.url} target="_blank" rel="noreferrer" className="font-semibold text-white underline decoration-[#00B7FF] underline-offset-2">
+                          USGS EVENT PAGE
+                        </a>
+                      </>
+                    )}
                   </p>
                 </div>
               )}
