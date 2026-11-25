@@ -37,7 +37,10 @@ import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 
 // jsdom lives in the shared scratch install, not in this worktree.
-const require = createRequire('/home/hatch/workspace/mti6/jsdomtest/package.json');
+// (v220: the old ~/workspace/mti6/jsdomtest path was wiped by a
+// VM/service restart — the persistent install is
+// ~/workspace/tools/jsdomtest; see AGENTS.md.)
+const require = createRequire('/home/hatch/workspace/tools/jsdomtest/package.json');
 const { JSDOM, VirtualConsole } = require('jsdom');
 
 const WORKTREE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -284,6 +287,16 @@ try {
     'Command Decision Board present',
     statusText.includes('COMMAND DECISION BOARD') && statusText.includes('D6 Autonomous Executor'),
     'decision board on Cockpit Status with the D6 row',
+  );
+  check(
+    'WalletConnect row on the Decision Board',
+    statusText.includes('WalletConnect Project ID'),
+    'board names the WalletConnect project-ID step (v220)',
+  );
+  check(
+    'injected wallets block on Crypto Market',
+    marketText.includes('DETECTED WALLETS') && marketText.includes('NO CONNECTION'),
+    'desk shows the read-only injected-wallet detector (v220)',
   );
   check(
     'honest state NOT_CONNECTED appears',

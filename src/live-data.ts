@@ -205,6 +205,28 @@ async function fetchJson(url: string, timeoutMs = 12000): Promise<unknown> {
   }
 }
 
+/* Plain-text twin of fetchJson, for endpoints that answer a bare
+ * value instead of JSON (Blockstream Esplora's tip height). Same
+ * timeout discipline, same archive rule, no JSON assumption. */
+async function fetchText(url: string, timeoutMs = 12000): Promise<string> {
+  if (typeof fetch !== 'function') throw new Error('fetch unavailable');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: controller.signal, headers: { Accept: 'text/plain' } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    try {
+      recordRawArchive(new URL(url).hostname, url, text.slice(0, 200));
+    } catch {
+      /* archiving yields; the fetch never does */
+    }
+    return text;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
@@ -220,7 +242,12 @@ export interface PriceValue {
   change24h: number | null;
 }
 
-export const PRICE_CHAIN = ['CoinGecko', 'Coinbase', 'CoinPaprika'];
+export const PRICE_CHAIN = [
+  'CoinGecko', 'Coinbase', 'CoinPaprika',
+  'Kraken', 'OKX', 'KuCoin', 'Binance US', 'CoinLore',
+  'Bitstamp', 'Bitfinex', 'Gemini', 'Gate.io', 'MEXC', 'Bitget',
+  'Blockchain.com',
+];
 
 const COINGECKO_IDS: Record<string, string> = {
   BTC: 'bitcoin',
@@ -278,13 +305,178 @@ async function priceFromCoinPaprika(sym: string): Promise<PriceValue | null> {
   return { price, change24h: num(data.quotes.USD.percent_change_24h) };
 }
 
+/* ---- keyless exchange price leg (v220) ----
+ * Web-searched and probed live 2026-11-25 from the build host.
+ * Every fetcher below answered its public market endpoint with
+ * NO key, NO account, NO sign-in. Two famous names did NOT:
+ * Binance (global) returns 451 to US IPs and Bybit 403s behind
+ * CloudFront geo-blocking — both recorded in the keyless paper,
+ * neither wired. Each fetcher returns null for symbols it does
+ * not list, so the chain falls through to the next source. */
+function pctFromOpen(last: number | null, open: number | null): number | null {
+  if (last === null || open === null || open <= 0) return null;
+  return ((last - open) / open) * 100;
+}
+
+const KRAKEN_PAIRS: Record<string, string> = {
+  BTC: 'XBTUSD', ETH: 'ETHUSD', SOL: 'SOLUSD', XRP: 'XRPUSD',
+  DOGE: 'DOGEUSD', LTC: 'LTCUSD', ADA: 'ADAUSD',
+};
+
+async function priceFromKraken(sym: string): Promise<PriceValue | null> {
+  const pair = KRAKEN_PAIRS[sym];
+  if (!pair) return null;
+  const data = await fetchJson(`https://api.kraken.com/0/public/Ticker?pair=${pair}`);
+  if (!isRecord(data) || !isRecord(data.result)) return null;
+  const first = Object.values(data.result)[0];
+  if (!isRecord(first) || !Array.isArray(first.c)) return null;
+  const last = num(typeof first.c[0] === 'string' ? Number(first.c[0]) : first.c[0]);
+  const open = num(typeof first.o === 'string' ? Number(first.o) : first.o);
+  if (last === null) return null;
+  return { price: last, change24h: pctFromOpen(last, open) };
+}
+
+async function priceFromOkx(sym: string): Promise<PriceValue | null> {
+  const data = await fetchJson(`https://www.okx.com/api/v5/market/ticker?instId=${sym}-USDT`);
+  if (!isRecord(data) || !Array.isArray(data.data) || !isRecord(data.data[0])) return null;
+  const row = data.data[0];
+  const last = num(typeof row.last === 'string' ? Number(row.last) : row.last);
+  const open = num(typeof row.open24h === 'string' ? Number(row.open24h) : row.open24h);
+  if (last === null) return null;
+  return { price: last, change24h: pctFromOpen(last, open) };
+}
+
+async function priceFromKuCoin(sym: string): Promise<PriceValue | null> {
+  const data = await fetchJson(`https://api.kucoin.com/api/v1/market/stats?symbol=${sym}-USDT`);
+  if (isRecord(data) && isRecord(data.data)) {
+    const row = data.data;
+    const last = num(typeof row.last === 'string' ? Number(row.last) : row.last);
+    const rate = num(typeof row.changeRate === 'string' ? Number(row.changeRate) : row.changeRate);
+    if (last !== null) return { price: last, change24h: rate === null ? null : rate * 100 };
+  }
+  /* Stats is the strictest endpoint in the chain (it 429s under
+   * load); the lighter level-1 book answers the same price when
+   * stats is throttled, with no 24h change attached. */
+  const book = await fetchJson(`https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=${sym}-USDT`);
+  if (!isRecord(book) || !isRecord(book.data)) return null;
+  const price = num(typeof book.data.price === 'string' ? Number(book.data.price) : book.data.price);
+  if (price === null) return null;
+  return { price, change24h: null };
+}
+
+async function priceFromBinanceUs(sym: string): Promise<PriceValue | null> {
+  const data = await fetchJson(`https://api.binance.us/api/v3/ticker/24hr?symbol=${sym}USDT`);
+  if (!isRecord(data)) return null;
+  const last = num(typeof data.lastPrice === 'string' ? Number(data.lastPrice) : data.lastPrice);
+  const pct = num(typeof data.priceChangePercent === 'string' ? Number(data.priceChangePercent) : data.priceChangePercent);
+  if (last === null) return null;
+  return { price: last, change24h: pct };
+}
+
+const COINLORE_IDS: Record<string, string> = {
+  BTC: '90', ETH: '80', SOL: '48543', XRP: '58', DOGE: '2', ADA: '257',
+};
+
+async function priceFromCoinLore(sym: string): Promise<PriceValue | null> {
+  const id = COINLORE_IDS[sym];
+  if (!id) return null;
+  const data = await fetchJson(`https://api.coinlore.net/api/ticker/?id=${id}`);
+  if (!Array.isArray(data) || !isRecord(data[0])) return null;
+  const row = data[0];
+  const price = num(typeof row.price_usd === 'string' ? Number(row.price_usd) : row.price_usd);
+  const pct = num(typeof row.percent_change_24h === 'string' ? Number(row.percent_change_24h) : row.percent_change_24h);
+  if (price === null) return null;
+  return { price, change24h: pct };
+}
+
+async function priceFromBitstamp(sym: string): Promise<PriceValue | null> {
+  const data = await fetchJson(`https://www.bitstamp.net/api/v2/ticker/${sym.toLowerCase()}usd`);
+  if (!isRecord(data)) return null;
+  const last = num(typeof data.last === 'string' ? Number(data.last) : data.last);
+  const open = num(typeof data.open === 'string' ? Number(data.open) : data.open);
+  if (last === null) return null;
+  return { price: last, change24h: pctFromOpen(last, open) };
+}
+
+async function priceFromBitfinex(sym: string): Promise<PriceValue | null> {
+  const data = await fetchJson(`https://api-pub.bitfinex.com/v2/ticker/t${sym}USD`);
+  if (!Array.isArray(data) || data.length < 7) return null;
+  const last = num(data[6]);
+  const dailyFrac = num(data[5]);
+  if (last === null) return null;
+  return { price: last, change24h: dailyFrac === null ? null : dailyFrac * 100 };
+}
+
+async function priceFromGemini(sym: string): Promise<PriceValue | null> {
+  const data = await fetchJson(`https://api.gemini.com/v1/pubticker/${sym.toLowerCase()}usd`);
+  if (!isRecord(data)) return null;
+  const last = num(typeof data.last === 'string' ? Number(data.last) : data.last);
+  if (last === null) return null;
+  return { price: last, change24h: null };
+}
+
+async function priceFromGateIo(sym: string): Promise<PriceValue | null> {
+  const data = await fetchJson(`https://api.gateio.ws/api/v4/spot/tickers?currency_pair=${sym}_USDT`);
+  if (!Array.isArray(data) || !isRecord(data[0])) return null;
+  const row = data[0];
+  const last = num(typeof row.last === 'string' ? Number(row.last) : row.last);
+  const pct = num(typeof row.change_percentage === 'string' ? Number(row.change_percentage) : row.change_percentage);
+  if (last === null) return null;
+  return { price: last, change24h: pct };
+}
+
+async function priceFromMexc(sym: string): Promise<PriceValue | null> {
+  const data = await fetchJson(`https://api.mexc.com/api/v3/ticker/24hr?symbol=${sym}USDT`);
+  if (!isRecord(data)) return null;
+  const last = num(typeof data.lastPrice === 'string' ? Number(data.lastPrice) : data.lastPrice);
+  const pct = num(typeof data.priceChangePercent === 'string' ? Number(data.priceChangePercent) : data.priceChangePercent);
+  if (last === null) return null;
+  return { price: last, change24h: pct };
+}
+
+async function priceFromBitget(sym: string): Promise<PriceValue | null> {
+  const data = await fetchJson(`https://api.bitget.com/api/v2/spot/market/tickers?symbol=${sym}USDT`);
+  if (!isRecord(data) || !Array.isArray(data.data) || !isRecord(data.data[0])) return null;
+  const row = data.data[0];
+  const last = num(typeof row.lastPr === 'string' ? Number(row.lastPr) : row.lastPr);
+  const open = num(typeof row.open === 'string' ? Number(row.open) : row.open);
+  if (last === null) return null;
+  return { price: last, change24h: pctFromOpen(last, open) };
+}
+
+async function priceFromBlockchainCom(sym: string): Promise<PriceValue | null> {
+  if (sym !== 'BTC') return null;
+  const data = await fetchJson('https://blockchain.info/ticker');
+  if (!isRecord(data) || !isRecord(data.USD)) return null;
+  const last = num(data.USD.last);
+  if (last === null) return null;
+  return { price: last, change24h: null };
+}
+
+/* Testable map of the whole keyless price leg: the node probe
+ * calls each source directly for BTC so a broken parser is
+ * caught even when CoinGecko answers first in the live chain. */
+export const KEYLESS_PRICE_SOURCES: Record<string, (sym: string) => Promise<PriceValue | null>> = {
+  CoinGecko: priceFromCoinGecko,
+  Coinbase: priceFromCoinbase,
+  CoinPaprika: priceFromCoinPaprika,
+  Kraken: priceFromKraken,
+  OKX: priceFromOkx,
+  KuCoin: priceFromKuCoin,
+  'Binance US': priceFromBinanceUs,
+  CoinLore: priceFromCoinLore,
+  Bitstamp: priceFromBitstamp,
+  Bitfinex: priceFromBitfinex,
+  Gemini: priceFromGemini,
+  'Gate.io': priceFromGateIo,
+  MEXC: priceFromMexc,
+  Bitget: priceFromBitget,
+  'Blockchain.com': priceFromBlockchainCom,
+};
+
 export function fetchPrice(sym: string): Promise<Observation<PriceValue>> {
   return governed<PriceValue>(`price:${sym}`, 120_000, PRICE_CHAIN, async () => {
-    for (const [source, fn] of [
-      ['CoinGecko', priceFromCoinGecko],
-      ['Coinbase', priceFromCoinbase],
-      ['CoinPaprika', priceFromCoinPaprika],
-    ] as const) {
+    for (const [source, fn] of Object.entries(KEYLESS_PRICE_SOURCES)) {
       try {
         const value = await fn(sym);
         if (value) return { value, source };
@@ -293,6 +485,78 @@ export function fetchPrice(sym: string): Promise<Observation<PriceValue>> {
       }
     }
     return null;
+  });
+}
+
+/* ------------- DEX pair intel + Bitcoin chain (keyless — v220) --------
+ * DexScreener (pair discovery: top pool by liquidity, pair count)
+ * and GeckoTerminal (independent token-price cross-check) both
+ * answer keyless, probed live 2026-11-25. Blockstream Esplora
+ * answers the Bitcoin tip height as plain text — hence the
+ * fetchText helper next to fetchJson. These are intelligence
+ * observations: the executor attaches pair intel to its dry-run
+ * decisions, and the radar reads the tip as chain health. */
+export interface DexPairIntel {
+  chainId: string;
+  dexId: string;
+  pairAddress: string;
+  priceUsd: number | null;
+  liquidityUsd: number | null;
+  volume24h: number | null;
+  pairCount: number;
+}
+
+export function fetchDexPairIntel(address: string): Promise<Observation<DexPairIntel>> {
+  return governed<DexPairIntel>(`pairintel:dexscreener:${address.toLowerCase()}`, 120_000, ['DexScreener'], async () => {
+    const data = await fetchJson(`https://api.dexscreener.com/latest/dex/tokens/${address}`);
+    if (!isRecord(data) || !Array.isArray(data.pairs) || data.pairs.length === 0) return null;
+    const rows = (data.pairs as Record<string, unknown>[]).filter((r) => isRecord(r));
+    rows.sort((a, b) => {
+      const la = isRecord(a.liquidity) ? num(a.liquidity.usd) ?? 0 : 0;
+      const lb = isRecord(b.liquidity) ? num(b.liquidity.usd) ?? 0 : 0;
+      return lb - la;
+    });
+    const top = rows[0];
+    if (!isRecord(top)) return null;
+    const vol = isRecord(top.volume) ? num(top.volume.h24) : null;
+    const liq = isRecord(top.liquidity) ? num(top.liquidity.usd) : null;
+    const price = num(typeof top.priceUsd === 'string' ? Number(top.priceUsd) : top.priceUsd);
+    return {
+      value: {
+        chainId: typeof top.chainId === 'string' ? top.chainId : 'unknown',
+        dexId: typeof top.dexId === 'string' ? top.dexId : 'unknown',
+        pairAddress: typeof top.pairAddress === 'string' ? top.pairAddress : '',
+        priceUsd: price,
+        liquidityUsd: liq,
+        volume24h: vol,
+        pairCount: rows.length,
+      },
+      source: 'DexScreener',
+    };
+  });
+}
+
+export function fetchGeckoTerminalPrice(address: string): Promise<Observation<{ priceUsd: number }>> {
+  return governed<{ priceUsd: number }>(`geckoterminal:${address.toLowerCase()}`, 120_000, ['GeckoTerminal'], async () => {
+    const data = await fetchJson(
+      `https://api.geckoterminal.com/api/v2/simple/networks/eth/token_price/${address.toLowerCase()}`,
+    );
+    if (!isRecord(data) || !isRecord(data.data) || !isRecord(data.data.attributes)) return null;
+    const prices = data.data.attributes.token_prices;
+    if (!isRecord(prices)) return null;
+    const raw = prices[address.toLowerCase()];
+    const price = num(typeof raw === 'string' ? Number(raw) : raw);
+    if (price === null) return null;
+    return { value: { priceUsd: price }, source: 'GeckoTerminal' };
+  });
+}
+
+export function fetchBitcoinTip(): Promise<Observation<{ height: number }>> {
+  return governed<{ height: number }>('btc:tip:blockstream', 120_000, ['Blockstream Esplora'], async () => {
+    const text = await fetchText('https://blockstream.info/api/blocks/tip/height');
+    const height = Number(text.trim());
+    if (!Number.isInteger(height) || height <= 0) return null;
+    return { value: { height }, source: 'Blockstream Esplora' };
   });
 }
 
@@ -572,8 +836,9 @@ export function humanFromRaw(raw: string, decimals: number, maxFrac = 6): string
  * Paraswap, KyberSwap Aggregator and CoW Swap all answer
  * keyless with real quotes (LI.FI's keyless tier was rate-
  * limited at first contact — excluded until it earns a place).
- * A quote is an observation, never a trade: nothing here
- * signs, broadcasts, or settles anything. */
+ * Velora joined v220 (ParaSwap's successor host, live on both
+ * networks 2026-11-25). A quote is an observation, never a
+ * trade: nothing here signs, broadcasts, or settles anything. */
 export interface SwapQuoteToken {
   address: string;
   symbol: string;
@@ -603,8 +868,13 @@ export function fetchSwapQuote(
    * (2026-11-24) but answered LIVE on re-probe the same night
    * (v215: 100 USDbC -> 0.0601452 WETH, eip712 shape) — CoW
    * joins the Base chain. LI.FI re-probed the same night:
-   * still 429 code 1005 at first contact — stays excluded. */
-  const chain = ['Paraswap', 'KyberSwap Aggregator', 'CoW Swap'];
+   * still 429 code 1005 at first contact — stays excluded.
+   * Velora (v220): ParaSwap's successor host (api.velora.xyz),
+   * probed LIVE 2026-11-25 on BOTH networks with real
+   * priceRoutes — joins as the 4th lane. OpenOcean answered
+   * 400 to the documented shape twice and Odos 530s behind
+   * Cloudflare from this host; neither joins the chain. */
+  const chain = ['Paraswap', 'KyberSwap Aggregator', 'CoW Swap', 'Velora'];
   return governed<SwapQuote>(
     `swapquote:${network}:${from.address.toLowerCase()}:${to.address.toLowerCase()}:${fromAmountRaw}`,
     30_000,
@@ -663,6 +933,24 @@ export function fetchSwapQuote(
               validTo: typeof q.validTo === 'number' ? q.validTo : null,
             },
             source: 'CoW Swap',
+          };
+        }
+      } catch { /* fall through to Velora */ }
+      try {
+        const j = (await fetchJson(
+          `https://api.velora.xyz/prices?srcToken=${from.address}&destToken=${to.address}&amount=${fromAmountRaw}&network=${network === 'base' ? 8453 : 1}`,
+        )) as { priceRoute?: { destAmount?: unknown; gasCostUSD?: unknown } } | null;
+        const pr = j?.priceRoute;
+        if (pr && typeof pr.destAmount === 'string') {
+          return {
+            value: {
+              fromSymbol: from.symbol, toSymbol: to.symbol, fromAmountRaw,
+              toAmountRaw: pr.destAmount,
+              toAmount: humanFromRaw(pr.destAmount, to.decimals),
+              gasCostUsd: pr.gasCostUSD ? Number(pr.gasCostUSD) : null,
+              validTo: null,
+            },
+            source: 'Velora',
           };
         }
       } catch { /* no source answered */ }

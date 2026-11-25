@@ -36,6 +36,7 @@ import {
   type AddressBalances,
 } from '../live-data';
 import { ProvenanceChip } from '../ProvenanceChip';
+import { detectInjectedWallets, type InjectedWallet } from '../injected-wallets';
 import { CapabilityLadderPanel } from './CapabilityLadderPanel';
 import { ExecutorPanel } from './ExecutorPanel';
 
@@ -50,6 +51,9 @@ export const SwapDeskPanel: React.FC = () => {
   const [watchInput, setWatchInput] = useState('');
   const [balances, setBalances] = useState<Observation<AddressBalances> | null>(null);
   const [balBusy, setBalBusy] = useState(false);
+  /* Injected wallets (v220): detected, never connected. */
+  const [detected, setDetected] = useState<InjectedWallet[] | null>(null);
+  const [scanBusy, setScanBusy] = useState(false);
   const [fromSym, setFromSym] = useState('USDC');
   const [toSym, setToSym] = useState('WETH');
   const [amount, setAmount] = useState('100');
@@ -69,8 +73,8 @@ export const SwapDeskPanel: React.FC = () => {
     setBalances(null);
     setMsg(
       n === 'base'
-        ? 'Base — the low-fee leg. Same wallet address, same safety gate; quotes run Paraswap → KyberSwap → CoW Swap, balances read from the public Base RPC.'
-        : 'Ethereum mainnet — quotes run Paraswap → KyberSwap → CoW Swap; balances read from Blockscout.',
+        ? 'Base — the low-fee leg. Same wallet address, same safety gate; quotes run Paraswap → KyberSwap → CoW Swap → Velora, balances read from the public Base RPC.'
+        : 'Ethereum mainnet — quotes run Paraswap → KyberSwap → CoW Swap → Velora; balances read from Blockscout.',
     );
   };
 
@@ -93,6 +97,19 @@ export const SwapDeskPanel: React.FC = () => {
       setBalances(await fetchAddressBalances(watch.address, network, swappableOn('base')));
     } finally {
       setBalBusy(false);
+    }
+  };
+
+  /* Injected-wallet scan (v220): EIP-6963 + window.ethereum,
+   * read-only detection only. No connection is requested, no
+   * account is read, nothing is signed. */
+  const doScanWallets = async () => {
+    if (scanBusy) return;
+    setScanBusy(true);
+    try {
+      setDetected(await detectInjectedWallets());
+    } finally {
+      setScanBusy(false);
     }
   };
 
@@ -236,6 +253,32 @@ export const SwapDeskPanel: React.FC = () => {
             <ProvenanceChip obs={balances} compact />
           </div>
         )}
+      </div>
+
+      {/* Detected wallets — read-only (v220) */}
+      <div className="space-y-1.5">
+        <div className={micro}>DETECTED WALLETS (READ-ONLY — NO CONNECTION)</div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className={btn} onClick={doScanWallets} disabled={scanBusy}>
+            {scanBusy ? 'SCANNING…' : 'SCAN FOR WALLETS'}
+          </button>
+          {detected !== null && detected.length === 0 && (
+            <span className={micro}>
+              NO INJECTED WALLET FOUND IN THIS BROWSER — METAMASK, COINBASE WALLET AND OTHERS APPEAR HERE WHEN
+              INSTALLED. NO SIGN-IN, NO SIGNATURE.
+            </span>
+          )}
+          {detected !== null &&
+            detected.map((w) => (
+              <span key={w.name} className="font-mono text-[11px] text-[#E8EAF0]">
+                {w.name} · READ-ONLY — NOT CONNECTED
+              </span>
+            ))}
+        </div>
+        <div className={micro}>
+          WALLETCONNECT NEEDS A FREE PROJECT ID (NO KYC) — SEE THE DECISION BOARD. SIGNING ALWAYS HAPPENS IN YOUR
+          OWN WALLET.
+        </div>
       </div>
 
       {/* Quote + prepare */}

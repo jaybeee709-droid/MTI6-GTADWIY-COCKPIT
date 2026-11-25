@@ -34,11 +34,16 @@
  *  Slippage: the keyless quote carries no slippage figure,
  *  so it reads NOT_MEASURED; the bound is enforced at
  *  signing from the venue's own quote (the desk's rule).
+ *  Pair intel (v220, NOT a gate): when a decision reaches
+ *  WOULD_TRADE, the top DexScreener pair and a GeckoTerminal
+ *  price cross-check are attached to the record as
+ *  intelligence. A pair source that does not answer reads
+ *  null — it never blocks or changes the decision.
  *
  * Records: every run is an observation in localStorage
  * (mti6_executor_dryrun_v1). A would-be trade is not a
  * trade — it has no tx hash and no balance read-back. */
-import { fetchSwapQuote, fetchHoneypotCheck, rawFromHuman } from './live-data';
+import { fetchSwapQuote, fetchHoneypotCheck, fetchDexPairIntel, fetchGeckoTerminalPrice, rawFromHuman } from './live-data';
 import { listRadarCandidates } from './money-radar';
 import { swappableBySymbol } from './swap-desk';
 
@@ -67,6 +72,11 @@ export interface ExecutorDecision {
   gasCostUsd: number | null;
   honeypot: boolean | null;
   honeypotRisk: string | null;
+  /** DEX pair intelligence (v220): top DexScreener pair + a
+   * GeckoTerminal price cross-check for the token the trade
+   * would buy. Intelligence only — it never gates a decision,
+   * and null means the pair sources did not answer. */
+  pairIntel: string | null;
   decision: 'WOULD_TRADE' | 'WOULD_SKIP';
   ruleFired: string;
   reason: string;
@@ -251,6 +261,7 @@ export async function runDryRunCycle(): Promise<ExecutorRun> {
           gasCostUsd: null,
           honeypot: null,
           honeypotRisk: null,
+          pairIntel: null,
           decision: 'WOULD_SKIP',
           ruleFired: 'NOT_SWAPPABLE_BASE',
           reason: `${candidate.asset} is a radar candidate but is not a catalogued swappable token on Base — the executor only trades the catalogue, DEX only.`,
@@ -293,6 +304,7 @@ export async function runDryRunCycle(): Promise<ExecutorRun> {
           gasCostUsd: null,
           honeypot: null,
           honeypotRisk: null,
+          pairIntel: null,
           decision: 'WOULD_SKIP',
           ruleFired: 'NO_QUOTE',
           reason: `The aggregator chain answered NO_DATA (${quoteObs?.status ?? 'NO_DATA'}) for $${EXECUTOR_PILOT_SIZE_USD} USDC → ${candidate.asset} on Base. No quote, no trade — not even a would-be one.`,
@@ -323,6 +335,7 @@ export async function runDryRunCycle(): Promise<ExecutorRun> {
           gasCostUsd: quoteObs.value.gasCostUsd,
           honeypot: true,
           honeypotRisk: safetyObs.value?.risk ?? null,
+          pairIntel: null,
           decision: 'WOULD_SKIP',
           ruleFired: 'HONEYPOT',
           reason: `Honeypot.is flags ${candidate.asset} as a HONEYPOT (risk ${safetyObs.value?.risk ?? 'unknown'}). The quote was live and the trade would have been refused.`,
@@ -335,6 +348,15 @@ export async function runDryRunCycle(): Promise<ExecutorRun> {
     saveRuns([run, ...loadExecutorRuns()]);
     return run;
   }
+  /* Pair intel (v220, intelligence only): top DexScreener pair
+   * for the token the trade would buy, plus a GeckoTerminal
+   * price cross-check. Either source may answer NO_DATA —
+   * that reads null and never changes the decision. */
+  const pairObs = await fetchDexPairIntel(to.address);
+  const gtObs = await fetchGeckoTerminalPrice(to.address);
+  const pairIntel: string | null = pairObs.value
+    ? `Top DEX pair: ${pairObs.value.dexId} on ${pairObs.value.chainId} — $${pairObs.value.priceUsd ?? '—'} — liq $${pairObs.value.liquidityUsd?.toLocaleString() ?? '—'} — 24h vol $${pairObs.value.volume24h?.toLocaleString() ?? '—'} (${pairObs.value.pairCount} pairs, DexScreener)${gtObs.value ? `; GeckoTerminal cross-check $${gtObs.value.priceUsd}` : '; GeckoTerminal: NO_DATA'}.`
+    : null;
   const run: ExecutorRun = {
     ...base,
     decisions: [
@@ -351,9 +373,10 @@ export async function runDryRunCycle(): Promise<ExecutorRun> {
         gasCostUsd: quoteObs.value.gasCostUsd,
         honeypot: safetyObs.value ? safetyObs.value.isHoneypot : null,
         honeypotRisk: safetyObs.value?.risk ?? null,
+        pairIntel,
         decision: 'WOULD_TRADE',
         ruleFired: 'ALL_GATES_PASSED',
-        reason: `Live ${quoteObs.source} quote ($${EXECUTOR_PILOT_SIZE_USD} USDC → ${quoteObs.value.toAmount} ${candidate.asset}, ${quoteObs.status}) and a clean Honeypot.is check. In DRY_RUN this is a log entry only — nothing was signed, sent, or bought.`,
+        reason: `Live ${quoteObs.source} quote ($${EXECUTOR_PILOT_SIZE_USD} USDC → ${quoteObs.value.toAmount} ${candidate.asset}, ${quoteObs.status}) and a clean Honeypot.is check. In DRY_RUN this is a log entry only — nothing was signed, sent, or bought.${pairIntel ? ` Pair intel: ${pairIntel}` : ' Pair intel: NO_DATA — DexScreener/GeckoTerminal did not answer.'}`,
         at,
       },
     ],

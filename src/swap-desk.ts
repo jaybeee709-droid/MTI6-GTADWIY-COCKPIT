@@ -10,7 +10,7 @@
  *     design, never a key, never a seed) with balances read
  *     from Blockscout.
  *   - Real DEX quotes through the governed aggregator chain
- *     (Paraswap → KyberSwap → CoW Swap, all keyless).
+ *     (Paraswap → KyberSwap → CoW Swap → Velora, all keyless).
  *   - Prepared swap records: a pair, an amount, and the quote
  *     observed at preparation time, born PREPARED, advanced
  *     only by the owner's own approval tap to OWNER_APPROVED.
@@ -350,5 +350,5 @@ export function swapDeskSummaryText(): string {
   const latestLine = s.latest
     ? ` Latest prepared: ${s.latest.fromAmount} ${s.latest.fromSymbol} → ~${s.latest.toAmount} ${s.latest.toSymbol} on ${s.latest.network} via ${s.latest.quoteSource ?? 'unknown source'} (${s.latest.state}${s.latest.state === 'PREPARED' ? `, quote ${quoteFreshness(s.latest).toLowerCase()}` : ''}).`
     : ' No swaps prepared yet.';
-  return `Swap Desk — the execution track (D1 YES, D2 DEX only, no KYC venue, owner signs in his own wallet). ${watchLine} Swappable: ${s.swappableCount} catalogued tokens with recorded decimals across Ethereum and Base (${s.baseSwappableCount} on Base — the low-fee leg for the $50 start; Base quotes run Paraswap → KyberSwap → CoW Swap). Prepared swaps: ${s.prepared} awaiting approval, ${s.approved} owner-approved, ${s.handedOff} handed off to Daniel's wallet for signing. Every handoff passes a live Honeypot.is security gate on the token he would receive — a honeypot flag refuses the handoff.${latestLine} ${SWAP_DESK_LAW}`;
+  return `Swap Desk — the execution track (D1 YES, D2 DEX only, no KYC venue, owner signs in his own wallet). ${watchLine} Swappable: ${s.swappableCount} catalogued tokens with recorded decimals across Ethereum and Base (${s.baseSwappableCount} on Base — the low-fee leg for the $50 start; Base quotes run Paraswap → KyberSwap → CoW Swap → Velora). Prepared swaps: ${s.prepared} awaiting approval, ${s.approved} owner-approved, ${s.handedOff} handed off to Daniel's wallet for signing. Every handoff passes a live Honeypot.is security gate on the token he would receive — a honeypot flag refuses the handoff.${latestLine} ${SWAP_DESK_LAW}`;
 }

@@ -59,4 +59,11 @@ export const DECISION_BOARD_ROWS: BoardRow[] = [
     blocking: 'Yes — deeper authenticated services',
     evidence: 'Direction given 2026-11-24 ~1:24 PM: after the keyless phase. The keyless phase still has keys 2–4 outstanding (CoinGecko Demo, Geoapify, LocationIQ) — Daniel\'s Netlify steps.',
   },
+  {
+    item: 'WalletConnect Project ID',
+    owner: 'Daniel',
+    status: 'OPEN — free registration, no KYC, but a project ID is required',
+    blocking: 'WalletConnect-based connections only (injected-wallet detection already live, no key)',
+    evidence: 'Probed 2026-11-25: WalletConnect v2 is a connection protocol, not a data API — it needs a project ID from cloud.walletconnect.com. The desk detects installed wallets (MetaMask, Coinbase Wallet, …) keyless via EIP-6963; that path needs nothing from Daniel.',
+  },
 ];
