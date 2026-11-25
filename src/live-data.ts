@@ -595,15 +595,22 @@ export function fetchSwapQuote(
   to: SwapQuoteToken,
   fromAmountRaw: string,
   fromAddress?: string,
+  network: 'ethereum' | 'base' = 'ethereum',
 ): Promise<Observation<SwapQuote>> {
+  /* Base leg (v213): Paraswap + KyberSwap probed LIVE on Base
+   * 2026-11-24 (100 USDbC -> ~0.05986 WETH from both, agreeing).
+   * CoW's Base endpoint did not answer the probe — CoW stays
+   * in the Ethereum chain only, where it was proven. */
+  const chain =
+    network === 'base' ? ['Paraswap', 'KyberSwap Aggregator'] : ['Paraswap', 'KyberSwap Aggregator', 'CoW Swap'];
   return governed<SwapQuote>(
-    `swapquote:${from.address.toLowerCase()}:${to.address.toLowerCase()}:${fromAmountRaw}`,
+    `swapquote:${network}:${from.address.toLowerCase()}:${to.address.toLowerCase()}:${fromAmountRaw}`,
     30_000,
-    ['Paraswap', 'KyberSwap Aggregator', 'CoW Swap'],
+    chain,
     async () => {
       try {
         const j = (await fetchJson(
-          `https://api.paraswap.io/prices?srcToken=${from.address}&destToken=${to.address}&amount=${fromAmountRaw}&srcDecimals=${from.decimals}&destDecimals=${to.decimals}&side=SELL&network=1`,
+          `https://api.paraswap.io/prices?srcToken=${from.address}&destToken=${to.address}&amount=${fromAmountRaw}&srcDecimals=${from.decimals}&destDecimals=${to.decimals}&side=SELL&network=${network === 'base' ? 8453 : 1}`,
         )) as { priceRoute?: { destAmount?: unknown; gasCostUSD?: unknown } } | null;
         const pr = j?.priceRoute;
         if (pr && typeof pr.destAmount === 'string') {
@@ -621,7 +628,7 @@ export function fetchSwapQuote(
       } catch { /* fall through to the next source */ }
       try {
         const j = (await fetchJson(
-          `https://aggregator-api.kyberswap.com/ethereum/api/v1/routes?tokenIn=${from.address}&tokenOut=${to.address}&amountIn=${fromAmountRaw}`,
+          `https://aggregator-api.kyberswap.com/${network}/api/v1/routes?tokenIn=${from.address}&tokenOut=${to.address}&amountIn=${fromAmountRaw}`,
         )) as { data?: { routeSummary?: { amountOut?: unknown; gasUsd?: unknown } } } | null;
         const rs = j?.data?.routeSummary;
         if (rs && typeof rs.amountOut === 'string') {
@@ -637,6 +644,7 @@ export function fetchSwapQuote(
           };
         }
       } catch { /* fall through to the next source */ }
+      if (network === 'base') return null;
       try {
         const addr = fromAddress ?? '0x0000000000000000000000000000000000000000';
         const j = (await fetchJsonPost('https://api.cow.fi/mainnet/api/v1/quote', {
@@ -668,7 +676,48 @@ export interface AddressBalances {
   tokens: { symbol: string; address: string; amount: string; decimals: number }[];
 }
 
-export function fetchAddressBalances(address: string): Promise<Observation<AddressBalances>> {
+export function fetchAddressBalances(
+  address: string,
+  network: 'ethereum' | 'base' = 'ethereum',
+  baseTokens: { symbol: string; address: string; decimals: number }[] = [],
+): Promise<Observation<AddressBalances>> {
+  if (network === 'base') {
+    /* Base balances via public JSON-RPC (v213): Blockscout
+     * Base was bot-walled from the probe host, while the Base
+     * RPC endpoints answered every call live 2026-11-24
+     * (eth_blockNumber / eth_call / eth_getBalance). Native
+     * balance + balanceOf for the desk's Base tokens only;
+     * zero balances are not holdings and are not listed. */
+    return governed<AddressBalances>(`balances:baserpc:${address.toLowerCase()}`, 120_000, ['Base RPC'], async () => {
+      const rpc = async (method: string, params: unknown[]): Promise<string | null> => {
+        for (const url of ['https://mainnet.base.org', 'https://base-rpc.publicnode.com']) {
+          try {
+            const j = (await fetchJsonPost(url, { jsonrpc: '2.0', id: 1, method, params })) as { result?: unknown } | null;
+            if (j && typeof j.result === 'string') return j.result;
+          } catch { /* try the next endpoint */ }
+        }
+        return null;
+      };
+      const balHex = await rpc('eth_getBalance', [address, 'latest']);
+      let eth: string | null = null;
+      if (balHex) {
+        try { eth = humanFromRaw(BigInt(balHex).toString(), 18); } catch { eth = null; }
+      }
+      const tokens: AddressBalances['tokens'] = [];
+      const padded = address.toLowerCase().replace('0x', '').padStart(64, '0');
+      for (const t of baseTokens) {
+        const r = await rpc('eth_call', [{ to: t.address, data: `0x70a08231${padded}` }, 'latest']);
+        if (!r) continue;
+        try {
+          const raw = BigInt(r);
+          if (raw === 0n) continue;
+          tokens.push({ symbol: t.symbol, address: t.address, amount: humanFromRaw(raw.toString(), t.decimals), decimals: t.decimals });
+        } catch { /* an unreadable balance is skipped, never guessed */ }
+      }
+      if (eth === null && tokens.length === 0) return null;
+      return { value: { eth, tokens }, source: 'Base RPC (public)' };
+    });
+  }
   return governed<AddressBalances>(`balances:blockscout:${address.toLowerCase()}`, 120_000, ['Blockscout'], async () => {
     const info = (await fetchJson(`https://eth.blockscout.com/api/v2/addresses/${address}`)) as
       { coin_balance?: unknown } | null;
@@ -708,9 +757,9 @@ export interface HoneypotCheck {
   sellTax: number | null;
 }
 
-export function fetchHoneypotCheck(address: string): Promise<Observation<HoneypotCheck>> {
-  return governed<HoneypotCheck>(`honeypot:${address.toLowerCase()}`, 600_000, ['Honeypot.is'], async () => {
-    const j = (await fetchJson(`https://api.honeypot.is/v2/IsHoneypot?address=${address}&chainID=1`)) as {
+export function fetchHoneypotCheck(address: string, chainId = 1): Promise<Observation<HoneypotCheck>> {
+  return governed<HoneypotCheck>(`honeypot:${chainId}:${address.toLowerCase()}`, 600_000, ['Honeypot.is'], async () => {
+    const j = (await fetchJson(`https://api.honeypot.is/v2/IsHoneypot?address=${address}&chainID=${chainId}`)) as {
       honeypotResult?: { isHoneypot?: unknown };
       summary?: { risk?: unknown };
       simulationResult?: { buyTax?: unknown; sellTax?: unknown };

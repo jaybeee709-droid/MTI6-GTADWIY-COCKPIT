@@ -12,6 +12,7 @@ import React, { useState } from 'react';
 import {
   SWAPPABLE_TOKENS,
   SWAP_DESK_LAW,
+  DESK_CAPITAL_BOUNDARY_USD,
   loadWatchWallet,
   saveWatchWallet,
   clearWatchWallet,
@@ -20,6 +21,8 @@ import {
   approvePreparedSwap,
   handoffSwap,
   quoteFreshness,
+  swappableOn,
+  type DeskNetwork,
   type PreparedSwap,
   type WatchWallet,
 } from '../swap-desk';
@@ -55,6 +58,19 @@ export const SwapDeskPanel: React.FC = () => {
   const [swaps, setSwaps] = useState<PreparedSwap[]>(() => loadPreparedSwaps());
   const [handoffBusy, setHandoffBusy] = useState<string | null>(null);
   const [handoffBox, setHandoffBox] = useState<{ swap: PreparedSwap; link: string } | null>(null);
+  const [network, setNetwork] = useState<DeskNetwork>('ethereum');
+  const tokensOn = swappableOn(network);
+
+  const switchNetwork = (n: DeskNetwork) => {
+    setNetwork(n);
+    setQuote(null);
+    setBalances(null);
+    setMsg(
+      n === 'base'
+        ? 'Base — the low-fee leg. Same wallet address, same safety gate; quotes run Paraswap → KyberSwap, balances read from the public Base RPC.'
+        : 'Ethereum mainnet — quotes run Paraswap → KyberSwap → CoW Swap; balances read from Blockscout.',
+    );
+  };
 
   const doSaveWatch = () => {
     const w = saveWatchWallet(watchInput);
@@ -65,22 +81,22 @@ export const SwapDeskPanel: React.FC = () => {
     setWatch(w);
     setWatchInput('');
     setBalances(null);
-    setMsg('Watch wallet saved (read-only). Balances come from Blockscout; the address is public information, never a key.');
+    setMsg('Watch wallet saved (read-only). Balances are read per network — Blockscout on Ethereum, the public Base RPC on Base; the address is public information, never a key.');
   };
 
   const doBalances = async () => {
     if (!watch || balBusy) return;
     setBalBusy(true);
     try {
-      setBalances(await fetchAddressBalances(watch.address));
+      setBalances(await fetchAddressBalances(watch.address, network, swappableOn('base')));
     } finally {
       setBalBusy(false);
     }
   };
 
   const doQuote = async () => {
-    const from = SWAPPABLE_TOKENS.find((t) => t.symbol === fromSym);
-    const to = SWAPPABLE_TOKENS.find((t) => t.symbol === toSym);
+    const from = tokensOn.find((t) => t.symbol === fromSym);
+    const to = tokensOn.find((t) => t.symbol === toSym);
     if (!from || !to || quoteBusy) return;
     const raw = rawFromHuman(amount, from.decimals);
     if (!raw) {
@@ -89,7 +105,7 @@ export const SwapDeskPanel: React.FC = () => {
     }
     setQuoteBusy(true);
     try {
-      setQuote(await fetchSwapQuote(from, to, raw, watch?.address));
+      setQuote(await fetchSwapQuote(from, to, raw, watch?.address, network));
     } finally {
       setQuoteBusy(false);
     }
@@ -99,7 +115,7 @@ export const SwapDeskPanel: React.FC = () => {
     if (prepBusy) return;
     setPrepBusy(true);
     try {
-      const r = await prepareSwap(fromSym, toSym, amount);
+      const r = await prepareSwap(fromSym, toSym, amount, network);
       if (!r.ok) {
         setMsg(r.error);
         return;
@@ -141,8 +157,24 @@ export const SwapDeskPanel: React.FC = () => {
   return (
     <section className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
       <div className="flex items-baseline justify-between gap-2">
-        <span className={micro}>SWAP DESK — WALLET LEG (D2 · ETHEREUM)</span>
+        <span className={micro}>SWAP DESK — WALLET LEG (D2 · DEX ONLY)</span>
         <span className={micro}>PREPARE → OWNER APPROVAL → YOU SIGN</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className={micro}>NETWORK</span>
+        {(['ethereum', 'base'] as DeskNetwork[]).map((n) => (
+          <button
+            key={n}
+            type="button"
+            className={btn}
+            onClick={() => switchNetwork(n)}
+            aria-pressed={network === n}
+            style={network === n ? { borderColor: '#00B7FF', color: '#FFFFFF' } : undefined}
+          >
+            {n === 'base' ? 'BASE (LOW FEE)' : 'ETHEREUM'}
+          </button>
+        ))}
+        <span className={micro}>{tokensOn.length} TOKENS ON {network.toUpperCase()}</span>
       </div>
 
       {/* Watch wallet — read-only */}
@@ -197,7 +229,7 @@ export const SwapDeskPanel: React.FC = () => {
                 )}
               </>
             ) : (
-              <div className={micro}>BALANCES: NO_DATA — BLOCKSCOUT DID NOT ANSWER</div>
+              <div className={micro}>BALANCES: NO_DATA — {network === 'base' ? 'THE BASE RPC' : 'BLOCKSCOUT'} DID NOT ANSWER</div>
             )}
             <ProvenanceChip obs={balances} compact />
           </div>
@@ -206,21 +238,21 @@ export const SwapDeskPanel: React.FC = () => {
 
       {/* Quote + prepare */}
       <div className="space-y-1.5">
-        <div className={micro}>QUOTE + PREPARE ({SWAPPABLE_TOKENS.length} SWAPPABLE TOKENS)</div>
+        <div className={micro}>QUOTE + PREPARE ({tokensOn.length} SWAPPABLE TOKENS ON {network.toUpperCase()})</div>
         <div className="flex flex-wrap items-end gap-2">
           <label className="block">
             <span className={micro}>FROM</span>
             <select className={inputCls} value={fromSym} onChange={(e) => setFromSym(e.target.value)} aria-label="From token">
-              {SWAPPABLE_TOKENS.map((t) => (
-                <option key={t.symbol} value={t.symbol}>{t.symbol}</option>
+              {tokensOn.map((t) => (
+                <option key={`${t.network}-${t.symbol}`} value={t.symbol}>{t.symbol}</option>
               ))}
             </select>
           </label>
           <label className="block">
             <span className={micro}>TO</span>
             <select className={inputCls} value={toSym} onChange={(e) => setToSym(e.target.value)} aria-label="To token">
-              {SWAPPABLE_TOKENS.map((t) => (
-                <option key={t.symbol} value={t.symbol}>{t.symbol}</option>
+              {tokensOn.map((t) => (
+                <option key={`${t.network}-${t.symbol}`} value={t.symbol}>{t.symbol}</option>
               ))}
             </select>
           </label>
@@ -261,7 +293,7 @@ export const SwapDeskPanel: React.FC = () => {
             <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-white/10 px-2 py-1.5">
               <span className="font-mono text-[11px] text-[#E8EAF0]">
                 {s.fromAmount} {s.fromSymbol} → ~{s.toAmount} {s.toSymbol}
-                <span className="text-[#8A93A3]"> · {s.quoteSource ?? '—'} · {s.state}{s.state === 'PREPARED' ? ` · QUOTE ${quoteFreshness(s)}` : ''}</span>
+                <span className="text-[#8A93A3]"> · {s.network.toUpperCase()} · {s.quoteSource ?? '—'} · {s.state}{s.state === 'PREPARED' ? ` · QUOTE ${quoteFreshness(s)}` : ''}</span>
               </span>
               {s.state === 'PREPARED' && (
                 <button type="button" className={btn} onClick={() => doApprove(s.id)}>
@@ -304,7 +336,7 @@ export const SwapDeskPanel: React.FC = () => {
 
       <p className="text-[11px] leading-relaxed text-[#B8B8B8]">{SWAP_DESK_LAW}</p>
       <p className={micro}>
-        CAPITAL BOUNDARY (D3): NOT SET — UNTIL DANIEL SETS IT, PREPARATION CARRIES NO PLATFORM CAP; EVERY SWAP STILL NEEDS ITS OWN OWNER APPROVAL, AND SIGNING HAPPENS ONLY IN HIS WALLET. QUOTE CHAIN: PARASWAP → KYBERSWAP → COW SWAP (KEYLESS, PROBED LIVE 2026-11-24). SECURITY GATE: EVERY HANDOFF RUNS A LIVE HONEYPOT.IS CHECK ON THE TOKEN YOU WOULD RECEIVE — A HONEYPOT FLAG REFUSES THE HANDOFF.
+        CAPITAL BOUNDARY (D3): ${DESK_CAPITAL_BOUNDARY_USD} STARTING CAPITAL, SET BY DANIEL 2026-11-24 — A SINGLE STABLECOIN-DENOMINATED PREPARATION ABOVE IT IS REFUSED; EVERY SWAP STILL NEEDS ITS OWN OWNER APPROVAL, AND SIGNING HAPPENS ONLY IN HIS WALLET. QUOTE CHAINS (KEYLESS, PROBED LIVE 2026-11-24): ETHEREUM PARASWAP → KYBERSWAP → COW SWAP · BASE PARASWAP → KYBERSWAP. SECURITY GATE: EVERY HANDOFF RUNS A LIVE HONEYPOT.IS CHECK ON THE TOKEN YOU WOULD RECEIVE — A HONEYPOT FLAG REFUSES THE HANDOFF.
       </p>
     </section>
   );

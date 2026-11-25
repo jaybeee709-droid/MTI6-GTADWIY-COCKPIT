@@ -1,6 +1,9 @@
 /* MTI6 Swap Desk (v210) — the wallet leg of the execution
  * track, opened by the owner's decisions D1 (YES, 2026-11-24)
- * and D2 (BOTH venues, wallet first).
+ * and D2 (FINAL: DEX only, no KYC venue, owner signs in his
+ * own wallet — re-decided 2026-11-24 after the anonymity
+ * correction). Base leg added v213 (owner's $50 strategy:
+ * fees are the binding constraint at that size).
  *
  * What this module is: the PREPARE end of the ladder.
  *   - A read-only watch wallet (a public address — public by
@@ -38,6 +41,16 @@ import { normalizeEvmAddress } from './contract-registry';
 export const SWAP_DESK_LAW =
   "MTI6 prepares and records. It never signs, never broadcasts, never holds keys or funds. Signing happens in Daniel's own wallet. A prepared swap is not a trade.";
 
+/** D3 (owner, 2026-11-24): the starting capital boundary is
+ * $50. Enforced where it can be measured honestly: a single
+ * preparation denominated in a USD stablecoin may not exceed
+ * it (a stablecoin amount IS its dollar amount by the token's
+ * design). Non-stable denominations are not priced by the
+ * desk for all tokens, so the boundary is stated, not
+ * enforced, there — every swap still needs owner approval. */
+export const DESK_CAPITAL_BOUNDARY_USD = 50;
+const USD_STABLES = new Set(['USDT', 'USDC', 'USDbC', 'DAI', 'PYUSD', 'USDe', 'FDUSD', 'TUSD', 'GHO', 'FRAX', 'USD1']);
+
 const TOKEN_DECIMALS: Record<string, number> = {
   USDT: 6, USDC: 6, EURC: 6, PYUSD: 6, AXL: 6, WBTC: 8,
   WETH: 18, DAI: 18, LINK: 18, EIGEN: 18, MKR: 18, CRV: 18, BAL: 18,
@@ -48,27 +61,51 @@ const TOKEN_DECIMALS: Record<string, number> = {
   FET: 18, AGIX: 18, MOR: 18, CAKE: 18, MORPHO: 18, RENDER: 18,
 };
 
+/* Base decimals are keyed by contract ADDRESS (symbols repeat
+ * across networks — USDC and WETH exist on both). Each value
+ * was verified against the contract itself / Honeypot.is at
+ * catalogue time (2026-11-24); see contract-catalog.ts. */
+const BASE_TOKEN_DECIMALS: Record<string, number> = {
+  '0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca': 6, // USDbC
+  '0x940181a94a35a4569e4529a3cdfb74e38fd98631': 18, // AERO
+  '0x4200000000000000000000000000000000000006': 18, // WETH (Base)
+  '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913': 6, // USDC (Base)
+};
+
+export type DeskNetwork = 'ethereum' | 'base';
+
 export interface SwappableToken {
   symbol: string;
   name: string;
   address: string;
   decimals: number;
   support: string;
+  network: DeskNetwork;
 }
 
 export const SWAPPABLE_TOKENS: SwappableToken[] = CATALOGUED_CONTRACTS
-  .filter((c) => c.network === 'ethereum' && TOKEN_DECIMALS[c.symbol] !== undefined)
+  .filter(
+    (c) =>
+      (c.network === 'ethereum' && TOKEN_DECIMALS[c.symbol] !== undefined) ||
+      (c.network === 'base' && BASE_TOKEN_DECIMALS[c.address.toLowerCase()] !== undefined),
+  )
   .map((c) => ({
     symbol: c.symbol,
     name: c.name,
     address: c.address,
-    decimals: TOKEN_DECIMALS[c.symbol],
+    decimals:
+      c.network === 'base' ? BASE_TOKEN_DECIMALS[c.address.toLowerCase()] : TOKEN_DECIMALS[c.symbol],
     support: c.support,
+    network: c.network as DeskNetwork,
   }))
   .sort((a, b) => a.symbol.localeCompare(b.symbol));
 
-export function swappableBySymbol(symbol: string): SwappableToken | null {
-  return SWAPPABLE_TOKENS.find((t) => t.symbol === symbol) ?? null;
+export function swappableOn(network: DeskNetwork): SwappableToken[] {
+  return SWAPPABLE_TOKENS.filter((t) => t.network === network);
+}
+
+export function swappableBySymbol(symbol: string, network: DeskNetwork = 'ethereum'): SwappableToken | null {
+  return SWAPPABLE_TOKENS.find((t) => t.symbol === symbol && t.network === network) ?? null;
 }
 
 /* ------------------------- watch wallet (read-only) ------------------ */
@@ -111,7 +148,7 @@ export const QUOTE_FRESH_MS = 15 * 60_000;
 export interface PreparedSwap {
   id: string;
   createdAt: number;
-  network: 'ethereum';
+  network: DeskNetwork;
   fromSymbol: string;
   toSymbol: string;
   fromAmount: string;
@@ -157,22 +194,29 @@ export async function prepareSwap(
   fromSymbol: string,
   toSymbol: string,
   amountHuman: string,
+  network: DeskNetwork = 'ethereum',
 ): Promise<{ ok: true; swap: PreparedSwap; obs: Observation<SwapQuote> } | { ok: false; error: string }> {
-  const from = swappableBySymbol(fromSymbol);
-  const to = swappableBySymbol(toSymbol);
-  if (!from || !to) return { ok: false, error: 'Pair not in the swappable list (catalogued Ethereum contracts with recorded decimals only).' };
+  const from = swappableBySymbol(fromSymbol, network);
+  const to = swappableBySymbol(toSymbol, network);
+  if (!from || !to) return { ok: false, error: `Pair not in the swappable list for ${network} (catalogued contracts with recorded decimals only).` };
   if (from.symbol === to.symbol) return { ok: false, error: 'From and to tokens are the same.' };
   const raw = rawFromHuman(amountHuman, from.decimals);
   if (!raw) return { ok: false, error: 'Amount is not a valid positive number for this token.' };
+  if (USD_STABLES.has(from.symbol) && Number(amountHuman) > DESK_CAPITAL_BOUNDARY_USD) {
+    return {
+      ok: false,
+      error: `Over the D3 capital boundary: ${amountHuman} ${from.symbol} exceeds the $${DESK_CAPITAL_BOUNDARY_USD} starting capital Daniel set. Lower the amount, or Daniel raises the boundary as his own recorded decision.`,
+    };
+  }
   const watch = loadWatchWallet();
-  const obs = await fetchSwapQuote(from, to, raw, watch?.address);
+  const obs = await fetchSwapQuote(from, to, raw, watch?.address, network);
   if (!obs.value) {
     return { ok: false, error: `No quote — the aggregator chain answered NO_DATA (${obs.status}). Nothing was prepared.` };
   }
   const swap: PreparedSwap = {
     id: `swap-${Date.now()}-${from.symbol}-${to.symbol}`,
     createdAt: Date.now(),
-    network: 'ethereum',
+    network,
     fromSymbol: from.symbol,
     toSymbol: to.symbol,
     fromAmount: amountHuman.trim(),
@@ -216,10 +260,11 @@ export function approvePreparedSwap(id: string): PreparedSwap | null {
  *      fresh quote and signs with HIS wallet. MTI6 never sees
  *      a key, never signs, never broadcasts. */
 export function signLinkFor(swap: PreparedSwap): string | null {
-  const from = swappableBySymbol(swap.fromSymbol);
-  const to = swappableBySymbol(swap.toSymbol);
+  const from = swappableBySymbol(swap.fromSymbol, swap.network);
+  const to = swappableBySymbol(swap.toSymbol, swap.network);
   if (!from || !to) return null;
-  return `https://app.uniswap.org/swap?inputCurrency=${from.address}&outputCurrency=${to.address}&exactAmount=${encodeURIComponent(swap.fromAmount)}&exactField=input`;
+  const chain = swap.network === 'base' ? '&chain=base' : '';
+  return `https://app.uniswap.org/swap?inputCurrency=${from.address}&outputCurrency=${to.address}&exactAmount=${encodeURIComponent(swap.fromAmount)}&exactField=input${chain}`;
 }
 
 export async function handoffSwap(
@@ -231,11 +276,11 @@ export async function handoffSwap(
   if (s.state !== 'OWNER_APPROVED') {
     return { ok: false, error: `Handoff requires OWNER_APPROVED — this swap is ${s.state}. Approve it first; the ladder has no skipped rungs.` };
   }
-  const from = swappableBySymbol(s.fromSymbol);
-  const to = swappableBySymbol(s.toSymbol);
+  const from = swappableBySymbol(s.fromSymbol, s.network);
+  const to = swappableBySymbol(s.toSymbol, s.network);
   if (!from || !to) return { ok: false, error: 'Pair no longer in the swappable list — handoff refused.' };
 
-  const safetyObs = await fetchHoneypotCheck(to.address);
+  const safetyObs = await fetchHoneypotCheck(to.address, s.network === 'base' ? 8453 : 1);
   if (safetyObs.value?.isHoneypot === true) {
     return {
       ok: false,
@@ -244,7 +289,7 @@ export async function handoffSwap(
   }
 
   const watch = loadWatchWallet();
-  const obs = await fetchSwapQuote(from, to, s.fromAmountRaw, watch?.address);
+  const obs = await fetchSwapQuote(from, to, s.fromAmountRaw, watch?.address, s.network);
   if (!obs.value) {
     return { ok: false, error: `No fresh quote — the aggregator chain answered NO_DATA (${obs.status}). Handoff not made; a stale quote is never signed blind.` };
   }
@@ -283,6 +328,7 @@ export function swapDeskSummary(): {
   approved: number;
   handedOff: number;
   latest: PreparedSwap | null;
+  baseSwappableCount: number;
 } {
   const swaps = loadPreparedSwaps();
   return {
@@ -292,16 +338,17 @@ export function swapDeskSummary(): {
     approved: swaps.filter((s) => s.state === 'OWNER_APPROVED').length,
     handedOff: swaps.filter((s) => s.state === 'HANDED_OFF').length,
     latest: swaps[0] ?? null,
+    baseSwappableCount: swappableOn('base').length,
   };
 }
 
 export function swapDeskSummaryText(): string {
   const s = swapDeskSummary();
   const watchLine = s.watch
-    ? `Watch wallet ${s.watch.address} (read-only — balances from Blockscout).`
+    ? `Watch wallet ${s.watch.address} (read-only — balances from Blockscout on Ethereum, public Base RPC on Base).`
     : 'No watch wallet set — Daniel adds his public address in the Swap Desk on the Crypto Market screen. An address is public information, never a key.';
   const latestLine = s.latest
-    ? ` Latest prepared: ${s.latest.fromAmount} ${s.latest.fromSymbol} → ~${s.latest.toAmount} ${s.latest.toSymbol} via ${s.latest.quoteSource ?? 'unknown source'} (${s.latest.state}${s.latest.state === 'PREPARED' ? `, quote ${quoteFreshness(s.latest).toLowerCase()}` : ''}).`
+    ? ` Latest prepared: ${s.latest.fromAmount} ${s.latest.fromSymbol} → ~${s.latest.toAmount} ${s.latest.toSymbol} on ${s.latest.network} via ${s.latest.quoteSource ?? 'unknown source'} (${s.latest.state}${s.latest.state === 'PREPARED' ? `, quote ${quoteFreshness(s.latest).toLowerCase()}` : ''}).`
     : ' No swaps prepared yet.';
-  return `Swap Desk — the execution track (D1 YES, D2 DEX only, no KYC venue, owner signs in his own wallet). ${watchLine} Swappable: ${s.swappableCount} catalogued Ethereum tokens with recorded decimals. Prepared swaps: ${s.prepared} awaiting approval, ${s.approved} owner-approved, ${s.handedOff} handed off to Daniel's wallet for signing. Every handoff passes a live Honeypot.is security gate on the token he would receive — a honeypot flag refuses the handoff.${latestLine} ${SWAP_DESK_LAW}`;
+  return `Swap Desk — the execution track (D1 YES, D2 DEX only, no KYC venue, owner signs in his own wallet). ${watchLine} Swappable: ${s.swappableCount} catalogued tokens with recorded decimals across Ethereum and Base (${s.baseSwappableCount} on Base — the low-fee leg for the $50 start; Base quotes run Paraswap → KyberSwap). Prepared swaps: ${s.prepared} awaiting approval, ${s.approved} owner-approved, ${s.handedOff} handed off to Daniel's wallet for signing. Every handoff passes a live Honeypot.is security gate on the token he would receive — a honeypot flag refuses the handoff.${latestLine} ${SWAP_DESK_LAW}`;
 }

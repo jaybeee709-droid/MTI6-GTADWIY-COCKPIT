@@ -748,7 +748,7 @@ EXECUTORS.push({
 EXECUTORS.push({
   id: 'quote-check',
   label: 'QUOTE CHECK',
-  does: 'Fetches a live reference DEX quote (100 USDC → WETH, Ethereum) through the Swap Desk quote chain (Paraswap → KyberSwap Aggregator → CoW Swap) and reports the amounts with their source and status. Preparation evidence only — nothing is signed, sent, or traded.',
+  does: 'Fetches live reference DEX quotes through the Swap Desk quote chains — 100 USDC → WETH on Ethereum (Paraswap → KyberSwap Aggregator → CoW Swap) and 25 USDC → WETH on Base (Paraswap → KyberSwap Aggregator) — and reports the amounts with their source and status. Preparation evidence only — nothing is signed, sent, or traded.',
   run: async () => {
     const from = swappableBySymbol('USDC');
     const to = swappableBySymbol('WETH');
@@ -759,7 +759,19 @@ EXECUTORS.push({
     if (!obs.value) {
       return `Quote chain answered NO_DATA (${obs.status}) — Paraswap, KyberSwap and CoW Swap all failed to answer. Nothing quoted, nothing prepared.`;
     }
-    return `Live quote (${obs.status}, source ${obs.source ?? 'unknown'}): 100 USDC → ${obs.value.toAmount} WETH${obs.value.gasCostUsd !== null ? ` · estimated gas ${fmtUsd(obs.value.gasCostUsd)}` : ''}. Preparation evidence only — a quote is not a trade; nothing signed, nothing sent.`;
+    let baseLine = ' Base leg: not quoted this run.';
+    const bFrom = swappableBySymbol('USDC', 'base');
+    const bTo = swappableBySymbol('WETH', 'base');
+    if (bFrom && bTo) {
+      const bRaw = rawFromHuman('25', bFrom.decimals);
+      if (bRaw) {
+        const bObs = await fetchSwapQuote(bFrom, bTo, bRaw, undefined, 'base');
+        baseLine = bObs.value
+          ? ` Base leg live (${bObs.status}, source ${bObs.source ?? 'unknown'}): 25 USDC → ${bObs.value.toAmount} WETH on Base.`
+          : ` Base leg answered NO_DATA (${bObs.status}) this run.`;
+      }
+    }
+    return `Live quote (${obs.status}, source ${obs.source ?? 'unknown'}): 100 USDC → ${obs.value.toAmount} WETH${obs.value.gasCostUsd !== null ? ` · estimated gas ${fmtUsd(obs.value.gasCostUsd)}` : ''}.${baseLine} Preparation evidence only — a quote is not a trade; nothing signed, nothing sent.`;
   },
 });
 
