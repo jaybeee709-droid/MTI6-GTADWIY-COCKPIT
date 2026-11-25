@@ -403,7 +403,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     lon: number;
     area: string | null;
     imageUrl: string;
-    source: 'NYCDOT' | 'CALTRANS';
+    source: 'NYCDOT' | 'CALTRANS' | 'GDOT' | 'TFL' | 'FL511';
     detail: string | null;
   }
   interface QuakeRecord {
@@ -1033,16 +1033,26 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // camera registry: every source has a coverage box, and the
   // query runs only the sources whose box holds the centre.
   // NYCDOT covers New York City; Caltrans covers California
-  // (ArcGIS FeatureServer, bbox query via the proxy). 511NY
-  // needs a free developer key and is NOT wired; the German
-  // Autobahn webcam API answers 200 but returns zero webcams.
+  // (ArcGIS FeatureServer, bbox query via the proxy). v235 —
+  // three more, all fetched DIRECTLY by the browser (each
+  // sends ACAO *, so no proxy action is needed): GDOT Georgia
+  // (ArcGIS, bbox query — snapshots served over plain HTTP,
+  // so they open in a new tab instead of inline), TfL London
+  // (full list, filtered by distance), FL511 Florida (ArcGIS,
+  // bbox query). 511NY + WSDOT need free developer keys and
+  // are NOT wired; Texas needs a MapLarge request shape +
+  // a terms review and is NOT wired; the German Autobahn
+  // webcam API answers 200 but returns zero webcams.
   // Cameras are filtered to 50 km of the centre and capped at
   // 40 nearest. Snapshots are still images, never video.
   const CAMERA_MAX_DIST_M = 50000;
   const MAX_CAMERA_MARKERS = 40;
-  const CAMERA_SOURCES: { id: 'nycdot' | 'caltrans'; label: string; bbox: [number, number, number, number] }[] = [
+  const CAMERA_SOURCES: { id: 'nycdot' | 'caltrans' | 'gdot' | 'tfl' | 'fl511'; label: string; bbox: [number, number, number, number] }[] = [
     { id: 'nycdot', label: 'NYCDOT', bbox: [-74.35, 40.45, -73.65, 40.95] },
     { id: 'caltrans', label: 'CALTRANS', bbox: [-124.5, 32.5, -114.0, 42.0] },
+    { id: 'gdot', label: 'GDOT', bbox: [-85.6, 30.3, -80.8, 35.0] },
+    { id: 'tfl', label: 'TFL', bbox: [-0.6, 51.2, 0.3, 51.8] },
+    { id: 'fl511', label: 'FL511', bbox: [-87.7, 24.5, -79.9, 31.0] },
   ];
   const queryCameras = async () => {
     if (typeof fetch !== 'function') {
@@ -1056,7 +1066,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     if (covering.length === 0) {
       setCameraQuery({
         state: 'ok',
-        message: 'NO CAMERA SOURCE COVERS THIS AREA — COVERAGE SO FAR: NEW YORK CITY + CALIFORNIA. MOVE THE MAP INTO A COVERED AREA TO SEE CAMERAS.',
+        message: 'NO CAMERA SOURCE COVERS THIS AREA — COVERAGE SO FAR: NEW YORK CITY + CALIFORNIA + GEORGIA + FLORIDA + LONDON. MOVE THE MAP INTO A COVERED AREA TO SEE CAMERAS.',
         fetchedAt: Date.now(),
       });
       setCameraMarkers([]);
@@ -1155,8 +1165,208 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
       }
       return out;
     };
+    const fetchGdot = async (): Promise<{ rec: CameraRecord; dist: number }[]> => {
+      // Direct ArcGIS query (ACAO *). Snapshots are served
+      // over plain HTTP — the snapshot block opens those in a
+      // new tab instead of rendering them inline.
+      const box = {
+        minLon: Math.max(-85.6, mapView.lon - 0.6),
+        minLat: Math.max(30.3, mapView.lat - 0.45),
+        maxLon: Math.min(-80.8, mapView.lon + 0.6),
+        maxLat: Math.min(35.0, mapView.lat + 0.45),
+      };
+      const params = new URLSearchParams({
+        where: '1=1',
+        outFields: 'ObjectId,name,location_description,county,route,dir,url,subdivision',
+        outSR: '4326',
+        f: 'json',
+        returnGeometry: 'true',
+        resultRecordCount: '200',
+        geometry: `${box.minLon},${box.minLat},${box.maxLon},${box.maxLat}`,
+        geometryType: 'esriGeometryEnvelope',
+        spatialRel: 'esriSpatialRelIntersects',
+        inSR: '4326',
+      });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      let res: Response;
+      try {
+        res = await fetch(
+          `https://services1.arcgis.com/2iUE8l8JKrP2tygQ/arcgis/rest/services/GDOT_Live_Traffic_Cameras/FeatureServer/0/query?${params.toString()}`,
+          { signal: controller.signal },
+        );
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as { features?: { attributes?: Record<string, unknown>; geometry?: { x?: unknown; y?: unknown } }[] };
+      const out: { rec: CameraRecord; dist: number }[] = [];
+      if (data && Array.isArray(data.features)) {
+        for (const f of data.features) {
+          const a = f?.attributes ?? {};
+          const lat = typeof f?.geometry?.y === 'number' ? f.geometry.y : null;
+          const lon = typeof f?.geometry?.x === 'number' ? f.geometry.x : null;
+          const id = typeof a.ObjectId === 'number' ? a.ObjectId : null;
+          const imageUrl = typeof a.url === 'string' && a.url.length > 0 ? a.url : null;
+          const desc = typeof a.location_description === 'string' && a.location_description.length > 0 ? a.location_description : null;
+          const name = typeof a.name === 'string' && a.name.length > 0 ? a.name : null;
+          if (lat === null || lon === null || id === null || !imageUrl || (!desc && !name)) continue;
+          const dist = haversineM(mapView.lat, mapView.lon, lat, lon);
+          if (dist > CAMERA_MAX_DIST_M) continue;
+          const route = typeof a.route === 'string' ? a.route : null;
+          const county = typeof a.county === 'string' ? a.county : null;
+          const subdiv = typeof a.subdivision === 'string' ? a.subdivision : null;
+          out.push({
+            rec: {
+              id: `cam-ga-${id}`,
+              label: desc ?? name ?? 'GDOT CAMERA',
+              lat,
+              lon,
+              area: county,
+              imageUrl,
+              source: 'GDOT',
+              detail: [route, county, subdiv].filter((x) => x !== null).join(' · ') || null,
+            },
+            dist,
+          });
+        }
+      }
+      return out;
+    };
+    const fetchTfl = async (): Promise<{ rec: CameraRecord; dist: number }[]> => {
+      // Direct full-list fetch (ACAO *); 889 cameras, filtered
+      // by distance on the client. No key is needed at this rate.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      let res: Response;
+      try {
+        res = await fetch('https://api.tfl.gov.uk/Place/Type/JamCam', { signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as {
+        id?: unknown;
+        commonName?: unknown;
+        lat?: unknown;
+        lon?: unknown;
+        additionalProperties?: { key?: unknown; value?: unknown }[];
+      }[];
+      const out: { rec: CameraRecord; dist: number }[] = [];
+      if (Array.isArray(data)) {
+        for (const cam of data) {
+          const lat = typeof cam?.lat === 'number' ? cam.lat : null;
+          const lon = typeof cam?.lon === 'number' ? cam.lon : null;
+          const id = typeof cam?.id === 'string' ? cam.id : null;
+          const name = typeof cam?.commonName === 'string' ? cam.commonName : null;
+          if (lat === null || lon === null || !id || !name) continue;
+          const props = Array.isArray(cam?.additionalProperties) ? cam.additionalProperties : [];
+          const get = (k: string): string | null => {
+            const p = props.find((x) => x?.key === k);
+            return p && typeof p.value === 'string' ? p.value : null;
+          };
+          if (get('available') !== 'true') continue;
+          const imageUrl = get('imageUrl');
+          if (!imageUrl) continue;
+          const dist = haversineM(mapView.lat, mapView.lon, lat, lon);
+          if (dist > CAMERA_MAX_DIST_M) continue;
+          const view = get('view');
+          out.push({
+            rec: {
+              id: `cam-tfl-${id}`,
+              label: name,
+              lat,
+              lon,
+              area: 'London',
+              imageUrl,
+              source: 'TFL',
+              detail: view !== null ? `VIEW: ${view}` : 'LONDON',
+            },
+            dist,
+          });
+        }
+      }
+      return out;
+    };
+    const fetchFl511 = async (): Promise<{ rec: CameraRecord; dist: number }[]> => {
+      // Direct ArcGIS query (ACAO *) against the FL511 traffic
+      // camera layer published from the Florida Division of
+      // Emergency Management account.
+      const box = {
+        minLon: Math.max(-87.7, mapView.lon - 0.6),
+        minLat: Math.max(24.5, mapView.lat - 0.45),
+        maxLon: Math.min(-79.9, mapView.lon + 0.6),
+        maxLat: Math.min(31.0, mapView.lat + 0.45),
+      };
+      const params = new URLSearchParams({
+        where: '1=1',
+        outFields: 'OBJECTID_1,ID,DESCRIPT,COUNTY,HIGHWAY,DIRECTION,LATITUDE,LONGITUDE,IMAGE',
+        outSR: '4326',
+        f: 'json',
+        returnGeometry: 'true',
+        resultRecordCount: '200',
+        geometry: `${box.minLon},${box.minLat},${box.maxLon},${box.maxLat}`,
+        geometryType: 'esriGeometryEnvelope',
+        spatialRel: 'esriSpatialRelIntersects',
+        inSR: '4326',
+      });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      let res: Response;
+      try {
+        res = await fetch(
+          `https://services.arcgis.com/3wFbqsFPLeKqOlIK/arcgis/rest/services/FL511_Traffic_Cameras/FeatureServer/0/query?${params.toString()}`,
+          { signal: controller.signal },
+        );
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as { features?: { attributes?: Record<string, unknown>; geometry?: { x?: unknown; y?: unknown } }[] };
+      const out: { rec: CameraRecord; dist: number }[] = [];
+      if (data && Array.isArray(data.features)) {
+        for (const f of data.features) {
+          const a = f?.attributes ?? {};
+          const lat = typeof a.LATITUDE === 'number' ? a.LATITUDE : typeof f?.geometry?.y === 'number' ? f.geometry.y : null;
+          const lon = typeof a.LONGITUDE === 'number' ? a.LONGITUDE : typeof f?.geometry?.x === 'number' ? f.geometry.x : null;
+          const id = typeof a.ID === 'string' ? a.ID : null;
+          const name = typeof a.DESCRIPT === 'string' && a.DESCRIPT.length > 0 ? a.DESCRIPT : null;
+          const imageUrl = typeof a.IMAGE === 'string' && a.IMAGE.length > 0 ? a.IMAGE : null;
+          if (lat === null || lon === null || !id || !name || !imageUrl) continue;
+          const dist = haversineM(mapView.lat, mapView.lon, lat, lon);
+          if (dist > CAMERA_MAX_DIST_M) continue;
+          const highway = typeof a.HIGHWAY === 'string' ? a.HIGHWAY : null;
+          const county = typeof a.COUNTY === 'string' ? a.COUNTY : null;
+          const dir = typeof a.DIRECTION === 'string' ? a.DIRECTION : null;
+          out.push({
+            rec: {
+              id: `cam-fl-${id}`,
+              label: name,
+              lat,
+              lon,
+              area: county,
+              imageUrl,
+              source: 'FL511',
+              detail: [highway, county, dir !== null ? `DIR ${dir}` : null].filter((x) => x !== null).join(' · ') || null,
+            },
+            dist,
+          });
+        }
+      }
+      return out;
+    };
     const results = await Promise.allSettled(
-      covering.map((s) => (s.id === 'nycdot' ? fetchNycdot() : fetchCaltrans())),
+      covering.map((s) =>
+        s.id === 'nycdot'
+          ? fetchNycdot()
+          : s.id === 'caltrans'
+            ? fetchCaltrans()
+            : s.id === 'gdot'
+              ? fetchGdot()
+              : s.id === 'tfl'
+                ? fetchTfl()
+                : fetchFl511(),
+      ),
     );
     const perSource: string[] = [];
     const near: { rec: CameraRecord; dist: number }[] = [];
@@ -1177,7 +1387,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     if (kept.length === 0) {
       setCameraQuery({
         state: 'ok',
-        message: `NO CAMERAS WITHIN 50 KM — ${perSource.join(' · ')}. COVERAGE SO FAR: NEW YORK CITY + CALIFORNIA.`,
+        message: `NO CAMERAS WITHIN 50 KM — ${perSource.join(' · ')}. COVERAGE SO FAR: NEW YORK CITY + CALIFORNIA + GEORGIA + FLORIDA + LONDON.`,
         fetchedAt: Date.now(),
       });
       return;
@@ -2234,9 +2444,11 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                     {cameraQuery.state === 'loading' ? 'QUERYING…' : 'QUERY CAMERAS NEAR CENTRE'}
                   </button>
                   <div className="mt-1">
-                    COVERAGE SO FAR: NEW YORK CITY + CALIFORNIA. SNAPSHOTS, NOT VIDEO. 511NY NEEDS A FREE
-                    DEVELOPER KEY AND IS NOT WIRED; WINDY WEBCAMS NEED A FREE API KEY AND ARE NOT WIRED.
-                    MORE STATES FOLLOW THE SAME PATTERN.
+                    COVERAGE SO FAR: NEW YORK CITY + CALIFORNIA + GEORGIA + FLORIDA + LONDON. SNAPSHOTS,
+                    NOT VIDEO. GEORGIA SNAPSHOTS OPEN IN A NEW TAB — THAT FEED SERVES IMAGES OVER PLAIN
+                    HTTP, WHICH A SECURE PAGE CANNOT SHOW INLINE. 511NY + WSDOT NEED FREE DEVELOPER KEYS
+                    AND ARE NOT WIRED; WINDY WEBCAMS NEED A FREE API KEY AND ARE NOT WIRED. MORE STATES
+                    FOLLOW THE SAME PATTERN.
                   </div>
                 </div>
               )}
@@ -2785,22 +2997,34 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                       </>
                     )}
                   </p>
-                  <img
-                    key={camImgNonce}
-                    src={`${selectedCamera.imageUrl}?t=${camImgNonce}`}
-                    alt={`NYCDOT traffic camera snapshot — ${selectedCamera.label}`}
-                    className="mt-1 w-full max-w-[320px] rounded border border-white/15"
-                  />
-                  <p className="mt-1 font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
-                    A STILL IMAGE FROM NYCDOT — NOT VIDEO.{' '}
-                    <button
-                      type="button"
-                      onClick={() => setCamImgNonce((n) => n + 1)}
-                      className="font-semibold text-white underline decoration-[#00B7FF] underline-offset-2"
-                    >
-                      REFRESH SNAPSHOT
-                    </button>
-                  </p>
+                  {selectedCamera.imageUrl.startsWith('http://') ? (
+                    <p className="mt-1 font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                      SNAPSHOT OPENS IN A NEW TAB — THIS FEED SERVES IMAGES OVER PLAIN HTTP, WHICH A
+                      SECURE PAGE CANNOT SHOW INLINE.{' '}
+                      <a href={selectedCamera.imageUrl} target="_blank" rel="noreferrer" className="font-semibold text-white underline decoration-[#00B7FF] underline-offset-2">
+                        OPEN SNAPSHOT
+                      </a>
+                    </p>
+                  ) : (
+                    <>
+                      <img
+                        key={camImgNonce}
+                        src={`${selectedCamera.imageUrl}?t=${camImgNonce}`}
+                        alt={`Traffic camera snapshot — ${selectedCamera.label}`}
+                        className="mt-1 w-full max-w-[320px] rounded border border-white/15"
+                      />
+                      <p className="mt-1 font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                        A STILL IMAGE — NOT VIDEO.{' '}
+                        <button
+                          type="button"
+                          onClick={() => setCamImgNonce((n) => n + 1)}
+                          className="font-semibold text-white underline decoration-[#00B7FF] underline-offset-2"
+                        >
+                          REFRESH SNAPSHOT
+                        </button>
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
               {selectedQuake && (
