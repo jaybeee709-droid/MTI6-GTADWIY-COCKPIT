@@ -29,11 +29,13 @@ import {
 import {
   fetchSwapQuote,
   fetchAddressBalances,
+  fetchBridgeFee,
   rawFromHuman,
   fmtUsd,
   type Observation,
   type SwapQuote,
   type AddressBalances,
+  type BridgeFeeObs,
 } from '../live-data';
 import { ProvenanceChip } from '../ProvenanceChip';
 import { detectInjectedWallets, type InjectedWallet } from '../injected-wallets';
@@ -54,6 +56,9 @@ export const SwapDeskPanel: React.FC = () => {
   /* Injected wallets (v220): detected, never connected. */
   const [detected, setDetected] = useState<InjectedWallet[] | null>(null);
   const [scanBusy, setScanBusy] = useState(false);
+  /* Bridge fee (v221): Across quote for the $50 funding leg. */
+  const [bridge, setBridge] = useState<Observation<BridgeFeeObs> | null>(null);
+  const [bridgeBusy, setBridgeBusy] = useState(false);
   const [fromSym, setFromSym] = useState('USDC');
   const [toSym, setToSym] = useState('WETH');
   const [amount, setAmount] = useState('100');
@@ -110,6 +115,19 @@ export const SwapDeskPanel: React.FC = () => {
       setDetected(await detectInjectedWallets());
     } finally {
       setScanBusy(false);
+    }
+  };
+
+  /* Bridge fee (v221): Across quote for $50 USDC Ethereum →
+   * Base — the funding leg for the $50 start. A quote only;
+   * bridging happens in Daniel's own wallet, never here. */
+  const doBridge = async () => {
+    if (bridgeBusy) return;
+    setBridgeBusy(true);
+    try {
+      setBridge(await fetchBridgeFee());
+    } finally {
+      setBridgeBusy(false);
     }
   };
 
@@ -194,6 +212,28 @@ export const SwapDeskPanel: React.FC = () => {
           </button>
         ))}
         <span className={micro}>{tokensOn.length} TOKENS ON {network.toUpperCase()}</span>
+      </div>
+
+      {/* Bridge to Base — Across (v221) */}
+      <div className="space-y-1.5">
+        <div className={micro}>BRIDGE TO BASE (ACROSS) — THE $50 FUNDING LEG</div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className={btn} onClick={doBridge} disabled={bridgeBusy}>
+            {bridgeBusy ? 'LOADING…' : 'QUOTE $50 USDC → BASE'}
+          </button>
+          {bridge && bridge.value && (
+            <span className="font-mono text-[11px] text-[#E8EAF0]">
+              FEE ${bridge.value.feeUsd === null ? '—' : bridge.value.feeUsd.toFixed(2)} · YOU RECEIVE $
+              {bridge.value.outputUsd === null ? '—' : bridge.value.outputUsd.toFixed(2)} · ~
+              {bridge.value.fillTimeSec === null ? '—' : bridge.value.fillTimeSec}S
+            </span>
+          )}
+          {bridge && !bridge.value && (
+            <span className={micro}>BRIDGE FEE: NO_DATA — ACROSS DID NOT ANSWER</span>
+          )}
+        </div>
+        <div className={micro}>A QUOTE ONLY — BRIDGING HAPPENS IN YOUR OWN WALLET, NEVER HERE.</div>
+        {bridge && <ProvenanceChip obs={bridge} compact />}
       </div>
 
       {/* Watch wallet — read-only */}

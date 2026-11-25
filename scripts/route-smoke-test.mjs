@@ -299,6 +299,17 @@ try {
     'desk shows the read-only injected-wallet detector (v220)',
   );
   check(
+    'Across bridge fee block on Crypto Market',
+    marketText.includes('BRIDGE TO BASE') && marketText.includes('QUOTE $50 USDC'),
+    'desk shows the $50 funding-leg bridge quote (v221)',
+  );
+  const botOpsText = routeTexts[ROUTES.findIndex(([l]) => l === 'Bot Operations')] ?? '';
+  check(
+    'new radar categories on Bot Operations',
+    botOpsText.includes('Stablecoins') && botOpsText.includes('Fixed Yield') && botOpsText.includes('Perp Funding'),
+    'radar coverage lists Stablecoins, Perp Funding, Fixed Yield (v221)',
+  );
+  check(
     'honest state NOT_CONNECTED appears',
     allSeen.includes('NOT_CONNECTED'),
     'NOT_CONNECTED present across visited routes',

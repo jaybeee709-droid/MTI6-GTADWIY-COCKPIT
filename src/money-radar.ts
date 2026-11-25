@@ -29,9 +29,12 @@
 import {
   fetchDexVolumes,
   fetchGovernanceProposals,
+  fetchPendleMarkets,
+  fetchPerpFunding,
   fetchProtocolFees,
   fetchPrice,
   fetchProtocolIndex,
+  fetchStablecoins,
   fetchYields,
   fmtTime,
   fmtUsd,
@@ -108,7 +111,10 @@ export const RADAR_CATEGORY_STATES: { name: string; state: 'ACTIVE' | 'NO_DATA';
   { name: 'Governance', state: 'ACTIVE', note: 'Snapshot GraphQL — new proposals across 8 API-verified watched spaces' },
   { name: 'Airdrop / Points / Campaign', state: 'NO_DATA', note: 'no incentive source connected' },
   { name: 'DePIN / AI / RWA', state: 'NO_DATA', note: 'no category source connected' },
-  { name: 'Bridge / Arbitrage / Treasury', state: 'NO_DATA', note: 'no flow source connected' },
+  { name: 'Bridge / Arbitrage / Treasury', state: 'NO_DATA', note: 'no flow source connected — the Swap Desk shows a live Across bridge fee for the $50 USDC Ethereum → Base leg' },
+  { name: 'Stablecoins', state: 'ACTIVE', note: 'DefiLlama Stablecoins — peg drift ≥ 0.5% mints a signal (v221)' },
+  { name: 'Derivatives / Perp Funding', state: 'ACTIVE', note: 'Hyperliquid — funding ≥ 0.05% per 8h mints a signal (v221)' },
+  { name: 'Fixed Yield', state: 'ACTIVE', note: 'Pendle — implied APY ≥ 10% on Base + Ethereum mints a signal (v221)' },
 ];
 
 const BASELINE_KEY = 'mti6_money_radar_baseline_v1';
@@ -153,6 +159,18 @@ interface RadarBaseline {
   /** Last recorded protocol-fees change per slug (v208) —
    * the same baseline guard as dexVolumes. */
   protocolFees?: Record<string, number>;
+  /** Last recorded stablecoin peg drift per symbol (v221) —
+   * a signal mints only when the drift moved 0.25+ points
+   * since the baseline, so re-scans stay quiet. */
+  stablecoinDrift?: Record<string, number>;
+  /** Last recorded perp funding per coin, % per 8h (v221) —
+   * same guard: a signal mints only when funding moved
+   * 0.02+ points since the baseline. */
+  perpFunding?: Record<string, number>;
+  /** Last recorded Pendle implied APY per market address,
+   * % (v221) — a signal mints only when the APY moved 1+
+   * point since the baseline or the market is new. */
+  pendleApy?: Record<string, number>;
 }
 
 const poolKeyOf = (p: { project: string; symbol: string; chain: string }): string =>
@@ -685,6 +703,169 @@ export async function runMoneyRadarScan(): Promise<RadarScanResult> {
     /* a failed fees feed mints nothing */
   }
 
+  /* Stablecoins (v221) — the governed DefiLlama Stablecoins
+   * feed, top 12 by circulating supply. A peg is a promise
+   * the market tests every block: a drift of 0.5%+ mints a
+   * signal (HOT at 2%+), guarded by the baseline so a
+   * persistent drift does not shout on every re-scan. The
+   * evidence names the drift and the circulating supply —
+   * never a claim the stablecoin is broken, only that its
+   * market price is off its peg right now. */
+  let stablecoinDrift: Record<string, number> = { ...(baseline?.stablecoinDrift ?? {}) };
+  try {
+    const sc = await fetchStablecoins();
+    if (sc.value && sc.value.length > 0) {
+      const next: Record<string, number> = {};
+      const qualifying = sc.value.filter((s) => {
+        if (s.pegDeviationPct === null) return false;
+        next[s.symbol] = s.pegDeviationPct;
+        if (Math.abs(s.pegDeviationPct) < 0.5) return false;
+        const prev = baseline?.stablecoinDrift?.[s.symbol];
+        return !(prev !== undefined && Math.abs(s.pegDeviationPct - prev) < 0.25);
+      });
+      qualifying.sort((a, b) => Math.abs(b.pegDeviationPct ?? 0) - Math.abs(a.pegDeviationPct ?? 0));
+      for (const s of qualifying.slice(0, 6)) {
+        const drift = s.pegDeviationPct ?? 0;
+        signals.push({
+          id: `radar-stablecoin-peg-${slug(s.symbol)}-${sc.fetchedAt ?? observedAt}`,
+          signalType: 'STABLECOIN_PEG_DRIFT',
+          source: sc.source ?? 'DefiLlama Stablecoins',
+          entity: `${s.name} (${s.symbol})`,
+          asset: s.symbol,
+          protocol: s.name,
+          network: null,
+          poolKey: null,
+          radarType: 'Market',
+          boardState: Math.abs(drift) >= 2 ? 'HOT' : 'DECLINING',
+          observedAt: sc.fetchedAt ?? observedAt,
+          evidence: [
+            `${sc.source ?? 'DefiLlama Stablecoins'} reports ${s.name} (${s.symbol}) at $${s.price === null ? 'not reported' : s.price.toFixed(4)} — ${drift >= 0 ? '+' : ''}${drift.toFixed(2)}% off its $1 peg, circulating ${fmtUsd(s.circulatingUsd ?? 0)} (${sc.status})`,
+            'A market-price observation of the peg right now — not a claim the stablecoin is broken or safe',
+          ],
+          evidenceCount: 2,
+          sourceCount: 1,
+          supportStatus: 'OBSERVED',
+          freshness: sc.status === 'STALE' ? 'STALE' : sc.status === 'LIVE' || sc.status === 'CACHED' ? 'CURRENT' : 'UNKNOWN',
+        });
+      }
+      stablecoinDrift = next;
+    }
+  } catch {
+    /* a failed stablecoin feed mints nothing */
+  }
+
+  /* Perp funding (v221) — Hyperliquid's metaAndAssetCtxs: the
+   * funding rate every perpetual pays per 8 hours. Extreme
+   * funding is crowded positioning made visible: |funding|
+   * ≥ 0.05% per 8h mints a signal (HOT at 0.1%+), guarded by
+   * the baseline so a persistently crowded market does not
+   * shout on every re-scan. Longs pay shorts when funding is
+   * positive — the evidence says which side pays, never that
+   * the price must reverse. */
+  let perpFunding: Record<string, number> = { ...(baseline?.perpFunding ?? {}) };
+  try {
+    const pf = await fetchPerpFunding();
+    if (pf.value && pf.value.length > 0) {
+      const next: Record<string, number> = {};
+      const qualifying = pf.value.filter((p) => {
+        next[p.coin] = p.fundingPct8h;
+        if (Math.abs(p.fundingPct8h) < 0.05) return false;
+        const prev = baseline?.perpFunding?.[p.coin];
+        return !(prev !== undefined && Math.abs(p.fundingPct8h - prev) < 0.02);
+      });
+      qualifying.sort((a, b) => Math.abs(b.fundingPct8h) - Math.abs(a.fundingPct8h));
+      for (const p of qualifying.slice(0, 8)) {
+        signals.push({
+          id: `radar-perp-funding-${slug(p.coin)}-${pf.fetchedAt ?? observedAt}`,
+          signalType: 'PERP_FUNDING_EXTREME',
+          source: pf.source ?? 'Hyperliquid',
+          entity: `${p.coin} perpetual`,
+          asset: p.coin,
+          protocol: 'Hyperliquid',
+          network: null,
+          poolKey: null,
+          radarType: 'Market',
+          boardState: Math.abs(p.fundingPct8h) >= 0.1 ? 'HOT' : p.fundingPct8h > 0 ? 'GROWING' : 'DECLINING',
+          observedAt: pf.fetchedAt ?? observedAt,
+          evidence: [
+            `${pf.source ?? 'Hyperliquid'} reports ${p.coin} perpetual funding ${p.fundingPct8h >= 0 ? '+' : ''}${p.fundingPct8h.toFixed(3)}% per 8h (mark $${p.markPrice === null ? 'not reported' : p.markPrice.toLocaleString()}, open interest ${p.openInterest === null ? 'not reported' : p.openInterest.toLocaleString()}) (${pf.status})`,
+            p.fundingPct8h > 0
+              ? 'Positive funding: longs pay shorts — crowded long positioning, observed, not a reversal call'
+              : 'Negative funding: shorts pay longs — crowded short positioning, observed, not a reversal call',
+          ],
+          evidenceCount: 2,
+          sourceCount: 1,
+          supportStatus: 'OBSERVED',
+          freshness: pf.status === 'STALE' ? 'STALE' : pf.status === 'LIVE' || pf.status === 'CACHED' ? 'CURRENT' : 'UNKNOWN',
+        });
+      }
+      perpFunding = next;
+    }
+  } catch {
+    /* a failed funding feed mints nothing */
+  }
+
+  /* Fixed yield (v221) — Pendle's active markets on Base and
+   * Ethereum. Variable APY is the yields feed's job; Pendle
+   * adds the dimension it cannot: a FIXED implied APY to a
+   * known expiry. Implied APY ≥ 10% mints a signal (HOT at
+   * 20%+), guarded by the baseline so a steady market does
+   * not shout on every re-scan; a market new to the baseline
+   * mints on its first qualifying read. The evidence names
+   * the expiry — a fixed yield that ends is not a permanent
+   * one. */
+  let pendleApy: Record<string, number> = { ...(baseline?.pendleApy ?? {}) };
+  try {
+    const markets: { chainId: number; address: string; name: string; impliedApy: number | null; expiry: string | null }[] = [];
+    for (const chainId of [8453, 1] as const) {
+      try {
+        const pm = await fetchPendleMarkets(chainId);
+        if (pm.value) markets.push(...pm.value);
+      } catch {
+        /* one chain failing mints nothing for that chain */
+      }
+    }
+    if (markets.length > 0) {
+      const next: Record<string, number> = {};
+      const qualifying = markets.filter((m) => {
+        if (m.impliedApy === null) return false;
+        next[m.address.toLowerCase()] = m.impliedApy;
+        if (m.impliedApy < 10) return false;
+        const prev = baseline?.pendleApy?.[m.address.toLowerCase()];
+        if (prev === undefined) return true;
+        return Math.abs(m.impliedApy - prev) >= 1;
+      });
+      qualifying.sort((a, b) => (b.impliedApy ?? 0) - (a.impliedApy ?? 0));
+      for (const m of qualifying.slice(0, 8)) {
+        const apy = m.impliedApy ?? 0;
+        signals.push({
+          id: `radar-pendle-fixed-${slug(m.address)}-${observedAt}`,
+          signalType: 'PENDLE_FIXED_YIELD',
+          source: 'Pendle',
+          entity: `${m.name} (${m.chainId === 8453 ? 'Base' : 'Ethereum'})`,
+          asset: null,
+          protocol: 'Pendle',
+          network: m.chainId === 8453 ? 'Base' : 'Ethereum',
+          poolKey: null,
+          radarType: 'Yield',
+          boardState: apy >= 20 ? 'HOT' : 'GROWING',
+          observedAt,
+          evidence: [
+            `Pendle reports ${m.name} on ${m.chainId === 8453 ? 'Base' : 'Ethereum'} at ${apy.toFixed(2)}% implied APY to expiry ${m.expiry ?? 'not reported'} — a fixed yield, not the variable APY the yields feed reports`,
+            'Implied APY is the market price of future yield — an observation for review, never a promised return',
+          ],
+          evidenceCount: 2,
+          sourceCount: 1,
+          supportStatus: 'OBSERVED',
+          freshness: 'CURRENT',
+        });
+      }
+      pendleApy = next;
+    }
+  } catch {
+    /* a failed Pendle feed mints nothing */
+  }
+
   /* Record the signals (deduped by id — a re-scan of the same
    * observation mints nothing twice). */
   const stored = loadSignals();
@@ -799,6 +980,14 @@ export async function runMoneyRadarScan(): Promise<RadarScanResult> {
     }
   }
   for (const s of freshSignals) {
+    if (s.signalType === 'STABLECOIN_PEG_DRIFT' && s.boardState === 'HOT') {
+      dispatch(`Money Radar: peg review ${s.asset} (${s.protocol})`, 'Risk');
+    }
+    if (s.signalType === 'PERP_FUNDING_EXTREME' && s.boardState === 'HOT') {
+      dispatch(`Money Radar: crowded perp review ${s.asset}`, 'Analysis');
+    }
+  }
+  for (const s of freshSignals) {
     if ((s.signalType === 'DEX_VOLUME_INCREASE' || s.signalType === 'DEX_VOLUME_DECREASE') && s.boardState === 'HOT') {
       dispatch(`Money Radar: DEX volume review ${s.entity}`, 'Analysis');
     }
@@ -818,7 +1007,7 @@ export async function runMoneyRadarScan(): Promise<RadarScanResult> {
     dispatch(`Money Radar: governance review ${p.spaceName} — ${p.title.slice(0, 48)}`, 'Analysis');
   }
 
-  saveBaseline({ observedAt, source, status: obs.status, pools: current, prices: priceObs, protocolSlugs, governanceIds, dexVolumes, protocolFees });
+  saveBaseline({ observedAt, source, status: obs.status, pools: current, prices: priceObs, protocolSlugs, governanceIds, dexVolumes, protocolFees, stablecoinDrift, perpFunding, pendleApy });
   return {
     status: obs.status,
     source,

@@ -560,6 +560,177 @@ export function fetchBitcoinTip(): Promise<Observation<{ height: number }>> {
   });
 }
 
+/* ------------- category intelligence (keyless — v221) --------------
+ * The advisor's category map, filtered by the owner's own
+ * discipline: maximum UNIQUE intelligence per source. Each
+ * fetcher below is the strongest keyless source in its
+ * category, probed live 2026-11-25 — one per dimension, not
+ * one per vendor. What did NOT survive probing is recorded
+ * in the keyless paper, not wired: Aave (404), Compound
+ * (unreachable), Morpho (unreachable), Yearn (unreachable),
+ * Flashbots relay (404/405 on both hosts), Lens (Cloudflare
+ * 525), Farcaster hub (unreachable), LlamaRPC + PublicNode
+ * ETH (Cloudflare 525/403), dYdX indexer (404), GitHub raw
+ * API (shared-IP rate limit — the connected GitHub connector
+ * is the route for repo intelligence). Aevo, GMX, Wormhole,
+ * Kalshi and Beefy all ANSWER keyless and are recorded as
+ * verified-live alternates in the paper; they duplicate a
+ * dimension the wired source already covers, so they are not
+ * a second feed for the same signal. */
+export interface StablecoinObs {
+  symbol: string;
+  name: string;
+  price: number | null;
+  circulatingUsd: number | null;
+  pegDeviationPct: number | null;
+}
+
+export function fetchStablecoins(): Promise<Observation<StablecoinObs[]>> {
+  return governed<StablecoinObs[]>('stablecoins:defillama', 600_000, ['DefiLlama Stablecoins'], async () => {
+    const data = await fetchJson('https://stablecoins.llama.fi/stablecoins?includePrices=true');
+    if (!isRecord(data) || !Array.isArray(data.peggedAssets)) return null;
+    const out: StablecoinObs[] = [];
+    for (const raw of data.peggedAssets as Record<string, unknown>[]) {
+      if (!isRecord(raw) || typeof raw.symbol !== 'string') continue;
+      const price = num(typeof raw.price === 'number' ? raw.price : null);
+      /* circulating is keyed by peg type ({peggedUSD: n}),
+       * not a bare number — the v221 probe caught the first
+       * parser reading it as a number and dropping every row. */
+      const circObj = isRecord(raw.circulating) ? raw.circulating : null;
+      const circ =
+        circObj && typeof circObj.peggedUSD === 'number'
+          ? circObj.peggedUSD
+          : circObj
+            ? Object.values(circObj).find((v): v is number => typeof v === 'number') ?? null
+            : null;
+      if (circ === null || circ <= 0) continue;
+      out.push({
+        symbol: raw.symbol,
+        name: typeof raw.name === 'string' ? raw.name : raw.symbol,
+        price,
+        circulatingUsd: circ,
+        pegDeviationPct: price === null ? null : (price - 1) * 100,
+      });
+    }
+    out.sort((a, b) => (b.circulatingUsd ?? 0) - (a.circulatingUsd ?? 0));
+    const top = out.slice(0, 12);
+    return top.length > 0 ? { value: top, source: 'DefiLlama Stablecoins' } : null;
+  });
+}
+
+export interface PerpFundingObs {
+  coin: string;
+  fundingPct8h: number;
+  markPrice: number | null;
+  openInterest: number | null;
+}
+
+export function fetchPerpFunding(): Promise<Observation<PerpFundingObs[]>> {
+  return governed<PerpFundingObs[]>('perpfunding:hyperliquid', 120_000, ['Hyperliquid'], async () => {
+    const data = await fetchJsonPost('https://api.hyperliquid.xyz/info', { type: 'metaAndAssetCtxs' });
+    if (!Array.isArray(data) || data.length < 2) return null;
+    const meta = data[0] as { universe?: unknown };
+    const ctxs = data[1] as unknown;
+    if (!isRecord(meta) || !Array.isArray(meta.universe) || !Array.isArray(ctxs)) return null;
+    const out: PerpFundingObs[] = [];
+    meta.universe.forEach((u, i) => {
+      if (!isRecord(u) || typeof u.name !== 'string') return;
+      const ctx = ctxs[i];
+      if (!isRecord(ctx)) return;
+      const funding = num(typeof ctx.funding === 'string' ? Number(ctx.funding) : ctx.funding);
+      if (funding === null) return;
+      out.push({
+        coin: u.name,
+        fundingPct8h: funding * 100,
+        markPrice: num(typeof ctx.markPx === 'string' ? Number(ctx.markPx) : ctx.markPx),
+        openInterest: num(typeof ctx.openInterest === 'string' ? Number(ctx.openInterest) : ctx.openInterest),
+      });
+    });
+    out.sort((a, b) => Math.abs(b.fundingPct8h) - Math.abs(a.fundingPct8h));
+    return out.length > 0 ? { value: out.slice(0, 20), source: 'Hyperliquid' } : null;
+  });
+}
+
+export interface PendleMarketObs {
+  chainId: number;
+  address: string;
+  name: string;
+  impliedApy: number | null;
+  expiry: string | null;
+}
+
+export function fetchPendleMarkets(chainId: 1 | 8453): Promise<Observation<PendleMarketObs[]>> {
+  return governed<PendleMarketObs[]>(`pendle:${chainId}`, 600_000, ['Pendle'], async () => {
+    const data = await fetchJson(`https://api-v2.pendle.finance/core/v1/${chainId}/markets/active`);
+    if (!isRecord(data) || !Array.isArray(data.markets)) return null;
+    const out: PendleMarketObs[] = [];
+    for (const raw of data.markets as Record<string, unknown>[]) {
+      if (!isRecord(raw) || typeof raw.address !== 'string') continue;
+      /* Implied APY lives under details.impliedApy (decimal),
+       * not a top-level field — the v221 probe caught the
+       * first parser reading a field that does not exist. */
+      const details = isRecord(raw.details) ? raw.details : null;
+      const apy = details ? num(typeof details.impliedApy === 'number' ? details.impliedApy : null) : null;
+      out.push({
+        chainId,
+        address: raw.address,
+        name: typeof raw.name === 'string' ? raw.name : raw.address.slice(0, 10),
+        impliedApy: apy === null ? null : apy * 100,
+        expiry: typeof raw.expiry === 'string' ? raw.expiry : null,
+      });
+    }
+    out.sort((a, b) => (b.impliedApy ?? 0) - (a.impliedApy ?? 0));
+    return out.length > 0 ? { value: out.slice(0, 20), source: 'Pendle' } : null;
+  });
+}
+
+export interface BridgeFeeObs {
+  fromChain: string;
+  toChain: string;
+  token: string;
+  amountUsd: number;
+  feeUsd: number | null;
+  outputUsd: number | null;
+  fillTimeSec: number | null;
+}
+
+const BRIDGE_USDC_ETH = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
+const BRIDGE_USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+
+/** Across bridge fee for the desk's own funding leg: $50 USDC
+ * Ethereum → Base. The amount is Daniel's $50 start — the fee
+ * is quoted on exactly the move he would make, not a generic
+ * $1,000 example. */
+export function fetchBridgeFee(): Promise<Observation<BridgeFeeObs>> {
+  return governed<BridgeFeeObs>('bridge:across:usdc-eth-base-50', 120_000, ['Across'], async () => {
+    const data = await fetchJson(
+      `https://app.across.to/api/suggested-fees?inputToken=${BRIDGE_USDC_ETH}&outputToken=${BRIDGE_USDC_BASE}&originChainId=1&destinationChainId=8453&amount=50000000`,
+    );
+    if (!isRecord(data)) return null;
+    /* The API's own total (totalRelayFee.total) is the fee —
+     * summing the parts duplicated it in the first parser.
+     * A response that parses to no fee and no output is
+     * NO_DATA, not a value full of nulls. */
+    const total = isRecord(data.totalRelayFee) ? data.totalRelayFee : null;
+    const feeRaw = num(total && typeof total.total === 'string' ? Number(total.total) : total?.total);
+    const output = num(typeof data.outputAmount === 'string' ? Number(data.outputAmount) : data.outputAmount);
+    const fill = num(typeof data.estimatedFillTimeSec === 'number' ? data.estimatedFillTimeSec : null);
+    if (feeRaw === null && output === null) return null;
+    return {
+      value: {
+        fromChain: 'Ethereum',
+        toChain: 'Base',
+        token: 'USDC',
+        amountUsd: 50,
+        feeUsd: feeRaw === null ? null : feeRaw / 1e6,
+        outputUsd: output === null ? null : output / 1e6,
+        fillTimeSec: fill,
+      },
+      source: 'Across',
+    };
+  });
+}
+
 /* ---------------- price history (chart) ---------------- */
 
 export interface HistoryValue {
