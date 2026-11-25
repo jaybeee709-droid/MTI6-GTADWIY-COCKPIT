@@ -86,6 +86,12 @@ interface WorldMapEngineProps {
   markerPulse?: boolean;
   // v224 — Living World: day/night terminator (default on).
   night?: boolean;
+  // v225 — Place Intelligence: relationship links drawn on the
+  // map between two real points (focus ↔ nearby node), plus a
+  // ring on the focused marker. Coordinates are projected with
+  // the same math as the markers, so lines track the map.
+  links?: { id: string; from: { lon: number; lat: number }; to: { lon: number; lat: number } }[];
+  ringMarkerId?: string;
 }
 
 interface ViewState {
@@ -372,6 +378,8 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
   defaultMarkerColor,
   markerPulse = false,
   night = true,
+  links = [],
+  ringMarkerId,
 }) => {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const glRef = useRef<HTMLDivElement | null>(null);
@@ -1008,6 +1016,34 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
 
       {/* DOM markers, positioned by projection. 44px targets. */}
       <div className="pointer-events-none absolute inset-0">
+        {/* v225 — relationship links: focus ↔ nearby node, drawn
+            in the same % space as the markers (viewBox 0 0 100 100
+            maps 1:1 to the container; off-screen ends are clipped
+            by the SVG bounds). */}
+        {links.length > 0 && size.w > 0 && (
+          <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            {links.map((l) => {
+              const fx = ((l.from.lon - (view.cx - halfW)) / (2 * halfW)) * 100;
+              const fy = ((view.cy + halfH - projectLat(l.from.lat)) / (2 * halfH)) * 100;
+              const tx = ((l.to.lon - (view.cx - halfW)) / (2 * halfW)) * 100;
+              const ty = ((view.cy + halfH - projectLat(l.to.lat)) / (2 * halfH)) * 100;
+              return (
+                <line
+                  key={l.id}
+                  x1={fx}
+                  y1={fy}
+                  x2={tx}
+                  y2={ty}
+                  vectorEffect="non-scaling-stroke"
+                  stroke={defaultMarkerColor ?? MTI6_MAP.marker}
+                  strokeWidth={1.5}
+                  strokeOpacity={0.65}
+                  strokeDasharray="4 3"
+                />
+              );
+            })}
+          </svg>
+        )}
         {size.w > 0 &&
           markers.map((m) => {
             const wx = m.lon;
@@ -1023,7 +1059,7 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
                 aria-label={m.label}
                 title={m.label}
                 onClick={() => onMarkerSelect?.(m)}
-                className={`pointer-events-auto absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center${markerPulse ? ' mti6-marker-pulse' : ''}`}
+                className={`pointer-events-auto absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center${markerPulse ? ' mti6-marker-pulse' : ''}${m.id === ringMarkerId ? ' mti6-marker-ring' : ''}`}
                 style={{ left: `${left}%`, top: `${top}%` }}
               >
                 <span

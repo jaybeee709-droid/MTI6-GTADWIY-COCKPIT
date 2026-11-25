@@ -281,6 +281,23 @@ button[aria-label='STAR Orb'] {
   100% { box-shadow: 0 0 0 0 transparent; }
 }
 
+/* v225 — Place Intelligence: the focused marker wears a ring so
+   the relationship overlay's anchor is visible on the map. */
+.mti6-marker-ring::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border: 2px solid var(--mti6-route, #00b7ff);
+  border-radius: 9999px;
+  pointer-events: none;
+  animation: mti6-ring-pulse 2s ease-out infinite;
+}
+@keyframes mti6-ring-pulse {
+  0% { transform: scale(0.85); opacity: 0.9; }
+  70% { transform: scale(1.25); opacity: 0.25; }
+  100% { transform: scale(1.25); opacity: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-mti6-star-idle='on'] button[aria-label='STAR Orb'],
   .mti6-particles span {

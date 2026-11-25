@@ -337,6 +337,11 @@ try {
     worldMapText.includes('NIGHT: ON'),
     'Map Position panel reports the terminator live',
   );
+  check(
+    'place intelligence gated',
+    !worldMapText.includes('PLACE INTELLIGENCE'),
+    'relationship panel stays hidden until a place or stop is focused',
+  );
 
   // Honest states, checked across the whole rendered document after visiting
   // every route (last route visited is Crypto Workspaces; re-visit Globe and

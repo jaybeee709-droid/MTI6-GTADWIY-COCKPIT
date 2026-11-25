@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   Globe,
@@ -29,6 +29,7 @@ import {
 import { CryptoSphere } from './CryptoSphere';
 import { SPACE_BG } from './CryptoWorld';
 import { ALL_ADAPTERS } from '../provider-adapters';
+import { loadAngelStore } from '../angel-security';
 
 export interface WorldGlobeProps {
   onSelectWorld?: (world: WorldId) => void;
@@ -135,6 +136,31 @@ function fmtLon(lon: number): string {
 }
 function fmtLat(lat: number): string {
   return `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'}`;
+}
+
+// v225 — Place Intelligence: measured proximity only. No name
+// matching, no guessed links — the edge is a haversine distance
+// between two real coordinates.
+function haversineM(aLat: number, aLon: number, bLat: number, bLon: number): number {
+  const r = 6371000;
+  const dLat = ((bLat - aLat) * Math.PI) / 180;
+  const dLon = ((bLon - aLon) * Math.PI) / 180;
+  const la1 = (aLat * Math.PI) / 180;
+  const la2 = (bLat * Math.PI) / 180;
+  const h =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(la1) * Math.cos(la2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return 2 * r * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+const COMPASS_8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+function bearingCompass(aLat: number, aLon: number, bLat: number, bLon: number): string {
+  const dLon = ((bLon - aLon) * Math.PI) / 180;
+  const la1 = (aLat * Math.PI) / 180;
+  const la2 = (bLat * Math.PI) / 180;
+  const y = Math.sin(dLon) * Math.cos(la2);
+  const x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dLon);
+  const deg = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+  return COMPASS_8[Math.round(deg / 45) % 8];
 }
 
 export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
@@ -282,6 +308,42 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     fetchedAt: number | null;
   }>({ state: 'idle', message: 'NOT SEARCHED — the geocoding pipeline is ready; nothing has been polled.', results: [], provider: null, fetchedAt: null });
   const [placeMarker, setPlaceMarker] = useState<MapMarker | null>(null);
+  // v225 — Place Intelligence: the focus is the selected transit
+  // stop, else the placed place. Nearby nodes are transit stops
+  // within 1 km, measured by haversine over real coordinates;
+  // the map draws a link line from the focus to each one. Alerts
+  // match only when an alert's recorded area names this place —
+  // area is null unless the owner sets it at intake.
+  const focusPoint = selectedStop ?? placeMarker;
+  const nearbyStops = useMemo(() => {
+    if (!focusPoint) return [];
+    return transitStops
+      .filter((s) => s.id !== focusPoint.id)
+      .map((s) => ({ stop: s, dist: haversineM(focusPoint.lat, focusPoint.lon, s.lat, s.lon) }))
+      .filter((d) => d.dist <= 1000)
+      .sort((a, b) => a.dist - b.dist)
+      .slice(0, 8);
+  }, [focusPoint, transitStops]);
+  const focusLinks = useMemo(
+    () =>
+      focusPoint
+        ? nearbyStops.map((n) => ({
+            id: `link-${n.stop.id}`,
+            from: { lon: focusPoint.lon, lat: focusPoint.lat },
+            to: { lon: n.stop.lon, lat: n.stop.lat },
+          }))
+        : [],
+    [focusPoint, nearbyStops],
+  );
+  const areaAlerts = useMemo(() => {
+    if (!focusPoint) return [];
+    const label = focusPoint.label.toLowerCase();
+    return loadAngelStore().alerts.filter(
+      (a) =>
+        typeof a.area === 'string' &&
+        (label.includes(a.area.toLowerCase()) || a.area.toLowerCase().includes(label)),
+    );
+  }, [focusPoint]);
   const [mapFocus, setMapFocus] = useState<{ lon: number; lat: number; nonce: number } | null>(null);
 
   const searchPlace = async () => {
@@ -764,6 +826,8 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               markerPulse={markerPulse}
               markers={[...(transitOn ? transitStops : []), ...(placeMarker ? [placeMarker] : [])]}
               focusPoint={mapFocus}
+              links={focusLinks}
+              ringMarkerId={focusPoint?.id}
               onViewChange={handleViewChange}
               onStatusChange={setEngineStatus}
               onMarkerSelect={(m) => {
@@ -1131,22 +1195,6 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   PLACED: <span className="text-white">{placeMarker.label}</span> — coordinates published
                   by the geocoding provider, never guessed.
                 </p>
-                {/* v224 — World Conversation Mode, first step: ask
-                    STAR about this place. The orb opens with the
-                    question prefilled; Daniel sends it. */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    window.dispatchEvent(
-                      new CustomEvent('mti6:ask-star', {
-                        detail: { text: `What does MTI6 know about ${placeMarker.label}?` },
-                      }),
-                    )
-                  }
-                  className="rounded-lg border border-[#8B5CFF]/50 bg-[#8B5CFF]/10 px-2.5 py-1.5 font-mono text-[10px] font-semibold text-[#B8B8B8] hover:text-white"
-                >
-                  ASK STAR ABOUT THIS PLACE
-                </button>
               </div>
             )}
             <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
@@ -1154,6 +1202,112 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               ENVIRONMENT; WITH NONE SET, THIS READS NOT_CONFIGURED AND PLACES NOTHING.
             </p>
           </div>
+
+          {/* v225 — Place Intelligence: the World Engine relationship
+              overlay for the focused place or stop. Every line is a
+              real record or a measured distance; the map draws the
+              focus ↔ nearby-node links and rings the focus. Ask STAR
+              moved here from the place card so it works for a stop
+              too. */}
+          {focusPoint && (
+            <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-2">
+              <div className="text-xs font-mono text-[#00B7FF]">
+                PLACE INTELLIGENCE — WORLD ENGINE RELATIONSHIPS
+              </div>
+              <p className="font-mono text-[10px] text-[#B8B8B8]">
+                FOCUS: <span className="text-white">{focusPoint.label}</span> ·{' '}
+                {focusPoint.lat.toFixed(5)}, {focusPoint.lon.toFixed(5)} · SOURCE:{' '}
+                {selectedStop ? 'TRANSITLAND' : 'GEOCODING PROVIDER'}
+              </p>
+              <div>
+                <div className="font-mono text-[10px] text-white">NEARBY NODES — WITHIN 1 KM</div>
+                {transitStops.length === 0 ? (
+                  <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    NO_DATA — no transit stops queried yet. Query stops near the centre first; the map
+                    then draws the links.
+                  </p>
+                ) : nearbyStops.length === 0 ? (
+                  <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    NO STOPS WITHIN 1 KM OF THIS PLACE — {transitStops.length} stops are on the map;
+                    none is close enough to link.
+                  </p>
+                ) : (
+                  <ul className="mt-1 space-y-0.5">
+                    {nearbyStops.map((n) => (
+                      <li key={n.stop.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedStop(n.stop);
+                            setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
+                            setDeparturesDay('TODAY');
+                          }}
+                          className="flex w-full justify-between gap-3 font-mono text-[10px] text-[#B8B8B8] hover:text-white"
+                        >
+                          <span className="truncate">{n.stop.label}</span>
+                          <span className="shrink-0">
+                            {Math.round(n.dist)} M ·{' '}
+                            {bearingCompass(focusPoint.lat, focusPoint.lon, n.stop.lat, n.stop.lon)}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div>
+                <div className="font-mono text-[10px] text-white">ALERTS IN THIS AREA</div>
+                {areaAlerts.length === 0 ? (
+                  <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    NO_DATA — no alert carries an area for this place. Alerts record an area only when
+                    the owner sets one at intake.
+                  </p>
+                ) : (
+                  <ul className="mt-1 space-y-0.5">
+                    {areaAlerts.map((a) => (
+                      <li key={a.id} className="font-mono text-[10px] text-[#B8B8B8]">
+                        {a.title} · <span className="text-white">{a.state}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                WORLD ENGINE — canonical graph: 957 nodes · 1,007 relationships · 0 unresolved (live run
+                over canonical records). This place has no verified link into it: encyclopedia records
+                (1,840) and entities (48) carry no location, and MTI6 never links by name alone.
+                Opportunities: radar candidates carry no location — nothing to pin here (D6).
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    window.dispatchEvent(
+                      new CustomEvent('mti6:ask-star', {
+                        detail: { text: `What does MTI6 know about ${focusPoint.label}?` },
+                      }),
+                    )
+                  }
+                  className="rounded-lg border border-[#8B5CFF]/50 bg-[#8B5CFF]/10 px-2.5 py-1.5 font-mono text-[10px] font-semibold text-[#B8B8B8] hover:text-white"
+                >
+                  ASK STAR ABOUT THIS PLACE
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setMapFocus((f) => ({
+                      lon: focusPoint.lon,
+                      lat: focusPoint.lat,
+                      nonce: (f?.nonce ?? 0) + 1,
+                    }))
+                  }
+                  className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1.5 font-mono text-[10px] font-semibold text-[#B8B8B8] hover:text-white"
+                >
+                  ZOOM TO FOCUS
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-2">
             <div className="flex items-center justify-between">
