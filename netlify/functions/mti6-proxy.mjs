@@ -121,16 +121,18 @@
 
 const MAX_BODY_BYTES = 65536;
 const STAR_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
-// v242 (2026-11-25): the previous default,
-// meta-llama/llama-3.3-70b-instruct:free, no longer exists on
-// OpenRouter — the public models list carries the paid
-// llama-3.3-70b-instruct only and zero :free Meta variants, so
-// every star.chat call answered 404 and the proxy mapped it to
-// UPSTREAM_ERROR (key fine, model gone). The default is now a
-// free model verified live on that list the same day:
-// google/gemma-4-31b-it:free (Google instruction-tuned, 262k
-// context). MTI6_STAR_MODEL still overrides it when set.
-const STAR_DEFAULT_MODEL = "google/gemma-4-31b-it:free";
+// v244 (2026-11-25): v242's default google/gemma-4-31b-it:free
+// exists and is configured, but the 5:27 PM live check answered
+// RATE_LIMITED (upstream 429, no retry-after) on a call and one
+// retry — the free model is rate-limited at the provider right
+// now. The default switches to a different free model family,
+// nvidia/nemotron-3.5-lightning:free, verified live on the public
+// models list the same day ($0 prompt/completion). Honest caveat:
+// if the 429 is a shared daily free-tier cap per key, a different
+// free model may hit the same wall — this is a model switch, not
+// a guarantee the limit lifts. MTI6_STAR_MODEL still overrides
+// it when set.
+const STAR_DEFAULT_MODEL = "nvidia/nemotron-3.5-lightning:free";
 const STAR_TIMEOUT_MS = 30000;
 const STAR_MAX_MESSAGES = 12;
 const STAR_MAX_CONTENT_CHARS = 2000;
