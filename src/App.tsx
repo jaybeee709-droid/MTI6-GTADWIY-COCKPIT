@@ -271,6 +271,19 @@ export function App() {
           : appearance.effectsLevel === 'cinematic'
             ? 56
             : 96;
+  // v224 — World Conversation Mode, first step: a place on the
+  // globe asks STAR about itself. The orb opens with the question
+  // prefilled; Daniel sends it.
+  useEffect(() => {
+    const onAskStar = (e: Event) => {
+      const detail = (e as CustomEvent<{ text?: string }>).detail;
+      if (!detail?.text) return;
+      setStarInput(detail.text);
+      setStarOrbOpen(true);
+    };
+    window.addEventListener('mti6:ask-star', onAskStar);
+    return () => window.removeEventListener('mti6:ask-star', onAskStar);
+  }, []);
   const [floatingWindows, setFloatingWindows] = useState<FloatingWin[]>([]);
   const [accountsOpen, setAccountsOpen] = useState<boolean>(false);
   const [starOrbOpen, setStarOrbOpen] = useState<boolean>(false);

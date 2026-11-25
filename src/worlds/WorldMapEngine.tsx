@@ -61,6 +61,8 @@ export interface MapEngineStatus {
   nativeTileZoom: number;
   terrain: 'OFF' | 'HILLSHADE' | 'LOADING' | 'FAILED';
   shadeTiles: number;
+  // v224 — day/night terminator: true while the night plane is on.
+  night: boolean;
 }
 
 export type MapTerrainMode = 'off' | 'hillshade';
@@ -82,6 +84,8 @@ interface WorldMapEngineProps {
   floorMode?: 'filled' | 'wireframe';
   defaultMarkerColor?: string;
   markerPulse?: boolean;
+  // v224 — Living World: day/night terminator (default on).
+  night?: boolean;
 }
 
 interface ViewState {
@@ -199,6 +203,67 @@ function buildFloorCanvas(wireframe = false): HTMLCanvasElement | null {
   return canvas;
 }
 
+/* ---- day/night terminator (v224, Living World) ----
+ * The night side of the planet, computed from real UTC time with
+ * the standard NOAA solar-position equations — no provider, no
+ * feed, just the clock. A 512² canvas (soft twilight band) is
+ * drawn as a translucent plane above the raster (z=1.5), so night
+ * falls on streets and satellite imagery alike. Recomputed every
+ * 5 minutes; the terminator moves ~1.25° in that time. */
+function buildNightCanvas(now: Date): HTMLCanvasElement | null {
+  const S = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = S;
+  canvas.height = S;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  const img = ctx.createImageData(S, S);
+  const start = Date.UTC(now.getUTCFullYear(), 0, 0);
+  const dayOfYear = Math.floor((now.getTime() - start) / 86400000);
+  const hour = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600;
+  const gamma = ((2 * Math.PI) / 365) * (dayOfYear - 1 + (hour - 12) / 24);
+  const eqtime =
+    229.18 *
+    (0.000075 +
+      0.001868 * Math.cos(gamma) -
+      0.032077 * Math.sin(gamma) -
+      0.014615 * Math.cos(2 * gamma) -
+      0.040849 * Math.sin(2 * gamma));
+  const decl =
+    0.006918 -
+    0.399912 * Math.cos(gamma) +
+    0.070257 * Math.sin(gamma) -
+    0.006758 * Math.cos(2 * gamma) +
+    0.000907 * Math.sin(2 * gamma) -
+    0.002697 * Math.cos(3 * gamma) +
+    0.00148 * Math.sin(3 * gamma);
+  const sinDecl = Math.sin(decl);
+  const cosDecl = Math.cos(decl);
+  const data = img.data;
+  for (let py = 0; py < S; py++) {
+    const lat = (unprojectLat(180 - (py / S) * 360) * Math.PI) / 180;
+    const sinLat = Math.sin(lat);
+    const cosLat = Math.cos(lat);
+    for (let px = 0; px < S; px++) {
+      const lon = (px / S) * 360 - 180;
+      const tst = hour * 60 + eqtime + 4 * lon;
+      let ha = tst / 4 - 180;
+      if (ha < -180) ha += 360;
+      if (ha > 180) ha -= 360;
+      const cosZ = sinLat * sinDecl + cosLat * cosDecl * Math.cos((ha * Math.PI) / 180);
+      // Day above +0.08, full night below -0.08, soft twilight between.
+      const alpha = cosZ >= 0.08 ? 0 : cosZ <= -0.08 ? 140 : Math.round((140 * (0.08 - cosZ)) / 0.16);
+      const i = (py * S + px) * 4;
+      data[i] = 2;
+      data[i + 1] = 6;
+      data[i + 2] = 24;
+      data[i + 3] = alpha;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
 /* ---- terrain hillshade (v222) ----
  * AWS Terrain Tiles serve terrarium PNGs: elevation (metres) is
  * encoded per pixel as (R*256 + G + B/256) - 32768. The bucket
@@ -306,6 +371,7 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
   floorMode = 'filled',
   defaultMarkerColor,
   markerPulse = false,
+  night = true,
 }) => {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const glRef = useRef<HTMLDivElement | null>(null);
@@ -375,7 +441,35 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     nativeTileZoom: 19,
     terrain: 'OFF',
     shadeTiles: 0,
+    night: true,
   });
+
+  // v224 — night plane refs + toggle + 5-minute refresh. The plane
+  // is created in the setup effect; these effects only drive it.
+  const nightMeshRef = useRef<THREE.Mesh | null>(null);
+  const nightRef = useRef(night);
+  nightRef.current = night;
+  useEffect(() => {
+    const mesh = nightMeshRef.current;
+    if (mesh) mesh.visible = night;
+    statusRef.current = { ...statusRef.current, night };
+    onStatusChange?.(statusRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [night]);
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const mesh = nightMeshRef.current as (THREE.Mesh & { material: THREE.MeshBasicMaterial }) | null;
+      if (!mesh || !nightRef.current) return;
+      const canvas = buildNightCanvas(new Date());
+      if (!canvas) return;
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      mesh.material.map?.dispose();
+      mesh.material.map = tex;
+      mesh.material.needsUpdate = true;
+    }, 300000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const applyView = (next: ViewState) => {
     const clamped = clampView(next, sizeRef.current.w, sizeRef.current.h);
@@ -436,6 +530,20 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     // either layer beneath or above it.
     const shadeGroup = new THREE.Group();
     scene.add(shadeGroup);
+    // v224 — night plane above the raster (z=1.5): the terminator
+    // darkens floor, hillshade and raster alike. DOM markers sit
+    // above it and stay lit.
+    const nightCanvas = buildNightCanvas(new Date());
+    if (nightCanvas) {
+      const nightTex = new THREE.CanvasTexture(nightCanvas);
+      nightTex.colorSpace = THREE.SRGBColorSpace;
+      const nightMat = new THREE.MeshBasicMaterial({ map: nightTex, transparent: true, depthWrite: false });
+      const nightMesh = new THREE.Mesh(new THREE.PlaneGeometry(WORLD, WORLD), nightMat);
+      nightMesh.position.z = 1.5;
+      nightMesh.visible = nightRef.current;
+      scene.add(nightMesh);
+      nightMeshRef.current = nightMesh;
+    }
     threeRef.current = { renderer, scene, camera, tileGroup, shadeGroup };
 
     let raf = 0;
@@ -560,6 +668,7 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
       nativeTileZoom,
       terrain: terrainStateRef.current,
       shadeTiles: shadeLoaded,
+      night: nightRef.current,
     };
     statusRef.current = next;
     onStatusChange?.(next);

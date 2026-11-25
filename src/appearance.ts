@@ -79,7 +79,9 @@ export type GlobeType =
   | 'tron'
   | 'holographic'
   | 'data'
-  | 'network';
+  | 'network'
+  | 'steel'
+  | 'electric';
 
 export interface MediaAsset {
   id: string;
@@ -239,6 +241,8 @@ export function globeTypeToMap(globeType: GlobeType): {
     case 'holographic':
     case 'data':
     case 'network':
+    case 'steel':
+    case 'electric':
       return { base: 'floor', terrain: 'off', floorMode: 'filled' };
     case 'realistic':
     default:

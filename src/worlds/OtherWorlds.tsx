@@ -1933,7 +1933,7 @@ const AppearanceStudio: React.FC<{
         'Globe type is a preset over the map controls (base + terrain + floor). Galaxy has no geography source and is not offered. Route lines need a routing provider — routing is NOT_CONNECTED today, so only PULSE visibly animates the map markers; the other styles are stored and apply when route lines exist.',
         <div className="space-y-3">
           <div className="flex flex-wrap gap-1.5">
-            {(['realistic', 'satellite', 'wireframe', 'terrain', 'tron', 'holographic', 'data', 'network'] as const).map((g) => (
+            {(['realistic', 'satellite', 'wireframe', 'terrain', 'tron', 'holographic', 'data', 'network', 'steel', 'electric'] as const).map((g) => (
               <button
                 key={g}
                 type="button"

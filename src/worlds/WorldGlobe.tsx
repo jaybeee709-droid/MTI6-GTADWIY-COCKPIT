@@ -149,24 +149,27 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // (Coverage = every layer's data state at once). Persisted —
   // the choice survives reloads.
   type MapLens = 'world' | 'crypto' | 'earnings' | 'security' | 'transit' | 'coverage';
-  const readViewSel = (): { base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens } => {
+  const readViewSel = (): { base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean } => {
     try {
       const raw = localStorage.getItem(MAP_VIEW_SEL_KEY);
-      if (!raw) return { base: 'streets', terrain: 'off', lens: 'world' };
-      const parsed = JSON.parse(raw) as Partial<{ base: string; terrain: string; lens: string }>;
+      if (!raw) return { base: 'streets', terrain: 'off', lens: 'world', night: true };
+      const parsed = JSON.parse(raw) as Partial<{ base: string; terrain: string; lens: string; night: unknown }>;
       return {
         base: parsed.base === 'satellite' || parsed.base === 'floor' ? (parsed.base as MapBaseStyle) : 'streets',
         terrain: parsed.terrain === 'hillshade' ? 'hillshade' : 'off',
         lens: ['world', 'crypto', 'earnings', 'security', 'transit', 'coverage'].includes(parsed.lens ?? '')
           ? (parsed.lens as MapLens)
           : 'world',
+        // v224 — day/night terminator, on by default. An old saved
+        // selection without the key reads ON.
+        night: parsed.night === false ? false : true,
       };
     } catch {
-      return { base: 'streets', terrain: 'off', lens: 'world' };
+      return { base: 'streets', terrain: 'off', lens: 'world', night: true };
     }
   };
   const [viewSel, setViewSelState] = useState(readViewSel);
-  const setViewSel = (next: Partial<{ base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens }>) => {
+  const setViewSel = (next: Partial<{ base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean }>) => {
     setViewSelState((prev) => {
       const merged = { ...prev, ...next };
       try {
@@ -531,6 +534,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     nativeTileZoom: 19,
     terrain: 'OFF',
     shadeTiles: 0,
+    night: true,
   });
   const lastLevelRef = useRef<string>('World');
 
@@ -693,6 +697,26 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 </button>
               ))}
             </span>
+            {/* v224 — Living World: day/night terminator, computed
+                from real UTC time. ON by default. */}
+            <span className="flex items-center gap-1">
+              <span className="text-[#B8B8B8]">NIGHT</span>
+              {([true, false] as const).map((n) => (
+                <button
+                  key={String(n)}
+                  type="button"
+                  onClick={() => setViewSel({ night: n })}
+                  aria-pressed={viewSel.night === n}
+                  className={`h-9 px-2.5 rounded border transition ${
+                    viewSel.night === n
+                      ? 'border-[#00B7FF] bg-[#00B7FF]/15 text-white'
+                      : 'border-white/15 text-[#B8B8B8] hover:border-white/40'
+                  }`}
+                >
+                  {n ? 'ON' : 'OFF'}
+                </button>
+              ))}
+            </span>
             <span className="flex items-center gap-1">
               <span className="text-[#B8B8B8]">LENS</span>
               {(['world', 'crypto', 'earnings', 'security', 'transit', 'coverage'] as const).map((l) => (
@@ -734,6 +758,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
             <WorldMapEngine
               baseStyle={viewSel.base}
               terrain={viewSel.terrain}
+              night={viewSel.night}
               floorMode={floorMode}
               defaultMarkerColor={routeColor}
               markerPulse={markerPulse}
@@ -1004,6 +1029,12 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                       : 'OFF — turn on HILLSHADE in MAP VIEW'}
               </div>
               <div>
+                NIGHT:{' '}
+                {engineStatus.night
+                  ? 'ON — terminator from real UTC time (NOAA solar position, refreshed every 5 min)'
+                  : 'OFF — turn on NIGHT in MAP VIEW'}
+              </div>
+              <div>
                 MARKERS PLACED: {(transitOn ? transitStops.length : 0) + (placeMarker ? 1 : 0)}
                 {transitOn && transitStops.length > 0
                   ? ' — Transitland stops (sourced locations)'
@@ -1095,10 +1126,28 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               </div>
             )}
             {placeMarker && (
-              <p className="font-mono text-[10px] text-[#B8B8B8]">
-                PLACED: <span className="text-white">{placeMarker.label}</span> — coordinates published
-                by the geocoding provider, never guessed.
-              </p>
+              <div className="space-y-1.5">
+                <p className="font-mono text-[10px] text-[#B8B8B8]">
+                  PLACED: <span className="text-white">{placeMarker.label}</span> — coordinates published
+                  by the geocoding provider, never guessed.
+                </p>
+                {/* v224 — World Conversation Mode, first step: ask
+                    STAR about this place. The orb opens with the
+                    question prefilled; Daniel sends it. */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    window.dispatchEvent(
+                      new CustomEvent('mti6:ask-star', {
+                        detail: { text: `What does MTI6 know about ${placeMarker.label}?` },
+                      }),
+                    )
+                  }
+                  className="rounded-lg border border-[#8B5CFF]/50 bg-[#8B5CFF]/10 px-2.5 py-1.5 font-mono text-[10px] font-semibold text-[#B8B8B8] hover:text-white"
+                >
+                  ASK STAR ABOUT THIS PLACE
+                </button>
+              </div>
             )}
             <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
               CHAIN: GEOAPIFY → LOCATIONIQ, THROUGH THE GATEWAY. KEYS LIVE ONLY IN THE SERVER

@@ -321,6 +321,22 @@ try {
     settingsText.includes('NOT_CONNECTED') && settingsText.includes('no image provider is configured'),
     'sound packs + AI generator honestly unconnected',
   );
+  check(
+    'steel + electric globe types present',
+    settingsText.includes('STEEL') && settingsText.includes('ELECTRIC'),
+    'Globe Designer offers 10 types',
+  );
+
+  // v224 — Living World: day/night terminator on the World Map
+  // route (NIGHT toggle in the MAP VIEW bar + NIGHT line in the
+  // Map Position panel, on by default).
+  const worldMapText = routeTexts[ROUTES.findIndex(([l]) => l === 'World Map')] ?? '';
+  check('night toggle present', worldMapText.includes('NIGHT'), 'MAP VIEW bar has NIGHT');
+  check(
+    'night line present',
+    worldMapText.includes('NIGHT: ON'),
+    'Map Position panel reports the terminator live',
+  );
 
   // Honest states, checked across the whole rendered document after visiting
   // every route (last route visited is Crypto Workspaces; re-visit Globe and
