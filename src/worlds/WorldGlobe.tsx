@@ -30,6 +30,7 @@ import { CryptoSphere } from './CryptoSphere';
 import { SPACE_BG } from './CryptoWorld';
 import { ALL_ADAPTERS } from '../provider-adapters';
 import { loadAngelStore } from '../angel-security';
+import { loadRawArchive } from '../raw-archive';
 
 export interface WorldGlobeProps {
   onSelectWorld?: (world: WorldId) => void;
@@ -175,11 +176,11 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // (Coverage = every layer's data state at once). Persisted —
   // the choice survives reloads.
   type MapLens = 'world' | 'crypto' | 'earnings' | 'security' | 'transit' | 'coverage';
-  const readViewSel = (): { base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean } => {
+  const readViewSel = (): { base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean; timeTravel: boolean; cinematic: boolean; simTime: number | null } => {
     try {
       const raw = localStorage.getItem(MAP_VIEW_SEL_KEY);
-      if (!raw) return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false };
-      const parsed = JSON.parse(raw) as Partial<{ base: string; terrain: string; lens: string; night: unknown; places: unknown; flights: unknown; weather: unknown }>;
+      if (!raw) return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false, timeTravel: false, cinematic: false, simTime: null };
+      const parsed = JSON.parse(raw) as Partial<{ base: string; terrain: string; lens: string; night: unknown; places: unknown; flights: unknown; weather: unknown; timeTravel: unknown; cinematic: unknown; simTime: unknown }>;
       return {
         base: parsed.base === 'satellite' || parsed.base === 'floor' ? (parsed.base as MapBaseStyle) : 'streets',
         terrain: parsed.terrain === 'hillshade' ? 'hillshade' : 'off',
@@ -195,13 +196,18 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
         // v227 — flights + weather, off by default.
         flights: parsed.flights === true,
         weather: parsed.weather === true,
+        // v228 — time travel + cinematic, off by default; a
+        // persisted simulated time survives reloads.
+        timeTravel: parsed.timeTravel === true,
+        cinematic: parsed.cinematic === true,
+        simTime: typeof parsed.simTime === 'number' && Number.isFinite(parsed.simTime) ? parsed.simTime : null,
       };
     } catch {
-      return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false };
+      return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false, timeTravel: false, cinematic: false, simTime: null };
     }
   };
   const [viewSel, setViewSelState] = useState(readViewSel);
-  const setViewSel = (next: Partial<{ base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean }>) => {
+  const setViewSel = (next: Partial<{ base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean; timeTravel: boolean; cinematic: boolean; simTime: number | null }>) => {
     setViewSelState((prev) => {
       const merged = { ...prev, ...next };
       try {
@@ -443,6 +449,66 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     );
   }, [focusPoint]);
   const [mapFocus, setMapFocus] = useState<{ lon: number; lat: number; nonce: number } | null>(null);
+
+  // v228 — Time travel + cinematic. The simulated time is a UTC
+  // date + hour (the terminator is solar math, so UTC is the
+  // honest frame); the inputs edit local state and SET TIME
+  // commits them. The archive readout is the app's own fetch
+  // history (max 300 entries, this device only) as of the
+  // chosen time — live layers never pretend to have history.
+  const [simDate, setSimDate] = useState(() => {
+    const d = viewSel.simTime !== null ? new Date(viewSel.simTime) : new Date();
+    return d.toISOString().slice(0, 10);
+  });
+  const [simHour, setSimHour] = useState(() => {
+    const d = viewSel.simTime !== null ? new Date(viewSel.simTime) : new Date();
+    return d.getUTCHours();
+  });
+  const archiveAsOf = useMemo(() => {
+    const all = loadRawArchive();
+    const cutoff = viewSel.simTime ?? Date.now();
+    const entries = all
+      .filter((e) => e.at <= cutoff)
+      .sort((a, b) => b.at - a.at);
+    return { total: all.length, asOf: entries.length, latest: entries.slice(0, 3) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewSel.simTime, viewSel.timeTravel]);
+  // v228 — Cinematic tour: the start address (2773 Reservoir Ave,
+  // Bronx — the game's start, a real address) then the current
+  // focus, 3 s per stop, gliding while cinematic is on. A drag,
+  // a marker tap, or cinematic switching off stops the tour.
+  const TOUR_START = { lon: -73.8984971, lat: 40.8705769, label: '2773 RESERVOIR AVE, BRONX' };
+  const [tourActive, setTourActive] = useState(false);
+  const tourTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!viewSel.cinematic) setTourActive(false);
+  }, [viewSel.cinematic]);
+  useEffect(() => {
+    if (!tourActive) return;
+    const stops = [
+      TOUR_START,
+      ...(focusPoint ? [{ lon: focusPoint.lon, lat: focusPoint.lat, label: focusPoint.label }] : []),
+    ];
+    let i = 0;
+    let cancelled = false;
+    const step = () => {
+      if (cancelled) return;
+      if (i >= stops.length) {
+        setTourActive(false);
+        return;
+      }
+      const s = stops[i];
+      setMapFocus((f) => ({ lon: s.lon, lat: s.lat, nonce: (f?.nonce ?? 0) + 1 }));
+      i += 1;
+      tourTimerRef.current = window.setTimeout(step, 3000);
+    };
+    step();
+    return () => {
+      cancelled = true;
+      if (tourTimerRef.current !== null) window.clearTimeout(tourTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tourActive]);
 
   const searchPlace = async () => {
     const q = placeText.trim();
@@ -921,6 +987,8 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     terrain: 'OFF',
     shadeTiles: 0,
     night: true,
+    simTime: null,
+    cinematic: false,
   });
   const lastLevelRef = useRef<string>('World');
 
@@ -1165,6 +1233,46 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 </button>
               ))}
             </span>
+            {/* v228 — Time travel + cinematic (vision slice 5).
+                TIME opens the TIME TRAVEL card; CINEMATIC runs the
+                slow-drift camera and smooth fly-to. Both off by
+                default; a simulated time is persisted. */}
+            <span className="flex items-center gap-1">
+              <span className="text-[#B8B8B8]">TIME</span>
+              {([true, false] as const).map((t) => (
+                <button
+                  key={String(t)}
+                  type="button"
+                  onClick={() => setViewSel({ timeTravel: t })}
+                  aria-pressed={viewSel.timeTravel === t}
+                  className={`h-9 px-2.5 rounded border transition ${
+                    viewSel.timeTravel === t
+                      ? 'border-[#00B7FF] bg-[#00B7FF]/15 text-white'
+                      : 'border-white/15 text-[#B8B8B8] hover:border-white/40'
+                  }`}
+                >
+                  {t ? 'ON' : 'OFF'}
+                </button>
+              ))}
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="text-[#B8B8B8]">CINEMATIC</span>
+              {([true, false] as const).map((c) => (
+                <button
+                  key={String(c)}
+                  type="button"
+                  onClick={() => setViewSel({ cinematic: c })}
+                  aria-pressed={viewSel.cinematic === c}
+                  className={`h-9 px-2.5 rounded border transition ${
+                    viewSel.cinematic === c
+                      ? 'border-[#00B7FF] bg-[#00B7FF]/15 text-white'
+                      : 'border-white/15 text-[#B8B8B8] hover:border-white/40'
+                  }`}
+                >
+                  {c ? 'ON' : 'OFF'}
+                </button>
+              ))}
+            </span>
             <span className="flex items-center gap-1">
               <span className="text-[#B8B8B8]">LENS</span>
               {(['world', 'crypto', 'earnings', 'security', 'transit', 'coverage'] as const).map((l) => (
@@ -1207,6 +1315,8 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               baseStyle={viewSel.base}
               terrain={viewSel.terrain}
               night={viewSel.night}
+              simTime={viewSel.simTime}
+              cinematic={viewSel.cinematic}
               floorMode={floorMode}
               defaultMarkerColor={routeColor}
               markerPulse={markerPulse}
@@ -1217,6 +1327,9 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               onViewChange={handleViewChange}
               onStatusChange={setEngineStatus}
               onMarkerSelect={(m) => {
+                // v228 — tapping a marker takes the camera from a
+                // running cinematic tour.
+                setTourActive(false);
                 if (m.id.startsWith('place-')) {
                   setSelectedStop(null);
                   setSelectedPoi(null);
@@ -1367,6 +1480,92 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   >
                     {flightQuery.state === 'loading' ? 'QUERYING…' : 'QUERY FLIGHTS NEAR CENTRE'}
                   </button>
+                </div>
+              )}
+              {/* v228 — Time travel (archive-backed): a simulated
+                  UTC time moves the day/night terminator (NOAA solar
+                  position — the same math, a different clock) and
+                  reads the app's own fetch archive as of that time.
+                  Live layers (transit, flights, weather, places)
+                  have no history — they keep showing the present
+                  and say so. */}
+              {viewSel.timeTravel && (
+                <div className="pointer-events-auto self-start rounded border border-[#00B7FF]/50 bg-[#0b0b0b]/90 px-2.5 py-2 font-mono text-[11px] text-[#B8B8B8] 2xl:self-stretch">
+                  <span className="font-semibold text-[#00B7FF]">TIME TRAVEL — ARCHIVE-BACKED.</span>{' '}
+                  {viewSel.simTime === null
+                    ? 'LIVE NOW — the terminator follows the real clock.'
+                    : `SIMULATED TIME — terminator computed for ${new Date(viewSel.simTime).toISOString().slice(0, 16).replace('T', ' ')} UTC.`}{' '}
+                  Live layers stay current; only the day/night line and the archive below respond to the chosen time.
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <input
+                      type="date"
+                      value={simDate}
+                      onChange={(e) => setSimDate(e.target.value)}
+                      aria-label="Simulated date (UTC)"
+                      className="h-8 rounded border border-white/15 bg-[#101010] px-2 text-white"
+                    />
+                    <label className="flex items-center gap-1">
+                      <span>HOUR UTC</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={23}
+                        step={1}
+                        value={simHour}
+                        onChange={(e) => setSimHour(Number(e.target.value))}
+                        aria-label="Simulated hour (UTC)"
+                        className="w-24"
+                      />
+                      <span className="text-white">{String(simHour).padStart(2, '0')}:00</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const d = new Date(`${simDate}T${String(simHour).padStart(2, '0')}:00:00Z`);
+                        if (!Number.isNaN(d.getTime())) setViewSel({ simTime: d.getTime() });
+                      }}
+                      className="font-semibold text-white underline decoration-[#00B7FF] underline-offset-2"
+                    >
+                      SET TIME
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewSel({ simTime: null })}
+                      disabled={viewSel.simTime === null}
+                      className="font-semibold text-white underline decoration-[#00B7FF] underline-offset-2 disabled:opacity-50"
+                    >
+                      RETURN TO LIVE
+                    </button>
+                  </div>
+                  <div className="mt-1">
+                    ARCHIVE AS OF {viewSel.simTime === null ? 'NOW' : new Date(viewSel.simTime).toISOString().slice(0, 10)}:{' '}
+                    {archiveAsOf.total === 0
+                      ? 'ARCHIVE EMPTY ON THIS DEVICE — no governed fetches have been recorded yet, so there is nothing to replay.'
+                      : `${archiveAsOf.asOf} OF ${archiveAsOf.total} RECORDED FETCHES.`}
+                    {archiveAsOf.latest.map((e) => (
+                      <div key={e.id}>
+                        · {new Date(e.at).toISOString().slice(0, 19).replace('T', ' ')} UTC — {e.source}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* v228 — Cinematic camera: slow drift + smooth fly-to.
+                  Camera work only — it moves the view, never the
+                  data. The tour glides to the start address (2773
+                  Reservoir Ave, Bronx) and then the current focus. */}
+              {viewSel.cinematic && (
+                <div className="pointer-events-auto self-start rounded border border-[#00B7FF]/50 bg-[#0b0b0b]/90 px-2.5 py-2 font-mono text-[11px] text-[#B8B8B8] 2xl:self-stretch">
+                  <span className="font-semibold text-[#00B7FF]">CINEMATIC — CAMERA ONLY.</span>{' '}
+                  Slow drift + smooth fly-to. Dragging, tapping a marker, or switching CINEMATIC off takes the camera back.
+                  <button
+                    type="button"
+                    onClick={() => setTourActive((a) => !a)}
+                    className="ml-2 font-semibold text-white underline decoration-[#00B7FF] underline-offset-2"
+                  >
+                    {tourActive ? 'STOP TOUR' : 'TOUR: START ADDRESS → FOCUS'}
+                  </button>
+                  {tourActive && ' TOUR RUNNING — 3 s per stop.'}
                 </div>
               )}
               {/* Live transit: an explicit query (never a poll) places
@@ -1549,8 +1748,24 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               <div>
                 NIGHT:{' '}
                 {engineStatus.night
-                  ? 'ON — terminator from real UTC time (NOAA solar position, refreshed every 5 min)'
+                  ? viewSel.simTime === null
+                    ? 'ON — terminator from real UTC time (NOAA solar position, refreshed every 5 min)'
+                    : `ON — SIMULATED TIME — terminator computed for ${new Date(viewSel.simTime).toISOString().slice(0, 16).replace('T', ' ')} UTC`
                   : 'OFF — turn on NIGHT in MAP VIEW'}
+              </div>
+              <div>
+                SIM TIME:{' '}
+                {viewSel.simTime === null
+                  ? 'LIVE — the terminator follows the real clock'
+                  : `SIMULATED — ${new Date(viewSel.simTime).toISOString().slice(0, 16).replace('T', ' ')} UTC (archive as of that time: ${archiveAsOf.asOf} of ${archiveAsOf.total} fetches)`}
+              </div>
+              <div>
+                CINEMATIC:{' '}
+                {engineStatus.cinematic
+                  ? tourActive
+                    ? 'ON — drift + smooth fly-to, TOUR RUNNING'
+                    : 'ON — slow drift + smooth fly-to (camera only)'
+                  : 'OFF — turn on CINEMATIC in MAP VIEW'}
               </div>
               <div>
                 MARKERS PLACED: {(transitOn ? transitStops.length : 0) + (viewSel.places ? poiMarkers.length : 0) + (viewSel.flights ? flightMarkers.length : 0) + (placeMarker ? 1 : 0)}

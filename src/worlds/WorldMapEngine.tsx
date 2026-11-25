@@ -63,6 +63,11 @@ export interface MapEngineStatus {
   shadeTiles: number;
   // v224 — day/night terminator: true while the night plane is on.
   night: boolean;
+  // v228 — time travel + cinematic: the simulated epoch ms the
+  // terminator is computed for (null = live), and whether the
+  // cinematic camera (drift + smooth fly-to) is running.
+  simTime: number | null;
+  cinematic: boolean;
 }
 
 export type MapTerrainMode = 'off' | 'hillshade';
@@ -86,6 +91,11 @@ interface WorldMapEngineProps {
   markerPulse?: boolean;
   // v224 — Living World: day/night terminator (default on).
   night?: boolean;
+  // v228 — Time travel: an epoch-ms the terminator is computed
+  // for instead of now (null = live). Cinematic: slow drift +
+  // smooth fly-to camera (camera work only, never data).
+  simTime?: number | null;
+  cinematic?: boolean;
   // v225 — Place Intelligence: relationship links drawn on the
   // map between two real points (focus ↔ nearby node), plus a
   // ring on the focused marker. Coordinates are projected with
@@ -378,6 +388,8 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
   defaultMarkerColor,
   markerPulse = false,
   night = true,
+  simTime = null,
+  cinematic = false,
   links = [],
   ringMarkerId,
 }) => {
@@ -416,17 +428,8 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     mat.needsUpdate = true;
   }, [floorMode]);
 
-  // Geocode focus: a new nonce recentres on the provider-returned
-  // point at City zoom. Guarded for jsdom (no layout) like the
-  // rest of the engine.
-  const lastFocusNonce = useRef(0);
-  useEffect(() => {
-    if (!focusPoint) return;
-    if (focusPoint.nonce === lastFocusNonce.current) return;
-    lastFocusNonce.current = focusPoint.nonce;
-    applyView({ cx: focusPoint.lon, cy: projectLat(focusPoint.lat), zoom: 11 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusPoint]);
+  // Geocode focus lives with applyView below (v228 fly-to) —
+  // the old instant focus effect was removed, not duplicated.
 
   const viewRef = useRef(view);
   const sizeRef = useRef(size);
@@ -450,6 +453,8 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     terrain: 'OFF',
     shadeTiles: 0,
     night: true,
+    simTime: null,
+    cinematic: false,
   });
 
   // v224 — night plane refs + toggle + 5-minute refresh. The plane
@@ -457,6 +462,15 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
   const nightMeshRef = useRef<THREE.Mesh | null>(null);
   const nightRef = useRef(night);
   nightRef.current = night;
+  // v228 — time travel + cinematic refs (mirror the props so the
+  // interval and the animation loop always read the latest value
+  // without re-subscribing).
+  const simTimeRef = useRef<number | null>(simTime);
+  simTimeRef.current = simTime;
+  const cinematicRef = useRef(cinematic);
+  cinematicRef.current = cinematic;
+  const flyAnimRef = useRef<number | null>(null);
+  const draggingRef = useRef(false);
   useEffect(() => {
     const mesh = nightMeshRef.current;
     if (mesh) mesh.visible = night;
@@ -468,7 +482,9 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     const id = window.setInterval(() => {
       const mesh = nightMeshRef.current as (THREE.Mesh & { material: THREE.MeshBasicMaterial }) | null;
       if (!mesh || !nightRef.current) return;
-      const canvas = buildNightCanvas(new Date());
+      // v228 — a simulated time drives the terminator instead of
+      // now; live time refreshes every 5 minutes as before.
+      const canvas = buildNightCanvas(new Date(simTimeRef.current ?? Date.now()));
       if (!canvas) return;
       const tex = new THREE.CanvasTexture(canvas);
       tex.colorSpace = THREE.SRGBColorSpace;
@@ -478,12 +494,111 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     }, 300000);
     return () => window.clearInterval(id);
   }, []);
+  // v228 — time travel: rebuild the night canvas immediately when
+  // the simulated time changes (the 5-minute interval only keeps
+  // live time fresh), and report the simulated time in status.
+  useEffect(() => {
+    const mesh = nightMeshRef.current as (THREE.Mesh & { material: THREE.MeshBasicMaterial }) | null;
+    if (mesh && nightRef.current) {
+      const canvas = buildNightCanvas(new Date(simTime ?? Date.now()));
+      if (canvas) {
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        mesh.material.map?.dispose();
+        mesh.material.map = tex;
+        mesh.material.needsUpdate = true;
+      }
+    }
+    statusRef.current = { ...statusRef.current, simTime };
+    onStatusChange?.(statusRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [simTime]);
+  // v228 — cinematic: report the camera state in status.
+  useEffect(() => {
+    statusRef.current = { ...statusRef.current, cinematic };
+    onStatusChange?.(statusRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cinematic]);
 
   const applyView = (next: ViewState) => {
     const clamped = clampView(next, sizeRef.current.w, sizeRef.current.h);
     viewRef.current = clamped;
     setView(clamped);
   };
+
+  // v228 — cinematic fly-to: when cinematic is on, a new focus
+  // glides to its point over ~1.2 s (easeInOutCubic) instead of
+  // jumping; when off, the jump is instant (the old behaviour).
+  // A newer focus, a drag, or cinematic switching off cancels
+  // the glide in flight. (This effect replaces the old instant
+  // focus effect that lived above applyView.)
+  const lastFocusNonce = useRef(0);
+  useEffect(() => {
+    if (!focusPoint) return;
+    if (focusPoint.nonce === lastFocusNonce.current) return;
+    lastFocusNonce.current = focusPoint.nonce;
+    const target = { cx: focusPoint.lon, cy: projectLat(focusPoint.lat), zoom: 11 };
+    if (flyAnimRef.current !== null) {
+      cancelAnimationFrame(flyAnimRef.current);
+      flyAnimRef.current = null;
+    }
+    if (!cinematicRef.current) {
+      applyView(target);
+      return;
+    }
+    const start = viewRef.current;
+    const startTime = performance.now();
+    const dur = 1200;
+    const tick = (t: number) => {
+      const p = Math.max(0, Math.min(1, (t - startTime) / dur));
+      const e = p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+      applyView({
+        cx: start.cx + (target.cx - start.cx) * e,
+        cy: start.cy + (target.cy - start.cy) * e,
+        zoom: start.zoom + (target.zoom - start.zoom) * e,
+      });
+      if (p < 1 && cinematicRef.current) {
+        flyAnimRef.current = requestAnimationFrame(tick);
+      } else {
+        flyAnimRef.current = null;
+      }
+    };
+    flyAnimRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (flyAnimRef.current !== null) {
+        cancelAnimationFrame(flyAnimRef.current);
+        flyAnimRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusPoint]);
+
+  // v228 — cinematic drift: while cinematic is on, the view
+  // centre drifts slowly eastward (~0.07°/s — a slow camera,
+  // not data). It pauses while the user drags, while a fly-to
+  // is running, and the moment cinematic switches off. Applied
+  // at most every 100 ms so the engine is not re-rendered
+  // every frame.
+  useEffect(() => {
+    if (!cinematic) return;
+    let raf = 0;
+    let last = performance.now();
+    let acc = 0;
+    const step = (t: number) => {
+      const dt = Math.min(100, t - last);
+      last = t;
+      acc += dt;
+      if (acc >= 100 && !draggingRef.current && flyAnimRef.current === null) {
+        const v = viewRef.current;
+        applyView({ ...v, cx: v.cx + 0.0072 * (acc / 100) });
+        acc = 0;
+      }
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cinematic]);
 
   /* ---- three.js setup (once) ---- */
   useEffect(() => {
@@ -541,7 +656,9 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     // v224 — night plane above the raster (z=1.5): the terminator
     // darkens floor, hillshade and raster alike. DOM markers sit
     // above it and stay lit.
-    const nightCanvas = buildNightCanvas(new Date());
+    // v228 — a persisted simulated time drives the first
+    // terminator canvas too, not just live time.
+    const nightCanvas = buildNightCanvas(new Date(simTime ?? Date.now()));
     if (nightCanvas) {
       const nightTex = new THREE.CanvasTexture(nightCanvas);
       nightTex.colorSpace = THREE.SRGBColorSpace;
@@ -677,6 +794,8 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
       terrain: terrainStateRef.current,
       shadeTiles: shadeLoaded,
       night: nightRef.current,
+      simTime: simTimeRef.current,
+      cinematic: cinematicRef.current,
     };
     statusRef.current = next;
     onStatusChange?.(next);
@@ -934,6 +1053,13 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     const onPointerDown = (e: PointerEvent) => {
       pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
       wrap.setPointerCapture(e.pointerId);
+      // v228 — a drag takes the camera from cinematic: stop any
+      // fly-to in flight and mark the drag so the drift pauses.
+      draggingRef.current = true;
+      if (flyAnimRef.current !== null) {
+        cancelAnimationFrame(flyAnimRef.current);
+        flyAnimRef.current = null;
+      }
       if (pointers.size === 2) {
         const [a, b] = [...pointers.values()];
         lastPinchDist = Math.hypot(a.x - b.x, a.y - b.y);
@@ -966,6 +1092,7 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     const onPointerUp = (e: PointerEvent) => {
       pointers.delete(e.pointerId);
       lastPinchDist = 0;
+      if (pointers.size === 0) draggingRef.current = false;
     };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();

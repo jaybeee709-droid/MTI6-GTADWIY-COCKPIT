@@ -345,6 +345,18 @@ try {
   check('places toggle present', worldMapText.includes('PLACES'), 'MAP VIEW bar has PLACES');
   check('flights toggle present', worldMapText.includes('FLIGHTS'), 'MAP VIEW bar has FLIGHTS');
   check('weather toggle present', worldMapText.includes('WEATHER'), 'MAP VIEW bar has WEATHER');
+  check('time toggle present', worldMapText.includes('TIME'), 'MAP VIEW bar has TIME (v228)');
+  check('cinematic toggle present', worldMapText.includes('CINEMATIC'), 'MAP VIEW bar has CINEMATIC (v228)');
+  check(
+    'time travel card gated',
+    !worldMapText.includes('TIME TRAVEL — ARCHIVE-BACKED'),
+    'time travel card stays hidden until TIME is on (v228)',
+  );
+  check(
+    'sim time line present',
+    worldMapText.includes('SIM TIME:'),
+    'Map Position panel reports the simulated-time state (v228)',
+  );
 
   // Honest states, checked across the whole rendered document after visiting
   // every route (last route visited is Crypto Workspaces; re-visit Globe and
