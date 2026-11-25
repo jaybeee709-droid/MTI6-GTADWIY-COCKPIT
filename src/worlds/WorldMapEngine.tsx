@@ -102,6 +102,9 @@ interface WorldMapEngineProps {
   // the same math as the markers, so lines track the map.
   links?: { id: string; from: { lon: number; lat: number }; to: { lon: number; lat: number } }[];
   ringMarkerId?: string;
+  // v231 — Command Mode "What's here?": a tap on empty map
+  // (not a marker, not a drag) reports the geographic point.
+  onMapTap?: (p: { lat: number; lon: number }) => void;
 }
 
 interface ViewState {
@@ -392,8 +395,13 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
   cinematic = false,
   links = [],
   ringMarkerId,
+  onMapTap,
 }) => {
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  // v231 — the tap callback lives in a ref so the gesture
+  // effect (mounted once) always calls the latest handler.
+  const onMapTapRef = useRef(onMapTap);
+  onMapTapRef.current = onMapTap;
   const glRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [view, setView] = useState<ViewState>(INITIAL_VIEW);
@@ -1026,6 +1034,10 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     if (!wrap) return;
     const pointers = new Map<number, { x: number; y: number }>();
     let lastPinchDist = 0;
+    // v231 — the press that may become a tap: its position,
+    // time, and whether it started on a button (a marker or a
+    // control — those keep their own clicks, never a map tap).
+    let downAt: { x: number; y: number; t: number; onButton: boolean } | null = null;
 
     const worldAt = (px: number, py: number) => {
       const v = viewRef.current;
@@ -1051,8 +1063,20 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     };
 
     const onPointerDown = (e: PointerEvent) => {
-      pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
+      // v231 — tap positions come from client coords against
+      // the wrap's box, not offsetX: the press may land on the
+      // canvas child (its own offset origin) while the release
+      // retargets to the wrap under pointer capture, and the two
+      // origins disagree by the canvas offset.
+      const rect = wrap.getBoundingClientRect();
+      pointers.set(e.pointerId, { x: e.clientX - rect.left, y: e.clientY - rect.top });
       wrap.setPointerCapture(e.pointerId);
+      downAt = {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
+        t: Date.now(),
+        onButton: (e.target as HTMLElement | null)?.closest?.('button') !== null,
+      };
       // v228 — a drag takes the camera from cinematic: stop any
       // fly-to in flight and mark the drag so the drift pauses.
       draggingRef.current = true;
@@ -1068,7 +1092,11 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
     const onPointerMove = (e: PointerEvent) => {
       const prev = pointers.get(e.pointerId);
       if (!prev) return;
-      const now = { x: e.offsetX, y: e.offsetY };
+      // v231 — same wrap-relative client coords as pointerdown:
+      // offsetX changes origin between the canvas child and the
+      // wrap under pointer capture, which would jump the pan.
+      const rect = wrap.getBoundingClientRect();
+      const now = { x: e.clientX - rect.left, y: e.clientY - rect.top };
       pointers.set(e.pointerId, now);
       const v = viewRef.current;
       const { w, h } = sizeRef.current;
@@ -1090,6 +1118,19 @@ export const WorldMapEngine: React.FC<WorldMapEngineProps> = ({
       }
     };
     const onPointerUp = (e: PointerEvent) => {
+      // v231 — a tap is a short, near-motionless single-pointer
+      // press on empty map (not on a marker or control button,
+      // not a drag, not a pinch). It reports the geographic
+      // point so the globe can answer "What's here?".
+      if (downAt && pointers.size === 1 && !downAt.onButton) {
+        const rect = wrap.getBoundingClientRect();
+        const moved = Math.hypot(e.clientX - rect.left - downAt.x, e.clientY - rect.top - downAt.y);
+        if (moved < 6 && Date.now() - downAt.t < 500) {
+          const { wx, wy } = worldAt(downAt.x, downAt.y);
+          onMapTapRef.current?.({ lat: unprojectLat(wy), lon: wx });
+        }
+      }
+      downAt = null;
       pointers.delete(e.pointerId);
       lastPinchDist = 0;
       if (pointers.size === 0) draggingRef.current = false;

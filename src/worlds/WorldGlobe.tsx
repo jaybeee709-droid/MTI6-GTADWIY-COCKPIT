@@ -412,13 +412,19 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     fetchedAt: number | null;
   }>({ state: 'idle', message: 'NOT SEARCHED — the geocoding pipeline is ready; nothing has been polled.', results: [], provider: null, fetchedAt: null });
   const [placeMarker, setPlaceMarker] = useState<MapMarker | null>(null);
+  // v231 — Command Mode "What's here?": the point the owner
+  // tapped on empty map, named by Nominatim reverse. tapNamed
+  // is false while the lookup is out or failed — the point
+  // then reads as its coordinates, honestly.
+  const [tappedPoint, setTappedPoint] = useState<MapMarker | null>(null);
+  const [tapNamed, setTapNamed] = useState(false);
   // v225 — Place Intelligence: the focus is the selected transit
   // stop, else the placed place. Nearby nodes are transit stops
   // within 1 km, measured by haversine over real coordinates;
   // the map draws a link line from the focus to each one. Alerts
   // match only when an alert's recorded area names this place —
   // area is null unless the owner sets it at intake.
-  const focusPoint = selectedStop ?? selectedPoi ?? selectedFlight ?? placeMarker;
+  const focusPoint = selectedStop ?? selectedPoi ?? selectedFlight ?? tappedPoint ?? placeMarker;
   const nearbyStops = useMemo(() => {
     if (!focusPoint) return [];
     return transitStops
@@ -428,6 +434,18 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
       .sort((a, b) => a.dist - b.dist)
       .slice(0, 8);
   }, [focusPoint, transitStops]);
+  // v231 — nearby places: the same 1 km haversine over the
+  // queried POI records, so the answer panel lists businesses
+  // near the focus, not only transit stops.
+  const nearbyPois = useMemo(() => {
+    if (!focusPoint) return [];
+    return Object.values(poiRecords)
+      .filter((p) => p.id !== focusPoint.id)
+      .map((p) => ({ poi: p, dist: haversineM(focusPoint.lat, focusPoint.lon, p.lat, p.lon) }))
+      .filter((d) => d.dist <= 1000)
+      .sort((a, b) => a.dist - b.dist)
+      .slice(0, 8);
+  }, [focusPoint, poiRecords]);
   const focusLinks = useMemo(
     () =>
       focusPoint
@@ -559,6 +577,50 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   const choosePlace = (r: { label: string; lat: number; lon: number }) => {
     setPlaceMarker({ id: 'place-1', lon: r.lon, lat: r.lat, label: r.label });
     setMapFocus((f) => ({ lon: r.lon, lat: r.lat, nonce: (f?.nonce ?? 0) + 1 }));
+  };
+
+  // v231 — Command Mode "What's here?": tapping anywhere on
+  // the map names the point (Nominatim reverse — the same
+  // provider the POI layer already uses) and focuses it, so
+  // the Place Intelligence card answers for that exact spot.
+  // The point shows its coordinates at once; the name lands
+  // when the lookup returns. A failed lookup keeps the
+  // coordinates and says so — the point is never guessed.
+  const handleMapTap = async (p: { lat: number; lon: number }) => {
+    setSelectedStop(null);
+    setSelectedPoi(null);
+    setSelectedFlight(null);
+    setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
+    setDeparturesDay('TODAY');
+    setTapNamed(false);
+    const coordLabel = `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`;
+    setTappedPoint({ id: 'tap-1', lon: p.lon, lat: p.lat, label: coordLabel });
+    try {
+      const ctrl = new AbortController();
+      const timer = window.setTimeout(() => ctrl.abort(), 8000);
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${p.lat}&lon=${p.lon}&zoom=18&addressdetails=1`,
+        { signal: ctrl.signal },
+      );
+      window.clearTimeout(timer);
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      const addr = data?.address as Record<string, string> | undefined;
+      const name =
+        (addr?.road && addr?.house_number ? `${addr.house_number} ${addr.road}` : addr?.road) ||
+        addr?.suburb ||
+        addr?.neighbourhood ||
+        addr?.city ||
+        addr?.town ||
+        addr?.village ||
+        (typeof data?.display_name === 'string' ? data.display_name.split(',')[0] : null);
+      if (name) {
+        setTappedPoint({ id: 'tap-1', lon: p.lon, lat: p.lat, label: name });
+        setTapNamed(true);
+      }
+    } catch {
+      /* reverse lookup failed — the coordinates stand, labelled honestly */
+    }
   };
 
   const queryDepartures = async (stop: MapMarker, day: 'TODAY' | 'TOMORROW' = departuresDay) => {
@@ -1291,7 +1353,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 </button>
               ))}
             </span>
-            <span className="text-[#B8B8B8]">ZOOM TO z21 · DRAG · SCROLL · PINCH · DOUBLE-CLICK</span>
+            <span className="text-[#B8B8B8]">ZOOM TO z21 · DRAG · SCROLL · PINCH · DOUBLE-CLICK · TAP ANYWHERE — WHAT'S HERE?</span>
           </div>
           {viewSel.lens === 'coverage' && (
             <div className="flex flex-wrap gap-2 px-4 py-2 border-b border-white/10 bg-[#0b0b0b] text-[11px] font-mono">
@@ -1320,16 +1382,19 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               floorMode={floorMode}
               defaultMarkerColor={routeColor}
               markerPulse={markerPulse}
-              markers={[...(transitOn ? transitStops : []), ...(viewSel.places ? poiMarkers : []), ...(viewSel.flights ? flightMarkers : []), ...(placeMarker ? [placeMarker] : [])]}
+              markers={[...(transitOn ? transitStops : []), ...(viewSel.places ? poiMarkers : []), ...(viewSel.flights ? flightMarkers : []), ...(placeMarker ? [placeMarker] : []), ...(tappedPoint ? [tappedPoint] : [])]}
               focusPoint={mapFocus}
               links={focusLinks}
               ringMarkerId={focusPoint?.id}
+              onMapTap={handleMapTap}
               onViewChange={handleViewChange}
               onStatusChange={setEngineStatus}
               onMarkerSelect={(m) => {
                 // v228 — tapping a marker takes the camera from a
                 // running cinematic tour.
                 setTourActive(false);
+                // v231 — a marker selection replaces a tap focus.
+                setTappedPoint(null);
                 if (m.id.startsWith('place-')) {
                   setSelectedStop(null);
                   setSelectedPoi(null);
@@ -1881,7 +1946,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
           {focusPoint && (
             <div className="rounded-xl border border-white/10 bg-[#101010] p-4 space-y-2">
               <div className="text-xs font-mono text-[#00B7FF]">
-                PLACE INTELLIGENCE — WORLD ENGINE RELATIONSHIPS
+                {focusPoint === tappedPoint ? "WHAT'S HERE? — COMMAND MODE" : 'PLACE INTELLIGENCE — WORLD ENGINE RELATIONSHIPS'}
               </div>
               <p className="font-mono text-[10px] text-[#B8B8B8]">
                 FOCUS: <span className="text-white">{focusPoint.label}</span> ·{' '}
@@ -1892,7 +1957,11 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                     ? 'OPENSTREETMAP (NOMINATIM)'
                     : selectedFlight
                       ? 'ADSB.LOL'
-                      : 'GEOCODING PROVIDER'}
+                      : focusPoint === tappedPoint
+                        ? tapNamed
+                          ? 'NOMINATIM REVERSE'
+                          : 'COORDINATES — REVERSE LOOKUP FAILED'
+                        : 'GEOCODING PROVIDER'}
               </p>
               {selectedPoi && (
                 <div>
@@ -1993,6 +2062,40 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 )}
               </div>
               <div>
+                <div className="font-mono text-[10px] text-white">NEARBY PLACES — WITHIN 1 KM</div>
+                {Object.keys(poiRecords).length === 0 ? (
+                  <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    NO_DATA — no places queried yet. Turn PLACES on and tap QUERY PLACES; the map
+                    then lists the businesses near this point.
+                  </p>
+                ) : nearbyPois.length === 0 ? (
+                  <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    NO PLACES WITHIN 1 KM OF THIS POINT — {Object.keys(poiRecords).length} places are
+                    on the map; none is close enough.
+                  </p>
+                ) : (
+                  <ul className="mt-1 space-y-0.5">
+                    {nearbyPois.map((n) => (
+                      <li key={n.poi.id}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPoi(n.poi)}
+                          className="flex w-full justify-between gap-3 font-mono text-[10px] text-[#B8B8B8] hover:text-white"
+                        >
+                          <span className="truncate">
+                            {n.poi.label} · {n.poi.kind}
+                          </span>
+                          <span className="shrink-0">
+                            {Math.round(n.dist)} M ·{' '}
+                            {bearingCompass(focusPoint.lat, focusPoint.lon, n.poi.lat, n.poi.lon)}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div>
                 <div className="font-mono text-[10px] text-white">ALERTS IN THIS AREA</div>
                 {areaAlerts.length === 0 ? (
                   <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
@@ -2043,6 +2146,10 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   ZOOM TO FOCUS
                 </button>
               </div>
+              <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+                COMMAND MODE — TAP ANYWHERE ON THE MAP TO ASK WHAT'S HERE. TAP A MARKER FOR ITS
+                OWN CARD. THE ANSWER IS ONLY WHAT MTI6 HAS RECORDED OR MEASURED FOR THIS SPOT.
+              </p>
             </div>
           )}
 

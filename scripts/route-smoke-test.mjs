@@ -196,6 +196,11 @@ try {
   const globeText = main().textContent;
   check('map-view selector present', globeText.includes('MAP VIEW'), 'MAP VIEW bar in main');
   check(
+    'command mode hint present',
+    globeText.includes("TAP ANYWHERE — WHAT'S HERE?"),
+    'MAP VIEW bar names the tap gesture (v231)',
+  );
+  check(
     'base style buttons present',
     ['STREETS', 'SATELLITE', 'FLOOR'].every((t) => globeText.includes(t)),
     'STREETS / SATELLITE / FLOOR',
