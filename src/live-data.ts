@@ -729,6 +729,43 @@ export function fetchHoneypotCheck(address: string): Promise<Observation<Honeypo
   });
 }
 
+/* ------------- weather (Open-Meteo — keyless, probed 2026-11-24) ------ */
+export interface WeatherNow {
+  tempF: number;
+  feelsF: number | null;
+  humidity: number | null;
+  windMph: number | null;
+  code: number;
+  highF: number | null;
+  lowF: number | null;
+}
+
+export function fetchWeather(lat: number, lon: number): Promise<Observation<WeatherNow>> {
+  return governed<WeatherNow>(`weather:openmeteo:${lat},${lon}`, 600_000, ['Open-Meteo'], async () => {
+    const j = (await fetchJson(
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&wind_speed_unit=mph&forecast_days=1`,
+    )) as {
+      current?: { temperature_2m?: unknown; apparent_temperature?: unknown; relative_humidity_2m?: unknown; wind_speed_10m?: unknown; weather_code?: unknown };
+      daily?: { temperature_2m_max?: unknown[]; temperature_2m_min?: unknown[] };
+    } | null;
+    const c = j?.current;
+    if (!c || typeof c.temperature_2m !== 'number' || typeof c.weather_code !== 'number') return null;
+    const num = (v: unknown): number | null => (typeof v === 'number' ? v : null);
+    return {
+      value: {
+        tempF: c.temperature_2m,
+        feelsF: num(c.apparent_temperature),
+        humidity: num(c.relative_humidity_2m),
+        windMph: num(c.wind_speed_10m),
+        code: c.weather_code,
+        highF: num(j?.daily?.temperature_2m_max?.[0]),
+        lowF: num(j?.daily?.temperature_2m_min?.[0]),
+      },
+      source: 'Open-Meteo',
+    };
+  });
+}
+
 /* ---------------- governance (Snapshot — keyless GraphQL) ------------- */
 
 /** POST sibling of fetchJson — same timeout discipline and the

@@ -34,6 +34,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
+import { TopBarClock, TopBarWeather } from './TopBarWidgets';
 import {
   MTI6_AMOUNT,
   MTI6_COLORS,
@@ -637,7 +638,7 @@ export function App() {
               : 'border-white/15 text-[#B8B8B8] hover:border-[#8B5CFF]/60 hover:text-[#8B5CFF]'
           }`}
         >
-          <Mic className="h-3.5 w-3.5" />
+          <Sparkles className="h-3.5 w-3.5" />
         </button>
         <button
           type="button"
@@ -739,21 +740,34 @@ export function App() {
         style={{ backgroundColor: MTI6_TOPBAR.surface, borderColor: MTI6_TOPBAR.border }}
       >
         <div className="mx-auto flex min-h-[56px] w-full max-w-[1600px] items-center gap-3 px-4 md:min-h-[64px]">
-          {/* 1 — ☰ logo + menu control */}
+          {/* 1 — the MTI6 LOGO is the menu control (owner spec
+              2026-11-24: click the logo, not a 3-bar button — the
+              mark echoes icons/icon.svg's rings with STAR's star
+              at the centre) */}
           <button
             onClick={() => setMenuOpen((v) => !v)}
             aria-label="MTI6 menu"
             aria-expanded={menuOpen}
-            className="flex h-8 w-8 shrink-0 items-center justify-center gap-2 rounded-xl border border-[#00B7FF]/35 bg-[#00B7FF]/10 md:h-10 md:w-10 xl:h-11 xl:w-auto xl:px-3"
+            className="flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl border border-[#00B7FF]/35 bg-[#00B7FF]/10 px-2 md:h-10 md:px-2.5"
           >
-            <Menu
-              className="h-4 w-4 md:h-5 md:w-5"
-              style={{ color: MTI6_TOPBAR.logoAccent }}
-            />
-            <span className="hidden text-sm font-bold tracking-wide text-white xl:block">
+            <svg viewBox="0 0 512 512" className="h-5 w-5 md:h-6 md:w-6" aria-hidden="true">
+              <circle cx="256" cy="256" r="200" fill="none" stroke="#00d4ff" strokeWidth="30" />
+              <circle cx="256" cy="256" r="128" fill="none" stroke="#0a7ea6" strokeWidth="16" />
+              <path
+                d="M256 176 L276 236 L340 236 L288 272 L308 336 L256 298 L204 336 L224 272 L172 236 L236 236 Z"
+                fill="#00B7FF"
+              />
+            </svg>
+            <span className="hidden text-sm font-bold tracking-wide text-white md:block">
               MTI6
             </span>
           </button>
+
+          {/* 1b — world clock + weather (owner spec 2026-11-24):
+              the time flips down the world time zones; the
+              weather flips down home detail + world cities */}
+          <TopBarClock />
+          <TopBarWeather />
 
           {/* 2 — search: inline from tablet up; icon + sheet on phone */}
           <div className="hidden min-w-0 max-w-md flex-1 md:block">{renderSearchField()}</div>
@@ -764,8 +778,6 @@ export function App() {
           >
             <Search className="h-4 w-4" />
           </button>
-
-          <div className="flex-1" />
 
           {/* 3 — black card glyph → the Wallet (currencies held +
               transactions; Accounts Center rails below them) */}
@@ -929,6 +941,49 @@ export function App() {
               </div>
             )}
           </div>
+          {/* 5 — screens rail (v212, owner spec 2026-11-24):
+              IN the one top line now — the flexible tail after
+              the asset amount; scrollable, never wraps, active
+              centred */}
+        <nav
+          className="flex min-w-0 flex-1 items-center overflow-x-auto py-1"
+          style={{ gap: MTI6_RAIL.gapPx }}
+        >
+          {visibleWorlds.map((w) => {
+            const active = activeWorld === w.id;
+            return (
+              <button
+                key={w.id}
+                ref={active ? activeRailBtnRef : undefined}
+                onClick={() => setActiveWorld(w.id)}
+                className="flex shrink-0 items-center gap-2 rounded-xl border py-1.5 text-xs font-medium transition"
+                style={{
+                  paddingInline: MTI6_RAIL.itemPadXPx,
+                  backgroundColor: active ? MTI6_RAIL.activeBg : MTI6_RAIL.idleBg,
+                  borderColor: active ? MTI6_RAIL.activeBorder : MTI6_RAIL.idleBorder,
+                  color: active ? '#FFFFFF' : '#B8B8B8',
+                }}
+              >
+                {/* Nav-overlap fix (Phase 1 follow-up, 2026-11-22) kept:
+                    the icon lives in a fixed MTI6_RAIL.iconBoxPx (16px)
+                    flex box that can neither shrink nor overflow, and the
+                    label is shrink-0 + nowrap, so the icon can never cover
+                    the label's first letters. */}
+                <span
+                  className="flex shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4 [&>svg]:shrink-0"
+                  style={{
+                    width: MTI6_RAIL.iconBoxPx,
+                    height: MTI6_RAIL.iconBoxPx,
+                    color: active ? w.accent : undefined,
+                  }}
+                >
+                  {w.icon}
+                </span>
+                <span className="shrink-0 whitespace-nowrap">{w.label}</span>
+              </button>
+            );
+          })}
+        </nav>
         </div>
 
         {/* Phone search sheet — full width under the bar */}
@@ -1082,46 +1137,6 @@ export function App() {
           </div>
         </div>
 
-        {/* 5 — screens rail: scrollable, never wraps, active centred */}
-        <nav
-          className="mx-auto flex w-full max-w-[1600px] overflow-x-auto px-4 pb-2 pt-1"
-          style={{ gap: MTI6_RAIL.gapPx }}
-        >
-          {visibleWorlds.map((w) => {
-            const active = activeWorld === w.id;
-            return (
-              <button
-                key={w.id}
-                ref={active ? activeRailBtnRef : undefined}
-                onClick={() => setActiveWorld(w.id)}
-                className="flex shrink-0 items-center gap-2 rounded-xl border py-1.5 text-xs font-medium transition"
-                style={{
-                  paddingInline: MTI6_RAIL.itemPadXPx,
-                  backgroundColor: active ? MTI6_RAIL.activeBg : MTI6_RAIL.idleBg,
-                  borderColor: active ? MTI6_RAIL.activeBorder : MTI6_RAIL.idleBorder,
-                  color: active ? '#FFFFFF' : '#B8B8B8',
-                }}
-              >
-                {/* Nav-overlap fix (Phase 1 follow-up, 2026-11-22) kept:
-                    the icon lives in a fixed MTI6_RAIL.iconBoxPx (16px)
-                    flex box that can neither shrink nor overflow, and the
-                    label is shrink-0 + nowrap, so the icon can never cover
-                    the label's first letters. */}
-                <span
-                  className="flex shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4 [&>svg]:shrink-0"
-                  style={{
-                    width: MTI6_RAIL.iconBoxPx,
-                    height: MTI6_RAIL.iconBoxPx,
-                    color: active ? w.accent : undefined,
-                  }}
-                >
-                  {w.icon}
-                </span>
-                <span className="shrink-0 whitespace-nowrap">{w.label}</span>
-              </button>
-            );
-          })}
-        </nav>
       </header>
 
       {/* Web tab strip — the cockpit's kept browser tabs (owner
