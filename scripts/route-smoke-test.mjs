@@ -204,9 +204,10 @@ try {
     `execution-mode buttons: ${execButtons.join(' | ')}`,
   );
   check(
-    'execution disabled notice present',
-    document.body.textContent.includes('Execution disabled by design'),
-    '"Execution disabled by design" in header',
+    'owner-sign execution notice present',
+    document.body.textContent.includes('Execution: owner signs') &&
+      !document.body.textContent.includes('Execution disabled by design'),
+    '"Execution: owner signs" present, stale "disabled" claim absent',
   );
 
   // Per-route smoke: click nav entry, wait for the render to settle (React

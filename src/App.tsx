@@ -999,8 +999,37 @@ export function App() {
             to navigate — over the shell controls in its footer. Always
             mounted (hidden while closed) so the controls, and the
             "Execution disabled by design" notice, stay in the header. */}
-        <div hidden={!menuOpen} className="border-t border-white/10">
-          <div className="mx-auto max-h-[72dvh] w-full max-w-[1600px] space-y-4 overflow-y-auto px-4 py-4">
+        {/* Side drawer (v218, owner spec 2026-11-24): the menu
+            slides in from the LEFT as a fixed drawer with a
+            backdrop — it no longer drops down below the top row.
+            The logo button toggles it; the backdrop, the close
+            button, or picking a screen all close it. */}
+        <div
+          aria-hidden={!menuOpen}
+          onClick={() => setMenuOpen(false)}
+          className={`fixed inset-0 z-40 bg-black/60 transition-opacity duration-200 ${
+            menuOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
+          }`}
+        />
+        <aside
+          aria-label="Platform menu"
+          aria-hidden={!menuOpen}
+          className={`fixed left-0 top-0 z-50 flex h-dvh w-[86vw] max-w-[380px] flex-col overflow-y-auto border-r border-white/10 bg-[#0B0B0B] shadow-2xl transition-transform duration-200 ${
+            menuOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
+        >
+          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+            <span className="font-mono text-[11px] font-semibold tracking-widest text-white">MTI6 MENU</span>
+            <button
+              type="button"
+              onClick={() => setMenuOpen(false)}
+              aria-label="Close menu"
+              className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 font-mono text-[11px] text-[#E8EAF0]"
+            >
+              ✕ CLOSE
+            </button>
+          </div>
+          <div className="space-y-4 px-4 py-4">
             {/* Brand + platform status */}
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -1106,7 +1135,7 @@ export function App() {
 
               {/* Execution Mode Strip */}
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[10px] font-mono text-[#B8B8B8]">Execution disabled by design</span>
+                <span className="text-[10px] font-mono text-[#B8B8B8]">Execution: owner signs</span>
                 <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-[#151515] px-2 py-1">
                   <Activity className="h-3.5 w-3.5 text-[#00B7FF] mr-1" />
                   {(['Read-Only', 'Paper / Sim', 'Guarded Auto'] as ExecutionMode[]).map(
@@ -1135,7 +1164,7 @@ export function App() {
               </div>
             </div>
           </div>
-        </div>
+        </aside>
 
       </header>
 
