@@ -398,13 +398,33 @@ export function App() {
       })
       .catch((err) => {
         const code = err instanceof StarError ? err.code : 'UPSTREAM_ERROR';
-        if (code === 'NOT_CONFIGURED') setStarConfigured(false);
+        if (code === 'NOT_CONFIGURED') {
+          setStarConfigured(false);
+          setStarThread((prev) => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `I could not answer (${code}). Nothing was acted on.`,
+              kind: 'error',
+            },
+          ]);
+          return;
+        }
+        // v242 — the live brain failed, STAR does not go silent:
+        // answer from the platform's own records instead, labelled
+        // DEMO, and say the live path failed (with the upstream
+        // status when the gateway reports one). The key stays
+        // configured — this is a provider failure, not a missing key.
+        const upstream = err instanceof StarError && err.upstreamStatus ? `, upstream ${err.upstreamStatus}` : '';
+        const local = answerLocally(text);
         setStarThread((prev) => [
           ...prev,
           {
             role: 'assistant',
-            content: `I could not answer (${code}). Nothing was acted on.`,
-            kind: 'error',
+            content: local
+              ? `Live brain unreachable (${code}${upstream}) — answering from the platform's own records instead: ${local}`
+              : `Live brain unreachable (${code}${upstream}) — and that is outside what my local brain can answer from the records. Nothing was acted on.`,
+            kind: local ? 'demo' : 'error',
           },
         ]);
       })

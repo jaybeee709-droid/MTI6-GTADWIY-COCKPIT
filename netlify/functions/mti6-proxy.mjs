@@ -121,7 +121,16 @@
 
 const MAX_BODY_BYTES = 65536;
 const STAR_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
-const STAR_DEFAULT_MODEL = "meta-llama/llama-3.3-70b-instruct:free";
+// v242 (2026-11-25): the previous default,
+// meta-llama/llama-3.3-70b-instruct:free, no longer exists on
+// OpenRouter — the public models list carries the paid
+// llama-3.3-70b-instruct only and zero :free Meta variants, so
+// every star.chat call answered 404 and the proxy mapped it to
+// UPSTREAM_ERROR (key fine, model gone). The default is now a
+// free model verified live on that list the same day:
+// google/gemma-4-31b-it:free (Google instruction-tuned, 262k
+// context). MTI6_STAR_MODEL still overrides it when set.
+const STAR_DEFAULT_MODEL = "google/gemma-4-31b-it:free";
 const STAR_TIMEOUT_MS = 30000;
 const STAR_MAX_MESSAGES = 12;
 const STAR_MAX_CONTENT_CHARS = 2000;
@@ -462,13 +471,16 @@ async function callStar(config, messages) {
     return { error: starFail("RATE_LIMITED", "The STAR AI provider rate limit was reached. Wait and try again.", 429, extra) };
   }
   if (!res.ok) {
-    return { error: starFail("UPSTREAM_ERROR", "The STAR AI provider returned an unexpected error.", 502) };
+    // v242: carry the upstream HTTP status (a number only — the
+    // body is never echoed) so a dead model, a bad route, or a
+    // provider outage can be told apart without guessing.
+    return { error: starFail("UPSTREAM_ERROR", "The STAR AI provider returned an unexpected error.", 502, { upstreamStatus: res.status }) };
   }
   const reply = data && Array.isArray(data.choices) && data.choices[0] && data.choices[0].message
     ? data.choices[0].message.content
     : null;
   if (typeof reply !== "string" || reply.length === 0) {
-    return { error: starFail("UPSTREAM_ERROR", "The STAR AI provider returned an invalid response.", 502) };
+    return { error: starFail("UPSTREAM_ERROR", "The STAR AI provider returned an invalid response.", 502, { upstreamStatus: res.status }) };
   }
   const model = data && typeof data.model === "string" && data.model.length > 0 ? data.model : config.model;
   return { reply, model };

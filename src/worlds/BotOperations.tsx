@@ -39,11 +39,15 @@ import {
   loadKinds,
   runAdHocTask,
   runRuntimeTask,
+  runtimeStoreSummary,
   saveKinds,
   type RunRecord,
   type RuntimeKindMap,
 } from '../worker-runtime';
-import { RADAR_CATEGORY_STATES, moneyRadarSummary } from '../money-radar';
+import { listRadarCandidates, RADAR_CATEGORY_STATES, moneyRadarSummary } from '../money-radar';
+import { swapDeskSummary } from '../swap-desk';
+import { loadExecutorRuns, runDryRunCycle } from '../executor';
+import { fetchStarStatus } from '../star-client';
 import { BotTheater } from './BotTheater';
 import { loadTakeovers, recordTakeover, type TakeoverRecord } from '../bot-theater';
 import {
@@ -204,6 +208,49 @@ export const BotOperations: React.FC = () => {
     }
   };
   const radar = moneyRadarSummary();
+  // v242 — TEAM LOOP: STAR's live/DEMO state for the truth band
+  // and the loop panel. Same gateway read the Decision Board
+  // already does; the panel says CHECKING until it answers.
+  const [starConfigured, setStarConfigured] = useState<boolean | null>(null);
+  const [starModel, setStarModel] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetchStarStatus()
+      .then((s) => {
+        if (live) {
+          setStarConfigured(s.configured);
+          setStarModel(s.model);
+        }
+      })
+      .catch(() => {
+        if (live) setStarConfigured(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+  // v242 — TEAM LOOP: the D6 dry-run as a one-tap loop step.
+  // It evaluates the strongest radar candidate and records what
+  // WOULD have happened. DRY_RUN only — nothing is prepared,
+  // signed, or moved.
+  const [dryRunBusy, setDryRunBusy] = useState(false);
+  const [dryRunMsg, setDryRunMsg] = useState<string | null>(null);
+  const doLoopDryRun = async () => {
+    if (dryRunBusy) return;
+    setDryRunBusy(true);
+    setDryRunMsg(null);
+    try {
+      const run = await runDryRunCycle();
+      const d = run.decisions[0];
+      setDryRunMsg(
+        d
+          ? `DRY-RUN ${d.decision} — ${d.fromSymbol} $${d.amountUsd} → ${d.toSymbol} on Base (${d.ruleFired}). ${d.reason}`
+          : run.note,
+      );
+    } finally {
+      setDryRunBusy(false);
+    }
+  };
   /* Approval Package (v203) — the placement pipeline's review
    * step: one tap assembles every placed candidate into the
    * package Daniel reviews at the gate. */
@@ -386,6 +433,14 @@ export const BotOperations: React.FC = () => {
       setTaskMsg('');
     }
   };
+  // v242 — TEAM LOOP: live counts for the loop panel, read from
+  // the real stores at render. Nothing here is a live claim —
+  // the numbers are what the stores hold right now.
+  const loopCandidates = listRadarCandidates();
+  const loopDesk = swapDeskSummary();
+  const loopRuns = runtimeStoreSummary();
+  const loopOpenTasks = tasks.filter((t) => !['COMPLETE', 'FAILED', 'CANCELED'].includes(t.state)).length;
+  const loopDryRuns = loadExecutorRuns().length;
   // v230 — TAKE OVER: Daniel takes a step himself (a sign-in, a
   // verification click, a password). The takeover is recorded
   // the moment it happens, and the task is BLOCKED until he
@@ -481,14 +536,109 @@ export const BotOperations: React.FC = () => {
           until a runtime connects. Nothing here is live. */}
       <div className="flex flex-col gap-2 rounded-xl border border-[#8B5CFF]/30 bg-[#101010] p-3 font-mono text-[11px] md:flex-row md:items-center md:justify-between">
         <span className="text-[#B8B8B8]">
-          <span className="font-semibold text-[#8B5CFF]">STAR</span> — DEMO ·
-          NO AI BACKEND CONNECTED · SITS ABOVE THE 12 PRINCIPALS
+          <span className="font-semibold text-[#8B5CFF]">STAR</span> —{' '}
+          {starConfigured === null
+            ? 'CHECKING…'
+            : starConfigured
+              ? `LIVE · ${starModel ?? 'MODEL UNNAMED'}`
+              : 'DEMO · NO AI BACKEND CONNECTED'}{' '}
+          · SITS ABOVE THE 12 PRINCIPALS
         </span>
         <span className="text-[#B8B8B8]">
           <span className="font-semibold text-[#8B5CFF]">TASK WORKERS</span> —
           IN-PAGE RUNTIME ENGINE (PHASE 1) · ACTIVE NOW: {runningIds.length} · REMOTE
           RUNTIME: NOT_CONNECTED
         </span>
+      </div>
+
+      {/* TEAM LOOP (v242) — the bot team as ONE working loop:
+          Radar finds → Tribe is assigned → runtime runs →
+          evidence lands in Bot Memory → STAR sees it → dry-run
+          evaluates → the owner approves. Every count is read
+          from the real stores at render; nothing here is a live
+          claim and nothing here executes. */}
+      <div className="rounded-xl border border-[#8B5CFF]/40 bg-[#101010] p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-mono text-xs text-[#8B5CFF]">
+            TEAM LOOP — RADAR → TRIBE → RUNS → STAR → DRY-RUN → OWNER
+          </span>
+          <span className="font-mono text-[10px] text-[#B8B8B8]">ONE LOOP · PAGE-OPEN ONLY · NOTHING HERE EXECUTES</span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+          <div className="rounded-lg border border-white/10 bg-[#050505] p-3">
+            <p className="font-mono text-[10px] text-[#8B5CFF]">1 · RADAR</p>
+            <p className="mt-1 font-mono text-[10px] leading-relaxed text-white">
+              {radar.totalSignals} signal(s) · {loopCandidates.length} candidate(s)
+            </p>
+            <p className="font-mono text-[9px] text-[#B8B8B8]">{radar.dispatchedOpen} work order(s) open</p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-[#050505] p-3">
+            <p className="font-mono text-[10px] text-[#8B5CFF]">2 · TRIBE TASKS</p>
+            <p className="mt-1 font-mono text-[10px] leading-relaxed text-white">{loopOpenTasks} open task(s)</p>
+            <p className="font-mono text-[9px] text-[#B8B8B8]">{assignedCount} principal(s) assigned</p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-[#050505] p-3">
+            <p className="font-mono text-[10px] text-[#8B5CFF]">3 · RUNS</p>
+            <p className="mt-1 font-mono text-[10px] leading-relaxed text-white">
+              {loopRuns.completed} completed / {loopRuns.recorded} recorded
+            </p>
+            <p className="font-mono text-[9px] text-[#B8B8B8]">evidence in Bot Memory</p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-[#050505] p-3">
+            <p className="font-mono text-[10px] text-[#8B5CFF]">4 · STAR</p>
+            <p className="mt-1 font-mono text-[10px] leading-relaxed text-white">
+              {starConfigured === null ? 'CHECKING…' : starConfigured ? 'LIVE' : 'DEMO'}
+            </p>
+            <p className="font-mono text-[9px] text-[#B8B8B8]">
+              {starConfigured === true ? (starModel ?? 'model unnamed') : 'answers from the records'}
+            </p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-[#050505] p-3">
+            <p className="font-mono text-[10px] text-[#8B5CFF]">5 · DRY-RUN</p>
+            <p className="mt-1 font-mono text-[10px] leading-relaxed text-white">{loopDryRuns} dry-run(s) recorded</p>
+            <p className="font-mono text-[9px] text-[#B8B8B8]">paper only — never a trade</p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-[#050505] p-3">
+            <p className="font-mono text-[10px] text-[#8B5CFF]">6 · OWNER</p>
+            <p className="mt-1 font-mono text-[10px] leading-relaxed text-white">
+              {loopDesk.prepared} prepared · {loopDesk.approved} approved · {loopDesk.handedOff} handed off
+            </p>
+            <p className="font-mono text-[9px] text-[#B8B8B8]">
+              {loopDesk.prepared > 0 ? 'AWAITING YOUR APPROVAL' : 'nothing awaiting approval'}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void doRadarRun()}
+            disabled={radarBusy}
+            className="flex min-h-[44px] items-center rounded border border-[#8B5CFF]/60 px-3 font-mono text-[10px] text-white disabled:opacity-50"
+          >
+            {radarBusy ? 'RADAR RUNNING…' : '▶ RUN MONEY RADAR'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void doLoopDryRun()}
+            disabled={dryRunBusy}
+            className="flex min-h-[44px] items-center rounded border border-[#8B5CFF]/60 px-3 font-mono text-[10px] text-white disabled:opacity-50"
+          >
+            {dryRunBusy ? 'DRY-RUNNING…' : '▶ RUN DRY-RUN'}
+          </button>
+          <span className="font-mono text-[9px] text-[#B8B8B8]">
+            {loopCandidates.length > 0
+              ? `STRONGEST CANDIDATE: ${loopCandidates[0].asset} · ${loopCandidates[0].boardState} · EVIDENCE ${loopCandidates[0].evidenceCount} · ${loopCandidates[0].freshness}`
+              : 'NO RADAR CANDIDATES YET — RUN MONEY RADAR FIRST.'}
+          </span>
+        </div>
+        {dryRunMsg && <p className="font-mono text-[10px] leading-relaxed text-white">{dryRunMsg}</p>}
+        <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+          THE LOOP, END TO END: MONEY RADAR FINDS WHAT IS CHANGING · THE TRIBE RESEARCHES AND
+          VERIFIES IT · THE RUNTIME RUNS THE CHECKS WHILE THIS PAGE IS OPEN · EVIDENCE LANDS IN
+          BOT MEMORY · STAR SAYS WHAT DESERVES ATTENTION · THE DRY-RUN SHOWS WHAT WOULD HAVE
+          HAPPENED · DANIEL APPROVES EACH PREPARED ACTION HIMSELF. NOTHING IN THIS LOOP SIGNS,
+          SENDS, OR MOVES FUNDS.
+        </p>
       </div>
 
       {/* NETWORK EARNING OPS (Gemini family 11 adoption, 2026-11-23):
@@ -1192,6 +1342,34 @@ export const BotOperations: React.FC = () => {
                 <p className="mt-0.5 break-words font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
                   {r.status === 'OK' ? r.excerpt.slice(0, 120) + (r.excerpt.length > 120 ? '…' : '') : r.error}
                 </p>
+                {r.status === 'OK' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const title = `Harvest review: ${r.sourceName} — ${r.principalName}`;
+                      const open = tasks.find(
+                        (t) => t.title === title && !['COMPLETE', 'FAILED', 'CANCELED'].includes(t.state),
+                      );
+                      if (open) {
+                        setHarvestMsg(`TASK ALREADY OPEN — "${title}" is ${open.state} in the Bot Work Queue.`);
+                        return;
+                      }
+                      const assignment = harvestAssignments.find((a) => a.id === r.assignmentId);
+                      const principal =
+                        assignment?.principalId ??
+                        TRIBE_PRINCIPALS.find((t) => t.displayName === r.principalName)?.id ??
+                        null;
+                      const next = createTask(loadTasks(), { title, role: 'Research', principal });
+                      setTasks(next);
+                      setHarvestMsg(
+                        `TASK RECORDED — "${title}" is UNASSIGNED in the Bot Work Queue for ${r.principalName}. Give it an executor and RUN it, or leave AUTO-DISPATCH on.`,
+                      );
+                    }}
+                    className="mt-1.5 rounded border border-[#8B5CFF]/60 px-2 py-1 font-mono text-[9px] text-white"
+                  >
+                    MAKE TASK — RESEARCH FOR {r.principalName}
+                  </button>
+                )}
               </div>
             ))}
           </div>

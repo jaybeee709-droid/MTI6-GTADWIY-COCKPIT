@@ -14,16 +14,21 @@ export interface StarMessage {
 
 export class StarError extends Error {
   code: string;
-  constructor(code: string, message: string) {
+  // v242: the upstream HTTP status when the gateway reports one
+  // (a number only — never a body). Lets the panel tell a dead
+  // model (404) from a rate limit or an outage.
+  upstreamStatus: number | null;
+  constructor(code: string, message: string, upstreamStatus?: number | null) {
     super(message);
     this.code = code;
+    this.upstreamStatus = typeof upstreamStatus === 'number' ? upstreamStatus : null;
   }
 }
 
 interface Envelope {
   ok?: boolean;
   data?: unknown;
-  error?: { code?: string; message?: string };
+  error?: { code?: string; message?: string; upstreamStatus?: number };
 }
 
 async function gateway(action: string, payload: unknown): Promise<unknown> {
@@ -45,6 +50,7 @@ async function gateway(action: string, payload: unknown): Promise<unknown> {
     throw new StarError(
       env?.error?.code ?? 'UPSTREAM_ERROR',
       env?.error?.message ?? 'The gateway request failed.',
+      env?.error?.upstreamStatus ?? null,
     );
   }
   return env.data;

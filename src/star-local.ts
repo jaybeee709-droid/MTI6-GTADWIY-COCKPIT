@@ -28,6 +28,7 @@ import { loadReplaySummary, replaySummaryText } from './archive-replay';
 import { assetUniverseSummary } from './asset-universe';
 import { moneyRadarSummaryText } from './money-radar';
 import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
+import { loadHarvestAssignments, loadHarvestRecords } from './web-harvest';
 
 // §69 WHY? for a named workspace: the recorded chain behind what
 // the workspace shows, from the registry + coverage records only.
@@ -225,8 +226,19 @@ export function answerLocally(raw: string): string | null {
   if (/(encyclopedia|backbone|canonical|activit|how many|records)/.test(q))
     return `${FROM_RECORDS}the encyclopedia holds ${ENCYCLOPEDIA_COUNTS.total} activity records — ${ENCYCLOPEDIA_COUNTS.families} families, ${ENCYCLOPEDIA_COUNTS.majors} major activities (the canonical 60 backbone), ${ENCYCLOPEDIA_COUNTS.types} types, ${ENCYCLOPEDIA_COUNTS.strategies} strategies, ${ENCYCLOPEDIA_COUNTS.actions} actions, and ${ENCYCLOPEDIA_COUNTS.subActions} sub-actions. Crypto World has ${CRYPTO_WORLD_CONTENTS.length} canonical contents and Earnings World ${EARNINGS_CATEGORIES.length} categories. All records are UNVERIFIED.`;
 
+  if (/(harvest|scout)/.test(q)) {
+    const recs = loadHarvestRecords();
+    const asg = loadHarvestAssignments();
+    const ok = recs.filter((r) => r.status === 'OK').length;
+    const active = asg.filter((a) => a.active).length;
+    if (recs.length === 0)
+      return `${FROM_RECORDS}the Tribe web harvest has ${active} active scout assignment(s) of ${asg.length} and no records yet — run it from Bot Operations (RUN HARVEST NOW, or leave AUTO-HARVEST on while the page stays open). Excerpts are RAW and UNVERIFIED; they become work only when Daniel turns one into a task.`;
+    const latest = recs.reduce((a, b) => (b.fetchedAt > a.fetchedAt ? b : a), recs[0]);
+    return `${FROM_RECORDS}the Tribe web harvest holds ${recs.length} record(s) (${ok} OK, ${recs.length - ok} failed) from ${active} active scout assignment(s) of ${asg.length}. Latest: ${latest.principalName} · ${latest.sourceName} (${latest.status}). Excerpts are RAW and UNVERIFIED — they do not enter the encyclopedia or any live figure; a record becomes a Research task from its MAKE TASK button in Bot Operations.`;
+  }
+
   if (/(bot|tribe|worker|principal)/.test(q))
-    return `${FROM_RECORDS}the bot system is STAR above 12 persistent Tribe principals (${TRIBE_PRINCIPALS.map((p) => p.displayName).join(', ')}) with task workers beneath them. Workers active: 0 — NOT_CONNECTED; no worker runtime exists yet, and work ends at PREPARED.`;
+    return `${FROM_RECORDS}the bot system is STAR above 12 persistent Tribe principals (${TRIBE_PRINCIPALS.map((p) => p.displayName).join(', ')}) with task workers beneath them. The in-page worker runtime executes recorded tasks for real while this page is open; a remote always-on runtime does not exist (NOT_CONNECTED). Work ends at PREPARED — execution is the owner's hand only.`;
 
   if (/(live|price|provenance|source|fresh)/.test(q)) {
     const log = getProvenanceLog();
@@ -237,7 +249,7 @@ export function answerLocally(raw: string): string | null {
   }
 
   if (/(who are you|your name|what are you|star)/.test(q))
-    return 'I am STAR, the platform\u2019s persistent assistant, sitting above the 12 Tribe principals. Right now you are hearing my local brain — deterministic answers from the platform\u2019s own records, labelled DEMO. When the owner adds the provider key in Netlify (MTI6_STAR_API_KEY), my full model replies come online in this same panel. Either way, I execute nothing: execution is disabled by design.';
+    return 'I am STAR, the platform\u2019s persistent assistant, sitting above the 12 Tribe principals. Right now you are hearing my local brain — deterministic answers from the platform\u2019s own records, labelled DEMO. My live model replies come through the gateway when the provider answers; when it cannot be reached, I answer from the records instead. Either way, I execute nothing: execution is disabled by design.';
 
   if (/(status|health|how is|overview)/.test(q)) {
     const log = getProvenanceLog();

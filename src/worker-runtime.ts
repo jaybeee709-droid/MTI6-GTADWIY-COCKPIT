@@ -53,6 +53,7 @@ import { assetUniverse, assetUniverseSummary } from './asset-universe';
 import { loadRawArchive } from './raw-archive';
 import { alertCounts, loadAngelStore } from './angel-security';
 import { runMoneyRadarScan } from './money-radar';
+import { runDryRunCycle } from './executor';
 import { PROXY_ACTIONS, PROXY_ENV_NAMES, PROXY_PROVIDERS } from './security-posture-data';
 import { createTask, loadTasks, transitionTask, type WorkerTask } from './worker-tasks';
 
@@ -459,6 +460,24 @@ EXECUTORS.push({
       `work dispatched to the Tribe: ${dispatchLine}`,
       'Radar law: World Engine says what exists, Money Radar says what is changing, STAR says what deserves attention — Daniel decides. Nothing was executed.',
     ].join(' · ');
+  },
+});
+
+/* D6 dry-run (v242) — the executor's paper-trade evaluation as
+ * a runtime executor, so STAR ("run the dry-run"), the Bot Work
+ * Queue (RUN), and auto-dispatch can run it like any other
+ * check. It evaluates the strongest radar candidate against the
+ * paper's gates and records what WOULD have happened. DRY_RUN
+ * only: it prepares nothing, signs nothing, moves nothing. */
+EXECUTORS.push({
+  id: 'dry-run',
+  label: 'DRY-RUN',
+  does: 'Evaluates the strongest Money Radar candidate against the D6 paper gates (Base only, $10/trade, $25/day, one open position, 20% loss stop) and records what would have happened — WOULD_TRADE or WOULD_SKIP with the rule that fired. Dry-run only: nothing is prepared, signed, or moved.',
+  run: async () => {
+    const run = await runDryRunCycle();
+    const d = run.decisions[0];
+    if (!d) return `Dry-run ${run.id}: ${run.note}`;
+    return `Dry-run ${run.id}: ${d.decision} — ${d.fromSymbol} $${d.amountUsd} → ${d.toSymbol} on Base (${d.ruleFired}). ${d.reason} ${run.note}`;
   },
 });
 
@@ -895,6 +914,7 @@ export function runtimeCommandFor(text: string): string | null {
   const q = text.toLowerCase();
   if (!/(run|execute|start|do)\b/.test(q)) return null;
   if (q.includes('price')) return 'price-check';
+  if (q.includes('dry') || q.includes('paper trade') || q.includes('test trade')) return 'dry-run';
   if (q.includes('yield')) return 'yield-scan';
   if (q.includes('history')) return 'history-check';
   if (q.includes('transit') || q.includes('stop')) return 'transit-check';
