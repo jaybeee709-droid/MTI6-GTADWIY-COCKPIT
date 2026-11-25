@@ -96,6 +96,28 @@
 // wired; the German Autobahn webcam API answers 200 but
 // returns zero webcams on every road probed (A1/A3/A7/A9),
 // so it is NOT wired either.
+//
+// MORE CAMERA STATES (added 2026-11-25, v236 — the owner's
+// "scrape the web for all thing we need"): the ArcGIS portal
+// search for "traffic cameras" turned up state camera services
+// across the US and beyond. The ones that verified keyless
+// from the shell are wired DIRECTLY by the browser (they send
+// ACAO *): Kentucky (KYTC), Oregon (TripCheck), Iowa, Illinois,
+// Washington (WashDOT ArcGIS — the images.wsdot.wa.gov
+// snapshots are public, so the WSDOT AccessCode key is no
+// longer needed), Missouri (HLS video links), Austin TX,
+// Montgomery County TX (feed links), Ontario (511on.ca PNGs),
+// New Zealand (NZTA). MARYLAND is the one exception here: the
+// MDOT SHA CHART MapServer sends no CORS header, so it gets a
+// narrow proxy action, cameras.maryland, same bbox discipline
+// as California. Maryland and Missouri serve VIDEO (HLS /
+// GetVideo), not stills — the client shows them as links.
+// NOT wired: Hawaii (its ArcGIS service requires a token),
+// Utah + DC (camera inventories with no viewable feed), New
+// Orleans (the list is red-light / speed enforcement cameras,
+// not CCTV), Portland OR layer 83 (unreachable from this host),
+// the IBI 511 mapIcons route (az511 + fl511 return 000 from
+// this host — the FL511 ArcGIS layer already covers Florida).
 
 const MAX_BODY_BYTES = 65536;
 const STAR_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
@@ -112,6 +134,8 @@ const GDACS_EVENTS_URL = "https://www.gdacs.org/gdacsapi/api/events/geteventlist
 const MAX_DISASTERS = 100;
 const CALTRANS_CCTV_BASE = "https://caltrans-gis.dot.ca.gov/arcgis/rest/services/CHhighway/CCTV/FeatureServer/0/query";
 const MAX_CALTRANS_CAMERAS = 200;
+const MARYLAND_CHART_BASE = "https://chartimap1.sha.maryland.gov/arcgis/rest/services/CHART/Cameras/MapServer/0/query";
+const MAX_MARYLAND_CAMERAS = 200;
 const MAX_BBOX_SPAN_DEG = 12;
 const MAX_FLIGHT_DIST_NM = 100;
 const MAX_FLIGHTS = 40;
@@ -990,6 +1014,92 @@ async function handleCamerasCalifornia(payload) {
   return envelope(true, "caltrans", { cameras }, null, 200);
 }
 
+// Maryland cameras: cameras.maryland (MDOT SHA CHART Cameras
+// MapServer) — same discipline as California: validate the
+// bounding box first, normalize what comes back, static error
+// strings, never echo the upstream body. CHART serves VIDEO
+// (CCTVPublicURL / HLS), not stills, so the client shows these
+// as links, not inline images. Only cameras with a video URL
+// are returned.
+function marylandFail(code, message, status) {
+  return envelope(false, "maryland", null, { code, message }, status);
+}
+
+function validateMarylandBbox(payload) {
+  if (!isPlainObject(payload)) {
+    return { error: marylandFail("INVALID_REQUEST", "cameras.maryland payload must be an object.", 400) };
+  }
+  const bad = unknownKey(payload, new Set(["minLon", "minLat", "maxLon", "maxLat"]));
+  if (bad) {
+    return { error: marylandFail("INVALID_REQUEST", "Unknown parameter \"" + bad + "\" for cameras.maryland.", 400) };
+  }
+  const nums = ["minLon", "minLat", "maxLon", "maxLat"].map((k) => payload[k]);
+  if (nums.some((v) => !isFiniteNumber(v))) {
+    return { error: marylandFail("INVALID_REQUEST", "minLon, minLat, maxLon and maxLat must all be numbers.", 400) };
+  }
+  const [minLon, minLat, maxLon, maxLat] = nums;
+  if (minLon < -180 || maxLon > 180 || minLat < -90 || maxLat > 90 || minLon >= maxLon || minLat >= maxLat) {
+    return { error: marylandFail("INVALID_REQUEST", "The bounding box must be a valid lon/lat range.", 400) };
+  }
+  if (maxLon - minLon > MAX_BBOX_SPAN_DEG || maxLat - minLat > MAX_BBOX_SPAN_DEG) {
+    return { error: marylandFail("INVALID_REQUEST", "The bounding box span must be at most 12 degrees per side.", 400) };
+  }
+  return { minLon, minLat, maxLon, maxLat };
+}
+
+async function handleCamerasMaryland(payload) {
+  const validated = validateMarylandBbox(payload);
+  if (validated.error) return validated.error;
+  const params = new URLSearchParams({
+    where: "1=1",
+    outFields: "rowid,ID,location,CCTVPublicURL,Latitude,Longitude",
+    f: "json",
+    returnGeometry: "false",
+    resultRecordCount: String(MAX_MARYLAND_CAMERAS),
+    geometry: validated.minLon + "," + validated.minLat + "," + validated.maxLon + "," + validated.maxLat,
+    geometryType: "esriGeometryEnvelope",
+    spatialRel: "esriSpatialRelIntersects",
+    inSR: "4326"
+  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(MARYLAND_CHART_BASE + "?" + params.toString(), {
+      signal: controller.signal,
+      headers: { Accept: "application/json" }
+    });
+  } catch {
+    return marylandFail("UPSTREAM_ERROR", "Maryland CHART could not be reached.", 502);
+  } finally {
+    clearTimeout(timer);
+  }
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  if (!res.ok || data === null || typeof data !== "object" || !Array.isArray(data.features)) {
+    return marylandFail("UPSTREAM_ERROR", "Maryland CHART returned an unexpected error.", 502);
+  }
+  const cameras = [];
+  for (const f of data.features) {
+    if (!f || typeof f !== "object") continue;
+    const a = f.attributes && typeof f.attributes === "object" ? f.attributes : null;
+    if (!a) continue;
+    const id = typeof a.rowid === "number" ? a.rowid : null;
+    const name = typeof a.location === "string" && a.location.length > 0 ? a.location : null;
+    const lat = typeof a.Latitude === "number" && Number.isFinite(a.Latitude) ? a.Latitude : null;
+    const lon = typeof a.Longitude === "number" && Number.isFinite(a.Longitude) ? a.Longitude : null;
+    const videoUrl = typeof a.CCTVPublicURL === "string" && a.CCTVPublicURL.length > 0 ? a.CCTVPublicURL : null;
+    if (id === null || !name || lat === null || lon === null || !videoUrl) continue;
+    cameras.push({ id, name, lat, lon, area: "MARYLAND", imageUrl: videoUrl });
+    if (cameras.length >= MAX_MARYLAND_CAMERAS) break;
+  }
+  return envelope(true, "maryland", { cameras }, null, 200);
+}
+
 export default async (req) => {
   if (req.method !== "POST") {
     return fail("METHOD_NOT_ALLOWED", "POST required.", 405);
@@ -1027,8 +1137,8 @@ export default async (req) => {
     case "gateway.status": {
       const star = readStarConfig();
       return envelope(true, "gateway", {
-        providers: ["transitland", "star", "coingecko", "geoapify", "locationiq", "adsb.lol", "nycdot", "gdacs", "caltrans"],
-        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures", "star.chat", "market.prices", "geo.geocode", "flights.nearby", "cameras.nyc", "disasters.gdacs", "cameras.california"],
+        providers: ["transitland", "star", "coingecko", "geoapify", "locationiq", "adsb.lol", "nycdot", "gdacs", "caltrans", "maryland"],
+        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures", "star.chat", "market.prices", "geo.geocode", "flights.nearby", "cameras.nyc", "disasters.gdacs", "cameras.california", "cameras.maryland"],
         providersConfigured: {
           transitland: readTransitlandKey() !== null,
           star: star.configured,
@@ -1038,7 +1148,8 @@ export default async (req) => {
           adsb: true,
           nycdot: true,
           gdacs: true,
-          caltrans: true
+          caltrans: true,
+          maryland: true
         },
         star: { configured: star.configured, model: star.configured ? star.model : null },
         note: "Providers sit behind the proxy as Capability Router providers; configured means the server's Netlify variable exists (presence only, never a value). CoinGecko also answers keyless at public limits. STAR chat is available when star.configured is true; otherwise STAR remains in demo mode."
@@ -1078,6 +1189,10 @@ export default async (req) => {
     case "cameras.california": {
       const payload = body.payload === undefined ? {} : body.payload;
       return handleCamerasCalifornia(payload);
+    }
+    case "cameras.maryland": {
+      const payload = body.payload === undefined ? {} : body.payload;
+      return handleCamerasMaryland(payload);
     }
     default:
       return fail("UNSUPPORTED_ACTION", "That MTI6 action is not enabled.", 400);

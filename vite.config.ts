@@ -31,6 +31,12 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        // v236: the app bundle passed the 2 MiB default precache
+        // limit (2.1 MB) as the camera registry grew. The limit
+        // is a service-worker precache setting, not a code size
+        // rule — raised to 3 MiB so the app still installs
+        // offline. The bundle itself is unchanged by this.
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },
     }),
   ],

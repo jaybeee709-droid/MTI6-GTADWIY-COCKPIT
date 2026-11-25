@@ -403,8 +403,14 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     lon: number;
     area: string | null;
     imageUrl: string;
-    source: 'NYCDOT' | 'CALTRANS' | 'GDOT' | 'TFL' | 'FL511';
+    source: 'NYCDOT' | 'CALTRANS' | 'GDOT' | 'TFL' | 'FL511' | 'KYTC' | 'OR-TRIPCHECK' | 'IADOT' | 'IDOT' | 'WSDOT-ARC' | 'MODOT' | 'MD-CHART' | 'ATD' | 'MCTX' | 'MTO' | 'NZTA';
     detail: string | null;
+    // When set, the snapshot block shows a link with this label
+    // instead of an inline image — used for video feeds
+    // (Maryland CHART, Missouri HLS) and live camera streams
+    // (Montgomery County TX). Plain-HTTP images also render as
+    // links, with the label 'OPEN SNAPSHOT'.
+    openLabel: string | null;
   }
   interface QuakeRecord {
     id: string;
@@ -1039,21 +1045,48 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // (ArcGIS, bbox query — snapshots served over plain HTTP,
   // so they open in a new tab instead of inline), TfL London
   // (full list, filtered by distance), FL511 Florida (ArcGIS,
-  // bbox query). 511NY + WSDOT need free developer keys and
-  // are NOT wired; Texas needs a MapLarge request shape +
-  // a terms review and is NOT wired; the German Autobahn
-  // webcam API answers 200 but returns zero webcams.
-  // Cameras are filtered to 50 km of the centre and capped at
-  // 40 nearest. Snapshots are still images, never video.
+  // v236 — the registry grows by the ArcGIS portal sweep: the
+  // portal search for "traffic cameras" turned up state camera
+  // services across the US and beyond, and every one below
+  // verified keyless from the shell (200 + the fields the
+  // fetcher needs). All of them are direct ArcGIS queries
+  // (ACAO *) except Maryland CHART, which sends no CORS header
+  // and goes through the proxy (cameras.maryland). 511NY needs
+  // a free developer key and is NOT wired; Texas statewide
+  // needs a MapLarge request shape + a terms review and is NOT
+  // wired (Austin + Montgomery County TX are in, city-level);
+  // Hawaii's ArcGIS service requires a token and is NOT wired;
+  // Utah + DC publish camera inventories with no viewable feed;
+  // the New Orleans list is enforcement cameras, not CCTV; the
+  // German Autobahn webcam API answers 200 but returns zero
+  // webcams. The IBI 511 mapIcons route (az511 + fl511) returns
+  // 000 from this host and is NOT used — Florida is covered by
+  // the FL511 ArcGIS layer. Cameras are filtered to 50 km of
+  // the centre and capped at 40 nearest. Snapshots are still
+  // images, never video — except Maryland + Missouri, which
+  // serve video links.
   const CAMERA_MAX_DIST_M = 50000;
   const MAX_CAMERA_MARKERS = 40;
-  const CAMERA_SOURCES: { id: 'nycdot' | 'caltrans' | 'gdot' | 'tfl' | 'fl511'; label: string; bbox: [number, number, number, number] }[] = [
+  const CAMERA_SOURCES: { id: 'nycdot' | 'caltrans' | 'gdot' | 'tfl' | 'fl511' | 'kytc' | 'ortrip' | 'iadot' | 'idot' | 'wsdotarc' | 'modot' | 'mdchart' | 'atd' | 'mctx' | 'mto' | 'nzta'; label: string; bbox: [number, number, number, number] }[] = [
     { id: 'nycdot', label: 'NYCDOT', bbox: [-74.35, 40.45, -73.65, 40.95] },
     { id: 'caltrans', label: 'CALTRANS', bbox: [-124.5, 32.5, -114.0, 42.0] },
     { id: 'gdot', label: 'GDOT', bbox: [-85.6, 30.3, -80.8, 35.0] },
     { id: 'tfl', label: 'TFL', bbox: [-0.6, 51.2, 0.3, 51.8] },
     { id: 'fl511', label: 'FL511', bbox: [-87.7, 24.5, -79.9, 31.0] },
+    { id: 'kytc', label: 'KYTC', bbox: [-89.6, 36.5, -81.9, 39.2] },
+    { id: 'ortrip', label: 'OR-TRIPCHECK', bbox: [-124.6, 41.9, -116.5, 46.3] },
+    { id: 'iadot', label: 'IADOT', bbox: [-96.7, 40.4, -90.1, 43.5] },
+    { id: 'idot', label: 'IDOT', bbox: [-91.5, 36.9, -87.5, 42.5] },
+    { id: 'wsdotarc', label: 'WSDOT-ARC', bbox: [-124.8, 45.5, -116.9, 49.1] },
+    { id: 'modot', label: 'MODOT', bbox: [-95.8, 35.9, -89.1, 40.6] },
+    { id: 'mdchart', label: 'MD-CHART', bbox: [-79.5, 37.9, -75.0, 39.8] },
+    { id: 'atd', label: 'ATD', bbox: [-98.0, 30.1, -97.6, 30.5] },
+    { id: 'mctx', label: 'MCTX', bbox: [-95.8, 30.0, -95.2, 30.5] },
+    { id: 'mto', label: 'MTO', bbox: [-95.2, 41.7, -74.3, 56.9] },
+    { id: 'nzta', label: 'NZTA', bbox: [166.0, -47.5, 178.6, -34.4] },
   ];
+  const CAMERA_COVERAGE_LINE =
+    'NEW YORK CITY + CALIFORNIA + GEORGIA + FLORIDA + KENTUCKY + OREGON + IOWA + ILLINOIS + WASHINGTON + MISSOURI + MARYLAND + TEXAS (AUSTIN + MONTGOMERY CO) + LONDON + ONTARIO + NEW ZEALAND';
   const queryCameras = async () => {
     if (typeof fetch !== 'function') {
       setCameraQuery({ state: 'error', message: 'NO FETCH IN THIS ENVIRONMENT.', fetchedAt: null });
@@ -1066,14 +1099,14 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     if (covering.length === 0) {
       setCameraQuery({
         state: 'ok',
-        message: 'NO CAMERA SOURCE COVERS THIS AREA — COVERAGE SO FAR: NEW YORK CITY + CALIFORNIA + GEORGIA + FLORIDA + LONDON. MOVE THE MAP INTO A COVERED AREA TO SEE CAMERAS.',
+        message: `NO CAMERA SOURCE COVERS THIS AREA — COVERAGE SO FAR: ${CAMERA_COVERAGE_LINE}. MOVE THE MAP INTO A COVERED AREA TO SEE CAMERAS.`,
         fetchedAt: Date.now(),
       });
       setCameraMarkers([]);
       setCameraRecords({});
       return;
     }
-    setCameraQuery({ state: 'loading', message: `QUERYING ${covering.map((s) => s.label).join(' + ')} VIA THE PROXY…`, fetchedAt: null });
+    setCameraQuery({ state: 'loading', message: `QUERYING ${covering.map((s) => s.label).join(' + ')}…`, fetchedAt: null });
     const fetchNycdot = async (): Promise<{ rec: CameraRecord; dist: number }[]> => {
       const res = await fetch('/api/mti6', {
         method: 'POST',
@@ -1108,6 +1141,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               imageUrl,
               source: 'NYCDOT',
               detail: typeof c.area === 'string' ? c.area : null,
+              openLabel: null,
             },
             dist,
           });
@@ -1158,6 +1192,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               imageUrl,
               source: 'CALTRANS',
               detail: [route, county, nearby].filter((x) => x !== null).join(' · ') || null,
+              openLabel: null,
             },
             dist,
           });
@@ -1226,6 +1261,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               imageUrl,
               source: 'GDOT',
               detail: [route, county, subdiv].filter((x) => x !== null).join(' · ') || null,
+              openLabel: null,
             },
             dist,
           });
@@ -1281,6 +1317,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               imageUrl,
               source: 'TFL',
               detail: view !== null ? `VIEW: ${view}` : 'LONDON',
+              openLabel: null,
             },
             dist,
           });
@@ -1348,6 +1385,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               imageUrl,
               source: 'FL511',
               detail: [highway, county, dir !== null ? `DIR ${dir}` : null].filter((x) => x !== null).join(' · ') || null,
+              openLabel: null,
             },
             dist,
           });
@@ -1355,19 +1393,289 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
       }
       return out;
     };
-    const results = await Promise.allSettled(
-      covering.map((s) =>
-        s.id === 'nycdot'
-          ? fetchNycdot()
-          : s.id === 'caltrans'
-            ? fetchCaltrans()
-            : s.id === 'gdot'
-              ? fetchGdot()
-              : s.id === 'tfl'
-                ? fetchTfl()
-                : fetchFl511(),
-      ),
-    );
+    // v236 — one generic direct ArcGIS fetcher for the state
+    // camera services that send ACAO *. Each source is a thin
+    // config: the service URL, a where clause, the fields, its
+    // bbox, and a mapper from (attributes, geometry) to a
+    // CameraRecord (null = skip this feature).
+    const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null);
+    const fetchArcGis = async (
+      base: string,
+      where: string,
+      outFields: string,
+      bbox: [number, number, number, number],
+      map: (a: Record<string, unknown>, lon: number | null, lat: number | null) => CameraRecord | null,
+    ): Promise<{ rec: CameraRecord; dist: number }[]> => {
+      const box = {
+        minLon: Math.max(bbox[0], mapView.lon - 0.6),
+        minLat: Math.max(bbox[1], mapView.lat - 0.45),
+        maxLon: Math.min(bbox[2], mapView.lon + 0.6),
+        maxLat: Math.min(bbox[3], mapView.lat + 0.45),
+      };
+      const params = new URLSearchParams({
+        where,
+        outFields,
+        outSR: '4326',
+        f: 'json',
+        returnGeometry: 'true',
+        resultRecordCount: '200',
+        geometry: `${box.minLon},${box.minLat},${box.maxLon},${box.maxLat}`,
+        geometryType: 'esriGeometryEnvelope',
+        spatialRel: 'esriSpatialRelIntersects',
+        inSR: '4326',
+      });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      let res: Response;
+      try {
+        res = await fetch(`${base}?${params.toString()}`, { signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as { features?: { attributes?: Record<string, unknown>; geometry?: { x?: unknown; y?: unknown } }[] };
+      const out: { rec: CameraRecord; dist: number }[] = [];
+      if (data && Array.isArray(data.features)) {
+        for (const f of data.features) {
+          const a = f?.attributes ?? {};
+          const lat = typeof f?.geometry?.y === 'number' ? f.geometry.y : null;
+          const lon = typeof f?.geometry?.x === 'number' ? f.geometry.x : null;
+          const rec = map(a, lon, lat);
+          if (!rec) continue;
+          const dist = haversineM(mapView.lat, mapView.lon, rec.lat, rec.lon);
+          if (dist > CAMERA_MAX_DIST_M) continue;
+          out.push({ rec, dist });
+        }
+      }
+      return out;
+    };
+    const fetchKytc = async () =>
+      fetchArcGis(
+        'https://services2.arcgis.com/CcI36Pduqd0OR4W9/arcgis/rest/services/trafficCamerasCur_Prd/FeatureServer/0/query',
+        '1=1',
+        'OBJECTID,id,name,description,direction,snapshot,latitude,longitude,highway,county',
+        [-89.6, 36.5, -81.9, 39.2],
+        (a, lon, lat) => {
+          const id = typeof a.OBJECTID === 'number' ? a.OBJECTID : null;
+          const imageUrl = str(a.snapshot);
+          const label = str(a.description) ?? str(a.name);
+          const la = lat ?? (typeof a.latitude === 'number' ? a.latitude : null);
+          const lo = lon ?? (typeof a.longitude === 'number' ? a.longitude : null);
+          if (id === null || !imageUrl || !label || la === null || lo === null) return null;
+          return { id: `cam-ky-${id}`, label, lat: la, lon: lo, area: str(a.county), imageUrl, source: 'KYTC', detail: [str(a.highway), str(a.county), str(a.direction)].filter((x) => x !== null).join(' · ') || null, openLabel: null };
+        },
+      );
+    const fetchOrtTrip = async () =>
+      fetchArcGis(
+        'https://services.arcgis.com/uUvqNMGPm7axC2dD/arcgis/rest/services/TripCheck_Cameras/FeatureServer/0/query',
+        '1=1',
+        'ObjectId,attributes_title,attributes_route,attributes_filename,attributes_latitude,attributes_longitude,attributes_cameraId',
+        [-124.6, 41.9, -116.5, 46.3],
+        (a, lon, lat) => {
+          const id = typeof a.ObjectId === 'number' ? a.ObjectId : null;
+          const raw = str(a.attributes_filename);
+          const imageUrl = raw !== null ? encodeURI(raw) : null;
+          const label = str(a.attributes_title);
+          const la = typeof a.attributes_latitude === 'number' ? a.attributes_latitude : lat;
+          const lo = typeof a.attributes_longitude === 'number' ? a.attributes_longitude : lon;
+          if (id === null || !imageUrl || !label || la === null || lo === null) return null;
+          return { id: `cam-or-${id}`, label, lat: la, lon: lo, area: 'Oregon', imageUrl, source: 'OR-TRIPCHECK', detail: str(a.attributes_route), openLabel: null };
+        },
+      );
+    const fetchIadot = async () =>
+      fetchArcGis(
+        'https://services.arcgis.com/8lRhdTsQyJpO52F1/arcgis/rest/services/Traffic_Cameras_View/FeatureServer/0/query',
+        '1=1',
+        'FID,device_id,Desc_,Route,ImageURL,latitude,longitude',
+        [-96.7, 40.4, -90.1, 43.5],
+        (a, lon, lat) => {
+          const id = typeof a.FID === 'number' ? a.FID : null;
+          const imageUrl = str(a.ImageURL);
+          const label = str(a.Desc_);
+          const la = typeof a.latitude === 'number' ? a.latitude : lat;
+          const lo = typeof a.longitude === 'number' ? a.longitude : lon;
+          if (id === null || !imageUrl || !label || la === null || lo === null) return null;
+          return { id: `cam-ia-${id}`, label, lat: la, lon: lo, area: 'Iowa', imageUrl, source: 'IADOT', detail: str(a.Route), openLabel: null };
+        },
+      );
+    const fetchIdot = async () =>
+      fetchArcGis(
+        'https://services2.arcgis.com/aIrBD8yn1TDTEXoz/arcgis/rest/services/TrafficCamerasTM_Public/FeatureServer/0/query',
+        '1=1',
+        'OBJECTID,ImgPath,CameraLocation,CameraDirection,y,x,SnapShot',
+        [-91.5, 36.9, -87.5, 42.5],
+        (a, lon, lat) => {
+          const id = typeof a.OBJECTID === 'number' ? a.OBJECTID : null;
+          const imageUrl = str(a.SnapShot);
+          const label = str(a.CameraLocation);
+          const la = typeof a.y === 'number' ? a.y : lat;
+          const lo = typeof a.x === 'number' ? a.x : lon;
+          if (id === null || !imageUrl || !label || la === null || lo === null) return null;
+          const dir = str(a.CameraDirection);
+          return { id: `cam-il-${id}`, label, lat: la, lon: lo, area: 'Illinois', imageUrl, source: 'IDOT', detail: dir !== null ? `DIR ${dir}` : null, openLabel: null };
+        },
+      );
+    const fetchWsdotArc = async () =>
+      fetchArcGis(
+        'https://services3.arcgis.com/NJJAMXTzj98caILi/arcgis/rest/services/WashdotTrafficCams/FeatureServer/0/query',
+        '1=1',
+        'OBJECTID,RawHTMLCode,Hyperlink,TextDescription,Name',
+        [-124.8, 45.5, -116.9, 49.1],
+        (a, lon, lat) => {
+          const id = typeof a.OBJECTID === 'number' ? a.OBJECTID : null;
+          const imageUrl = str(a.Hyperlink);
+          const label = str(a.TextDescription) ?? str(a.Name);
+          if (id === null || !imageUrl || !label || lat === null || lon === null) return null;
+          return { id: `cam-wa-${id}`, label, lat, lon, area: 'Washington', imageUrl, source: 'WSDOT-ARC', detail: null, openLabel: null };
+        },
+      );
+    const fetchModot = async () =>
+      fetchArcGis(
+        'https://services2.arcgis.com/jWXb6JPWtBjOCalT/arcgis/rest/services/MODOT_Traffic_Cameras/FeatureServer/1/query',
+        '1=1',
+        'OBJECTID,CAM_ID__,DESCRIPTION,X,Y,URL1,URL2,STREAM_ERROR',
+        [-95.8, 35.9, -89.1, 40.6],
+        (a, lon, lat) => {
+          const id = typeof a.OBJECTID === 'number' ? a.OBJECTID : null;
+          const imageUrl = str(a.URL2);
+          const label = str(a.DESCRIPTION);
+          const la = typeof a.Y === 'number' ? a.Y : lat;
+          const lo = typeof a.X === 'number' ? a.X : lon;
+          if (id === null || !imageUrl || imageUrl === '<Null>' || a.STREAM_ERROR !== 'N' || !label || la === null || lo === null) return null;
+          return { id: `cam-mo-${id}`, label, lat: la, lon: lo, area: 'Missouri', imageUrl, source: 'MODOT', detail: 'VIDEO · MODOT', openLabel: 'OPEN VIDEO' };
+        },
+      );
+    const fetchMdChart = async (): Promise<{ rec: CameraRecord; dist: number }[]> => {
+      // Maryland CHART sends no CORS header, so it goes through
+      // the proxy (cameras.maryland). It serves VIDEO, not
+      // stills — the snapshot block shows a link.
+      const box = {
+        minLon: Math.max(-79.5, mapView.lon - 0.6),
+        minLat: Math.max(37.9, mapView.lat - 0.45),
+        maxLon: Math.min(-75.0, mapView.lon + 0.6),
+        maxLat: Math.min(39.8, mapView.lat + 0.45),
+      };
+      const res = await fetch('/api/mti6', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cameras.maryland', payload: box }),
+      });
+      const env = (await res.json().catch(() => null)) as
+        | { ok?: boolean; data?: unknown; error?: { code?: string } }
+        | null;
+      if (!env || !env.ok) throw new Error(env?.error?.code ?? 'UPSTREAM_ERROR');
+      const data = env.data as { cameras?: unknown[] } | null;
+      const out: { rec: CameraRecord; dist: number }[] = [];
+      if (data && Array.isArray(data.cameras)) {
+        for (const raw of data.cameras) {
+          if (!raw || typeof raw !== 'object') continue;
+          const c = raw as Record<string, unknown>;
+          const lat = typeof c.lat === 'number' ? c.lat : null;
+          const lon = typeof c.lon === 'number' ? c.lon : null;
+          const id = typeof c.id === 'number' ? c.id : null;
+          const name = typeof c.name === 'string' ? c.name : null;
+          const imageUrl = typeof c.imageUrl === 'string' ? c.imageUrl : null;
+          if (lat === null || lon === null || id === null || !name || !imageUrl) continue;
+          const dist = haversineM(mapView.lat, mapView.lon, lat, lon);
+          if (dist > CAMERA_MAX_DIST_M) continue;
+          out.push({
+            rec: {
+              id: `cam-md-${id}`,
+              label: name,
+              lat,
+              lon,
+              area: 'Maryland',
+              imageUrl,
+              source: 'MD-CHART',
+              detail: 'VIDEO · MARYLAND CHART',
+              openLabel: 'OPEN VIDEO',
+            },
+            dist,
+          });
+        }
+      }
+      return out;
+    };
+    const fetchAtd = async () =>
+      fetchArcGis(
+        'https://services.arcgis.com/0L95CJ0VTaxqcmED/arcgis/rest/services/TRANSPORTATION_traffic_cameras/FeatureServer/0/query',
+        "CAMERA_STATUS = 'TURNED_ON'",
+        'OBJECTID,LOCATION_NAME,CAMERA_STATUS,SCREENSHOT_ADDRESS',
+        [-98.0, 30.1, -97.6, 30.5],
+        (a, lon, lat) => {
+          const id = typeof a.OBJECTID === 'number' ? a.OBJECTID : null;
+          const imageUrl = str(a.SCREENSHOT_ADDRESS);
+          const label = str(a.LOCATION_NAME);
+          if (id === null || !imageUrl || !label || lat === null || lon === null) return null;
+          return { id: `cam-atx-${id}`, label, lat, lon, area: 'Austin, TX', imageUrl, source: 'ATD', detail: 'AUSTIN', openLabel: null };
+        },
+      );
+    const fetchMctx = async () =>
+      fetchArcGis(
+        'https://services1.arcgis.com/PRoAPGnMSUqvTrzq/arcgis/rest/services/MCTX_Live_Cameras/FeatureServer/0/query',
+        'FEEDURL IS NOT NULL',
+        'OBJECTID,SITENAME,FEEDURL,FACING',
+        [-95.8, 30.0, -95.2, 30.5],
+        (a, lon, lat) => {
+          const id = typeof a.OBJECTID === 'number' ? a.OBJECTID : null;
+          const imageUrl = str(a.FEEDURL);
+          const label = str(a.SITENAME);
+          if (id === null || !imageUrl || !label || lat === null || lon === null) return null;
+          const facing = str(a.FACING);
+          return { id: `cam-mctx-${id}`, label, lat, lon, area: 'Montgomery Co, TX', imageUrl, source: 'MCTX', detail: facing !== null ? `FACING ${facing}` : 'MONTGOMERY CO, TX', openLabel: 'OPEN CAMERA FEED' };
+        },
+      );
+    const fetchMto = async () =>
+      fetchArcGis(
+        'https://services.arcgis.com/6iGx1Dq91oKtcE7x/arcgis/rest/services/MTO_Cameras/FeatureServer/0/query',
+        "Status = 'Enabled'",
+        'OBJECTID,Id,Name,Url,Status,Description,RoadwayName,CityName',
+        [-95.2, 41.7, -74.3, 56.9],
+        (a, lon, lat) => {
+          const id = typeof a.OBJECTID === 'number' ? a.OBJECTID : null;
+          const imageUrl = str(a.Url);
+          const label = str(a.Name) ?? str(a.Description);
+          if (id === null || !imageUrl || !label || lat === null || lon === null) return null;
+          return { id: `cam-on-${id}`, label, lat, lon, area: 'Ontario', imageUrl, source: 'MTO', detail: [str(a.RoadwayName), str(a.CityName)].filter((x) => x !== null).join(' · ') || null, openLabel: null };
+        },
+      );
+    const fetchNzta = async () =>
+      fetchArcGis(
+        'https://services.arcgis.com/XTtANUDT8Va4DLwI/arcgis/rest/services/LiveCamerasNZTA_Public_View/FeatureServer/0/query',
+        "offline = 'false'",
+        'ObjectId,id,name,direction,description,imageurl,region,lat,lon',
+        [166.0, -47.5, 178.6, -34.4],
+        (a, lon, lat) => {
+          const id = typeof a.ObjectId === 'number' ? a.ObjectId : null;
+          const imageUrl = str(a.imageurl);
+          const label = str(a.name);
+          const la = typeof a.lat === 'number' ? a.lat : lat;
+          const lo = typeof a.lon === 'number' ? a.lon : lon;
+          if (id === null || !imageUrl || !label || la === null || lo === null) return null;
+          return { id: `cam-nz-${id}`, label, lat: la, lon: lo, area: 'New Zealand', imageUrl, source: 'NZTA', detail: [str(a.direction), str(a.region)].filter((x) => x !== null).join(' · ') || null, openLabel: null };
+        },
+      );
+    const fetchFor = (s: (typeof CAMERA_SOURCES)[number]): Promise<{ rec: CameraRecord; dist: number }[]> => {
+      switch (s.id) {
+        case 'nycdot': return fetchNycdot();
+        case 'caltrans': return fetchCaltrans();
+        case 'gdot': return fetchGdot();
+        case 'tfl': return fetchTfl();
+        case 'fl511': return fetchFl511();
+        case 'kytc': return fetchKytc();
+        case 'ortrip': return fetchOrtTrip();
+        case 'iadot': return fetchIadot();
+        case 'idot': return fetchIdot();
+        case 'wsdotarc': return fetchWsdotArc();
+        case 'modot': return fetchModot();
+        case 'mdchart': return fetchMdChart();
+        case 'atd': return fetchAtd();
+        case 'mctx': return fetchMctx();
+        case 'mto': return fetchMto();
+        case 'nzta': return fetchNzta();
+      }
+    };
+    const results = await Promise.allSettled(covering.map((s) => fetchFor(s)));
     const perSource: string[] = [];
     const near: { rec: CameraRecord; dist: number }[] = [];
     results.forEach((r, i) => {
@@ -1387,7 +1695,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     if (kept.length === 0) {
       setCameraQuery({
         state: 'ok',
-        message: `NO CAMERAS WITHIN 50 KM — ${perSource.join(' · ')}. COVERAGE SO FAR: NEW YORK CITY + CALIFORNIA + GEORGIA + FLORIDA + LONDON.`,
+        message: `NO CAMERAS WITHIN 50 KM — ${perSource.join(' · ')}. COVERAGE SO FAR: ${CAMERA_COVERAGE_LINE}.`,
         fetchedAt: Date.now(),
       });
       return;
@@ -2444,11 +2752,14 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                     {cameraQuery.state === 'loading' ? 'QUERYING…' : 'QUERY CAMERAS NEAR CENTRE'}
                   </button>
                   <div className="mt-1">
-                    COVERAGE SO FAR: NEW YORK CITY + CALIFORNIA + GEORGIA + FLORIDA + LONDON. SNAPSHOTS,
-                    NOT VIDEO. GEORGIA SNAPSHOTS OPEN IN A NEW TAB — THAT FEED SERVES IMAGES OVER PLAIN
-                    HTTP, WHICH A SECURE PAGE CANNOT SHOW INLINE. 511NY + WSDOT NEED FREE DEVELOPER KEYS
-                    AND ARE NOT WIRED; WINDY WEBCAMS NEED A FREE API KEY AND ARE NOT WIRED. MORE STATES
-                    FOLLOW THE SAME PATTERN.
+                    COVERAGE SO FAR: {CAMERA_COVERAGE_LINE}. SNAPSHOTS, NOT VIDEO — EXCEPT MARYLAND +
+                    MISSOURI, WHICH ARE VIDEO LINKS. GEORGIA + KENTUCKY + NEW ZEALAND SNAPSHOTS OPEN IN
+                    A NEW TAB — THOSE FEEDS SERVE IMAGES OVER PLAIN HTTP, WHICH A SECURE PAGE CANNOT
+                    SHOW INLINE. 511NY NEEDS A FREE DEVELOPER KEY AND IS NOT WIRED; WINDY WEBCAMS NEED
+                    A FREE API KEY AND ARE NOT WIRED. STILL HUNTING: TEXAS STATEWIDE · ARIZONA ·
+                    PENNSYLVANIA · COLORADO — THE SCOUTS ARE SCRAPING THE WEB FOR THEM. HAWAII NEEDS
+                    AN ARCGIS TOKEN; UTAH + DC HAVE CAMERA LISTS BUT NO VIEWABLE FEED; THE NEW ORLEANS
+                    LIST IS ENFORCEMENT CAMERAS, NOT CCTV.
                   </div>
                 </div>
               )}
@@ -2997,12 +3308,15 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                       </>
                     )}
                   </p>
-                  {selectedCamera.imageUrl.startsWith('http://') ? (
+                  {selectedCamera.openLabel !== null || selectedCamera.imageUrl.startsWith('http://') ? (
                     <p className="mt-1 font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
-                      SNAPSHOT OPENS IN A NEW TAB — THIS FEED SERVES IMAGES OVER PLAIN HTTP, WHICH A
-                      SECURE PAGE CANNOT SHOW INLINE.{' '}
+                      {selectedCamera.openLabel === 'OPEN VIDEO'
+                        ? 'THIS FEED SERVES VIDEO, NOT STILLS — IT OPENS IN A NEW TAB.'
+                        : selectedCamera.openLabel === 'OPEN CAMERA FEED'
+                          ? 'THIS FEED IS A LIVE CAMERA STREAM — IT OPENS IN A NEW TAB.'
+                          : 'SNAPSHOT OPENS IN A NEW TAB — THIS FEED SERVES IMAGES OVER PLAIN HTTP, WHICH A SECURE PAGE CANNOT SHOW INLINE.'}{' '}
                       <a href={selectedCamera.imageUrl} target="_blank" rel="noreferrer" className="font-semibold text-white underline decoration-[#00B7FF] underline-offset-2">
-                        OPEN SNAPSHOT
+                        {selectedCamera.openLabel ?? 'OPEN SNAPSHOT'}
                       </a>
                     </p>
                   ) : (

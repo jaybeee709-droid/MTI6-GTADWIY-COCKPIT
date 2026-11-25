@@ -174,12 +174,52 @@ const SEED_ASSIGNMENTS: Omit<HarvestAssignment, 'id' | 'createdAt'>[] = [
     kind: 'OTHER',
     active: true,
   },
+  // v236 — camera-discovery Scouts: the ArcGIS portal search
+  // for "traffic cameras" is how the next states get found
+  // (Texas statewide, Arizona, Pennsylvania, Colorado). The
+  // portal search is a public JSON endpoint; if it blocks a
+  // browser read it records FAILED honestly, like any other
+  // source. What the Scouts bring back is RAW discovery — the
+  // services get probed and wired by hand, never auto-trusted.
+  {
+    principalId: 'tribe-judah',
+    principalName: 'JUDAH',
+    sourceName: 'ArcGIS portal: traffic cameras Texas',
+    url: 'https://www.arcgis.com/sharing/rest/search?q=traffic%20cameras%20Texas&type=Feature%20Service&f=json&num=20',
+    kind: 'OTHER',
+    active: true,
+  },
+  {
+    principalId: 'tribe-reuben',
+    principalName: 'REUBEN',
+    sourceName: 'ArcGIS portal: traffic cameras Arizona',
+    url: 'https://www.arcgis.com/sharing/rest/search?q=traffic%20cameras%20Arizona&type=Feature%20Service&f=json&num=20',
+    kind: 'OTHER',
+    active: true,
+  },
+  {
+    principalId: 'tribe-gad',
+    principalName: 'GAD',
+    sourceName: 'ArcGIS portal: traffic cameras Pennsylvania',
+    url: 'https://www.arcgis.com/sharing/rest/search?q=traffic%20cameras%20Pennsylvania&type=Feature%20Service&f=json&num=20',
+    kind: 'OTHER',
+    active: true,
+  },
+  {
+    principalId: 'tribe-asher',
+    principalName: 'ASHER',
+    sourceName: 'ArcGIS portal: traffic cameras Colorado',
+    url: 'https://www.arcgis.com/sharing/rest/search?q=traffic%20cameras%20Colorado&type=Feature%20Service&f=json&num=20',
+    kind: 'OTHER',
+    active: true,
+  },
 ];
 
 /** Seed schema version. v229 wrote no version key (treated as 0);
- * v232 adds seeds 4–12. Bump when the seed list grows again. */
+ * v232 adds seeds 4–12. v236 adds seeds 13–16 (camera-discovery
+ * Scouts). Bump when the seed list grows again. */
 export const HARVEST_SEED_VERSION_KEY = 'mti6_harvest_seed_v1';
-export const HARVEST_SEED_VERSION = 2;
+export const HARVEST_SEED_VERSION = 3;
 
 function stampHarvestSeedVersion(): void {
   try {
@@ -206,9 +246,9 @@ export function loadHarvestAssignments(): HarvestAssignment[] {
     if (!Array.isArray(parsed)) return [];
     const list = parsed as HarvestAssignment[];
     /* v232 migration: devices seeded by v229 hold only seeds 1–3.
-     * Append the new seeds (4–12) once. Seeds 1–3 the owner
-     * removed are never re-added, and the owner's own
-     * assignments are never touched. */
+     * Append the new seeds (4–12, then 13–16 in v236) once.
+     * Seeds 1–3 the owner removed are never re-added, and the
+     * owner's own assignments are never touched. */
     const storedVersion = Number(localStorage.getItem(HARVEST_SEED_VERSION_KEY) ?? '0') || 0;
     if (storedVersion < HARVEST_SEED_VERSION) {
       const have = new Set(list.map((a) => a.id));
