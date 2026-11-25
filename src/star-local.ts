@@ -29,6 +29,7 @@ import { assetUniverseSummary } from './asset-universe';
 import { moneyRadarSummaryText } from './money-radar';
 import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
 import { loadHarvestAssignments, loadHarvestRecords } from './web-harvest';
+import { buildQueueSummaryText } from './build-queue';
 
 // §69 WHY? for a named workspace: the recorded chain behind what
 // the workspace shows, from the registry + coverage records only.
@@ -225,6 +226,9 @@ export function answerLocally(raw: string): string | null {
 
   if (/(encyclopedia|backbone|canonical|activit|how many|records)/.test(q))
     return `${FROM_RECORDS}the encyclopedia holds ${ENCYCLOPEDIA_COUNTS.total} activity records — ${ENCYCLOPEDIA_COUNTS.families} families, ${ENCYCLOPEDIA_COUNTS.majors} major activities (the canonical 60 backbone), ${ENCYCLOPEDIA_COUNTS.types} types, ${ENCYCLOPEDIA_COUNTS.strategies} strategies, ${ENCYCLOPEDIA_COUNTS.actions} actions, and ${ENCYCLOPEDIA_COUNTS.subActions} sub-actions. Crypto World has ${CRYPTO_WORLD_CONTENTS.length} canonical contents and Earnings World ${EARNINGS_CATEGORIES.length} categories. All records are UNVERIFIED.`;
+
+  if (/(ready to build|build queue|build list|what.*build|builds ready|prepared to build)/.test(q))
+    return buildQueueSummaryText();
 
   if (/(harvest|scout)/.test(q)) {
     const recs = loadHarvestRecords();

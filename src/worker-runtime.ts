@@ -56,6 +56,7 @@ import { runMoneyRadarScan } from './money-radar';
 import { runDryRunCycle } from './executor';
 import { PROXY_ACTIONS, PROXY_ENV_NAMES, PROXY_PROVIDERS } from './security-posture-data';
 import { createTask, loadTasks, transitionTask, type WorkerTask } from './worker-tasks';
+import { addBuildEvidence, loadBuildQueue, verifyBuildItem } from './build-queue';
 
 export interface RuntimeExecutor {
   id: string;
@@ -149,6 +150,21 @@ export const EXECUTORS: RuntimeExecutor[] = [
 
 export const executorById = (id: string): RuntimeExecutor | null =>
   EXECUTORS.find((e) => e.id === id) ?? null;
+
+/* Continuous-discovery rotation (v202, Fabric Phase 4) — the
+ * governed scan order, one executor every five minutes while the
+ * page is open. Exported so BotOperations runs it and the
+ * build-spec executor can verify membership (F3: dry-run is not
+ * a step yet — that is a build item in the queue, not a silent
+ * addition here). */
+export const CONTINUOUS_DISCOVERY_ROTATION: string[] = [
+  'money-radar',
+  'dex-scan',
+  'bridge-scan',
+  'pool-vault-scan',
+  'opportunity-scan',
+  'catalog-check',
+];
 
 /* Phase 2 executors (v172) — the remaining live capabilities put
  * to work through the same governed paths the screens use. */
@@ -478,6 +494,33 @@ EXECUTORS.push({
     const d = run.decisions[0];
     if (!d) return `Dry-run ${run.id}: ${run.note}`;
     return `Dry-run ${run.id}: ${d.decision} — ${d.fromSymbol} $${d.amountUsd} → ${d.toSymbol} on Base (${d.ruleFired}). ${d.reason} ${run.note}`;
+  },
+});
+
+/* Build spec (v243) — the BUILDER track's verification run: it
+ * re-verifies every PREPARED build-queue item against the live
+ * platform state and records each verdict as evidence on the
+ * item. Research/spec/verification only — it writes no code and
+ * runs no build. When a feature lands, the same check flips. */
+EXECUTORS.push({
+  id: 'build-spec',
+  label: 'BUILD SPEC',
+  does: 'Re-verifies every PREPARED build-queue item against the live platform state (radar strip, rotation membership, STAR task creation, gateway actions) and records each verdict as evidence on the item. Research/spec/verification only — it writes no code and runs no build.',
+  run: async () => {
+    const items = loadBuildQueue().filter((b) => b.status === 'PREPARED');
+    if (items.length === 0)
+      return 'Build spec: the Build Queue holds no PREPARED items — nothing to verify.';
+    const lines: string[] = [];
+    for (const item of items) {
+      const verdict = await verifyBuildItem(item, { rotation: CONTINUOUS_DISCOVERY_ROTATION });
+      addBuildEvidence(loadBuildQueue(), item.id, {
+        checked: 'build-spec verification run',
+        finding: verdict,
+        source: 'worker-runtime build-spec executor',
+      });
+      lines.push(`${item.title}: ${verdict}`);
+    }
+    return `Build spec verified ${items.length} PREPARED item(s) — verdicts recorded as evidence on each item. ${lines.join(' · ')}`;
   },
 });
 
@@ -915,6 +958,7 @@ export function runtimeCommandFor(text: string): string | null {
   if (!/(run|execute|start|do)\b/.test(q)) return null;
   if (q.includes('price')) return 'price-check';
   if (q.includes('dry') || q.includes('paper trade') || q.includes('test trade')) return 'dry-run';
+  if (q.includes('build') && (q.includes('spec') || q.includes('queue') || q.includes('ready'))) return 'build-spec';
   if (q.includes('yield')) return 'yield-scan';
   if (q.includes('history')) return 'history-check';
   if (q.includes('transit') || q.includes('stop')) return 'transit-check';

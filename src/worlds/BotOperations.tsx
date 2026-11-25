@@ -35,6 +35,7 @@ import { RESOURCE_COUNTS, RESOURCE_GAPS, RESOURCE_PROVIDERS } from '../resource-
 import { MEMORY_KINDS, memorySummary } from '../bot-memory';
 import {
   EXECUTORS,
+  CONTINUOUS_DISCOVERY_ROTATION,
   executorById,
   loadKinds,
   runAdHocTask,
@@ -44,6 +45,18 @@ import {
   type RunRecord,
   type RuntimeKindMap,
 } from '../worker-runtime';
+import {
+  addBuildEvidence,
+  addBuildItem,
+  buildQueueSummary,
+  ensureBuildQueueSeeded,
+  loadBuildQueue,
+  setBuildItemPrincipal,
+  setBuildItemStatus,
+  type BuildItem,
+  type BuildItemKind,
+  type BuildItemStatus,
+} from '../build-queue';
 import { listRadarCandidates, RADAR_CATEGORY_STATES, moneyRadarSummary } from '../money-radar';
 import { swapDeskSummary } from '../swap-desk';
 import { loadExecutorRuns, runDryRunCycle } from '../executor';
@@ -313,16 +326,27 @@ export const BotOperations: React.FC = () => {
   const [discoveryMsg, setDiscoveryMsg] = useState<string | null>(null);
   const rotationRef = useRef(0);
   const discoveryBusy = useRef(false);
+  // Rotation titles live here; the step order is the runtime's
+  // exported CONTINUOUS_DISCOVERY_ROTATION (v243) so the
+  // build-spec executor can verify membership — dry-run is not a
+  // step yet (F3 in the Build Queue), it is not added silently.
+  const ROTATION_TITLES: Record<string, string> = {
+    'money-radar': 'Continuous discovery — Money Radar sweep',
+    'dex-scan': 'Continuous discovery — DEX scan',
+    'bridge-scan': 'Continuous discovery — Bridge scan',
+    'pool-vault-scan': 'Continuous discovery — Pool + Vault scan',
+    'opportunity-scan': 'Continuous discovery — Opportunity scan',
+    'catalog-check': 'Continuous discovery — Catalogue check',
+    'dry-run': 'Continuous discovery — Dry-run evaluation',
+  };
   useEffect(() => {
     if (!continuousDiscovery) return;
-    const ROTATION: { executor: string; title: string }[] = [
-      { executor: 'money-radar', title: 'Continuous discovery — Money Radar sweep' },
-      { executor: 'dex-scan', title: 'Continuous discovery — DEX scan' },
-      { executor: 'bridge-scan', title: 'Continuous discovery — Bridge scan' },
-      { executor: 'pool-vault-scan', title: 'Continuous discovery — Pool + Vault scan' },
-      { executor: 'opportunity-scan', title: 'Continuous discovery — Opportunity scan' },
-      { executor: 'catalog-check', title: 'Continuous discovery — Catalogue check' },
-    ];
+    const ROTATION: { executor: string; title: string }[] = CONTINUOUS_DISCOVERY_ROTATION.map(
+      (executor) => ({
+        executor,
+        title: ROTATION_TITLES[executor] ?? `Continuous discovery — ${executor}`,
+      }),
+    );
     const tick = async () => {
       if (discoveryBusy.current) return;
       discoveryBusy.current = true;
@@ -441,6 +465,98 @@ export const BotOperations: React.FC = () => {
   const loopRuns = runtimeStoreSummary();
   const loopOpenTasks = tasks.filter((t) => !['COMPLETE', 'FAILED', 'CANCELED'].includes(t.state)).length;
   const loopDryRuns = loadExecutorRuns().length;
+  // v243 — BUILDER track: what the team prepared for Muse to
+  // build. The bots do NOT write code — each item is research,
+  // spec, and verification with evidence. Seeded once from the
+  // v242 follow-ons (F2/F3/F4/F6), each verified still unbuilt
+  // before it was listed. Muse implements; the owner marks
+  // IMPLEMENTED when it lands.
+  const [buildQueue, setBuildQueue] = useState<BuildItem[]>(() => ensureBuildQueueSeeded());
+  const [buildSpecBusy, setBuildSpecBusy] = useState(false);
+  const [buildSpecMsg, setBuildSpecMsg] = useState<string | null>(null);
+  const [buildMsg, setBuildMsg] = useState('');
+  const [newBuildTitle, setNewBuildTitle] = useState('');
+  const [newBuildKind, setNewBuildKind] = useState<BuildItemKind>('SPEC');
+  const [newBuildPrincipal, setNewBuildPrincipal] = useState('tribe-judah');
+  const [newBuildSpec, setNewBuildSpec] = useState('');
+  const [evItemId, setEvItemId] = useState('');
+  const [evChecked, setEvChecked] = useState('');
+  const [evFinding, setEvFinding] = useState('');
+  const [evSource, setEvSource] = useState('');
+  const buildSummary = buildQueueSummary();
+  const doBuildSpecRun = async () => {
+    if (buildSpecBusy) return;
+    setBuildSpecBusy(true);
+    setBuildSpecMsg(null);
+    try {
+      const rec = await runAdHocTask('build-spec', 'Build spec verification');
+      setTasks(loadTasks());
+      setRunLog((log) => [rec, ...log].slice(0, 10));
+      setBuildQueue(loadBuildQueue());
+      setBuildSpecMsg(rec.evidence);
+    } finally {
+      setBuildSpecBusy(false);
+    }
+  };
+  const createBuildTaskFor = (item: BuildItem) => {
+    const title = `BUILD: ${item.title}`;
+    const existing = tasks.find((t) => t.title === title);
+    if (existing) {
+      setBuildMsg(`BUILD TASK ALREADY OPEN — "${title}" is ${existing.state}.`);
+      return;
+    }
+    const next = createTask(tasks, { title, role: 'Builder', principal: item.principalId });
+    setTasks(next);
+    setBuildMsg(
+      `BUILD TASK RECORDED — "${title}" (Builder${item.principalId ? ` · ${principalName(item.principalId)}` : ''}) · UNASSIGNED.`,
+    );
+  };
+  const setBuilderRoleFor = (item: BuildItem) => {
+    if (!item.principalId) {
+      setBuildMsg('Pick a principal for this item first.');
+      return;
+    }
+    setAssignments((m) =>
+      assignRole(m, item.principalId as string, 'Builder', `BUILDER track — assigned to build work: ${item.title}`),
+    );
+    setBuildMsg(
+      `${principalName(item.principalId)} now carries the BUILDER role for "${item.title}".`,
+    );
+  };
+  const markBuildItem = (item: BuildItem, status: BuildItemStatus) => {
+    setBuildQueue(setBuildItemStatus(loadBuildQueue(), item.id, status));
+    setBuildMsg(`"${item.title}" marked ${status}.`);
+  };
+  const addEvidenceTo = () => {
+    if (!evItemId) return setBuildMsg('Pick a build item for the evidence.');
+    if (!evChecked.trim() || !evFinding.trim())
+      return setBuildMsg('Evidence needs what was checked and what was found.');
+    setBuildQueue(
+      addBuildEvidence(loadBuildQueue(), evItemId, {
+        checked: evChecked,
+        finding: evFinding,
+        source: evSource,
+      }),
+    );
+    setEvChecked('');
+    setEvFinding('');
+    setEvSource('');
+    setBuildMsg('EVIDENCE RECORDED on the build item.');
+  };
+  const addNewBuildItem = () => {
+    if (!newBuildTitle.trim()) return setBuildMsg('A build item title is required.');
+    setBuildQueue(
+      addBuildItem(loadBuildQueue(), {
+        title: newBuildTitle,
+        kind: newBuildKind,
+        principalId: newBuildPrincipal || null,
+        spec: newBuildSpec,
+      }),
+    );
+    setNewBuildTitle('');
+    setNewBuildSpec('');
+    setBuildMsg('BUILD ITEM ADDED — PREPARED, awaiting verification and Muse to implement.');
+  };
   // v230 — TAKE OVER: Daniel takes a step himself (a sign-in, a
   // verification click, a password). The takeover is recorded
   // the moment it happens, and the task is BLOCKED until he
@@ -639,6 +755,223 @@ export const BotOperations: React.FC = () => {
           HAPPENED · DANIEL APPROVES EACH PREPARED ACTION HIMSELF. NOTHING IN THIS LOOP SIGNS,
           SENDS, OR MOVES FUNDS.
         </p>
+      </div>
+
+      {/* BUILD QUEUE (v243) — the BUILDER track: what the team
+          prepared for Muse to build. The bots do NOT write code
+          and never run builds — each item is research, spec, and
+          verification with evidence (what was checked, what was
+          found, source). Muse implements in the clone; the owner
+          marks IMPLEMENTED when it lands. Every record here is
+          UNVERIFIED preparation, never a build claim. */}
+      <div className="rounded-xl border border-[#8B5CFF]/40 bg-[#101010] p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-mono text-xs text-[#8B5CFF]">
+            BUILD QUEUE — WHAT THE TEAM PREPARED FOR MUSE TO BUILD
+          </span>
+          <span className="font-mono text-[10px] text-[#B8B8B8]">
+            {buildSummary.prepared} PREPARED · {buildSummary.implemented} IMPLEMENTED ·{' '}
+            {buildSummary.superseded} SUPERSEDED
+          </span>
+        </div>
+        <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+          RESEARCH · SPEC · VERIFICATION ONLY — THE BOTS DO NOT WRITE CODE AND NEVER RUN BUILDS.
+          CODE IS WRITTEN BY MUSE IN THE CLONE. EACH ITEM CARRIES ITS SPEC AND ITS EVIDENCE; ASK
+          STAR “WHAT’S READY TO BUILD” FOR THE SUMMARY.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void doBuildSpecRun()}
+            disabled={buildSpecBusy}
+            className="flex min-h-[44px] items-center rounded border border-[#8B5CFF]/60 px-3 font-mono text-[10px] text-white disabled:opacity-50"
+          >
+            {buildSpecBusy ? 'VERIFYING…' : '▶ RUN BUILD SPEC'}
+          </button>
+          <span className="font-mono text-[9px] text-[#B8B8B8]">
+            RE-VERIFIES EVERY PREPARED ITEM AGAINST THE LIVE PLATFORM STATE AND RECORDS EACH
+            VERDICT AS EVIDENCE.
+          </span>
+        </div>
+        {buildSpecMsg && (
+          <p className="font-mono text-[10px] leading-relaxed text-white">{buildSpecMsg}</p>
+        )}
+        {buildQueue.length === 0 ? (
+          <p className="font-mono text-[10px] text-[#B8B8B8]">
+            QUEUE EMPTY — NO BUILD WORK PREPARED. NOTHING IS INVENTED TO FILL IT.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {buildQueue.map((item) => (
+              <div
+                key={item.id}
+                className="rounded-lg border border-white/10 bg-[#050505] p-3 space-y-2"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-white">{item.title}</span>
+                  <span className="rounded border border-[#8B5CFF]/50 px-2 py-0.5 font-mono text-[9px] text-white">
+                    {item.status} · {item.kind} · {principalName(item.principalId)}
+                  </span>
+                </div>
+                <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">{item.spec}</p>
+                {item.evidence.length > 0 && (
+                  <div className="space-y-1">
+                    {item.evidence.map((e, i) => (
+                      <p key={i} className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
+                        EVIDENCE — CHECKED: {e.checked} · FOUND: {e.finding} · SOURCE: {e.source} ·{' '}
+                        {new Date(e.at).toLocaleString()}
+                      </p>
+                    ))}
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={item.principalId ?? ''}
+                    onChange={(e) =>
+                      setBuildQueue(
+                        setBuildItemPrincipal(
+                          loadBuildQueue(),
+                          item.id,
+                          e.target.value || null,
+                        ),
+                      )
+                    }
+                    aria-label={`Build principal for ${item.id}`}
+                    className="h-9 rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white outline-none focus:border-[#8B5CFF]"
+                  >
+                    <option value="">Unassigned pool</option>
+                    {TRIBE_PRINCIPALS.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.displayName}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => createBuildTaskFor(item)}
+                    aria-label={`Create build task for ${item.id}`}
+                    className="flex min-h-[36px] items-center rounded border border-[#8B5CFF]/60 px-3 font-mono text-[10px] text-white"
+                  >
+                    CREATE BUILD TASK
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBuilderRoleFor(item)}
+                    className="flex min-h-[36px] items-center rounded border border-white/15 px-3 font-mono text-[10px] text-white"
+                  >
+                    SET BUILDER ROLE
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => markBuildItem(item, 'IMPLEMENTED')}
+                    disabled={item.status === 'IMPLEMENTED'}
+                    className="flex min-h-[36px] items-center rounded border border-[#32D74B]/60 px-3 font-mono text-[10px] text-white disabled:opacity-50"
+                  >
+                    MARK IMPLEMENTED
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => markBuildItem(item, 'SUPERSEDED')}
+                    disabled={item.status === 'SUPERSEDED'}
+                    className="flex min-h-[36px] items-center rounded border border-white/15 px-3 font-mono text-[10px] text-white disabled:opacity-50"
+                  >
+                    MARK SUPERSEDED
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={evItemId}
+            onChange={(e) => setEvItemId(e.target.value)}
+            aria-label="Evidence build item"
+            className="h-9 rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white outline-none focus:border-[#8B5CFF]"
+          >
+            <option value="">Evidence for…</option>
+            {buildQueue.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.title}
+              </option>
+            ))}
+          </select>
+          <input
+            value={evChecked}
+            onChange={(e) => setEvChecked(e.target.value)}
+            placeholder="What was checked"
+            aria-label="Evidence checked"
+            className="h-9 flex-1 min-w-[140px] rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white outline-none placeholder:text-[#666] focus:border-[#8B5CFF]"
+          />
+          <input
+            value={evFinding}
+            onChange={(e) => setEvFinding(e.target.value)}
+            placeholder="What was found"
+            aria-label="Evidence finding"
+            className="h-9 flex-1 min-w-[140px] rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white outline-none placeholder:text-[#666] focus:border-[#8B5CFF]"
+          />
+          <input
+            value={evSource}
+            onChange={(e) => setEvSource(e.target.value)}
+            placeholder="Source (file / screen / gateway)"
+            aria-label="Evidence source"
+            className="h-9 flex-1 min-w-[140px] rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white outline-none placeholder:text-[#666] focus:border-[#8B5CFF]"
+          />
+          <button
+            type="button"
+            onClick={() => addEvidenceTo()}
+            className="flex min-h-[36px] items-center rounded border border-[#8B5CFF]/60 px-3 font-mono text-[10px] text-white"
+          >
+            ADD EVIDENCE
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            value={newBuildTitle}
+            onChange={(e) => setNewBuildTitle(e.target.value)}
+            placeholder="New build item title"
+            aria-label="New build item title"
+            className="h-9 flex-1 min-w-[180px] rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white outline-none placeholder:text-[#666] focus:border-[#8B5CFF]"
+          />
+          <select
+            value={newBuildKind}
+            onChange={(e) => setNewBuildKind(e.target.value as BuildItemKind)}
+            aria-label="New build item kind"
+            className="h-9 rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white outline-none focus:border-[#8B5CFF]"
+          >
+            <option value="SPEC">SPEC</option>
+            <option value="RESEARCH">RESEARCH</option>
+            <option value="VERIFICATION">VERIFICATION</option>
+            <option value="BUILD_PREP">BUILD_PREP</option>
+          </select>
+          <select
+            value={newBuildPrincipal}
+            onChange={(e) => setNewBuildPrincipal(e.target.value)}
+            aria-label="New build item principal"
+            className="h-9 rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white outline-none focus:border-[#8B5CFF]"
+          >
+            {TRIBE_PRINCIPALS.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.displayName}
+              </option>
+            ))}
+          </select>
+          <input
+            value={newBuildSpec}
+            onChange={(e) => setNewBuildSpec(e.target.value)}
+            placeholder="Spec — what Muse should build"
+            aria-label="New build item spec"
+            className="h-9 flex-1 min-w-[180px] rounded-lg border border-white/15 bg-[#050505] px-2 text-xs text-white outline-none placeholder:text-[#666] focus:border-[#8B5CFF]"
+          />
+          <button
+            type="button"
+            onClick={() => addNewBuildItem()}
+            className="flex min-h-[36px] items-center rounded bg-[#8B5CFF] px-4 font-mono text-[10px] font-semibold text-white"
+          >
+            ADD BUILD ITEM
+          </button>
+        </div>
+        {buildMsg && <p className="font-mono text-[10px] text-[#FFB020]">{buildMsg}</p>}
       </div>
 
       {/* NETWORK EARNING OPS (Gemini family 11 adoption, 2026-11-23):

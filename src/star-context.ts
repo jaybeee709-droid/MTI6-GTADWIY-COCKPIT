@@ -10,6 +10,7 @@ import { EXECUTORS } from './worker-runtime';
 import { moneyRadarSummary } from './money-radar';
 import { swapDeskSummary } from './swap-desk';
 import { loadHarvestAssignments, loadHarvestRecords } from './web-harvest';
+import { buildQueueSummary } from './build-queue';
 
 /* STAR's grounding context — the platform snapshot STAR answers
  * from. Everything here is derived from the app's own data modules
@@ -44,6 +45,19 @@ function harvestLine(): string {
     return `${recs.length} harvested record(s) (${ok} OK, ${recs.length - ok} failed) from ${active} active scout assignment(s) of ${asg.length}`;
   } catch {
     return 'no harvest records recorded';
+  }
+}
+
+// v243 — the BUILDER track in STAR's grounding context: what the
+// team prepared for Muse to build. Research/spec/verification
+// only — the bots write no code; Muse implements in the clone.
+function buildQueueLine(): string {
+  try {
+    const s = buildQueueSummary();
+    if (s.total === 0) return 'the Build Queue is empty — no build work prepared yet';
+    return `${s.total} build item(s) (${s.prepared} PREPARED, ${s.implemented} IMPLEMENTED, ${s.superseded} SUPERSEDED)${s.readyTitles.length > 0 ? ` — ready to build: ${s.readyTitles.join('; ')}` : ''}`;
+  } catch {
+    return 'build queue unreadable this session';
   }
 }
 
@@ -104,6 +118,7 @@ export function buildStarSystemPrompt(): string {
     `- Earnings World: ${EARNINGS_CATEGORIES.length} categories (${EARNINGS_CATEGORIES.join(', ')}). The owner has ${ownerOpportunityCount()} opportunity record(s) entered locally; the discovery feed is NOT_CONNECTED. The opportunity pipeline runs DISCOVERED through PREPARED and never EXECUTED; numeric return fields and risk scores are forbidden in opportunity records.`,
     `- Money Radar (the Opportunity Intelligence layer between the World Engine and Opportunities; owner spec 2026-11-24): ${moneyRadarSummary().totalSignals} recorded money-movement signal(s) over ${moneyRadarSummary().poolsTracked} tracked watched pools, ${moneyRadarSummary().radarCandidates} radar-generated opportunity candidate(s), ${moneyRadarSummary().dispatchedOpen} radar work order(s) open in the Bot Work Queue. Signals derive only from governed observations (DefiLlama Yields watched pools, diffed scan-over-scan); radar categories without a connected source read NO_DATA. Scoring is evidence dimensions only (freshness, evidence count, source count, support status) — never a confidence percentage. The separation is permanent: World Engine answers what exists, Money Radar answers what is changing, you (STAR) answer what Daniel should look at next, Daniel decides. The radar never moves money.`,
     `- Web Harvest (Tribe scouts, page-open only): ${harvestLine()} — excerpts are RAW and UNVERIFIED; a record becomes work only when Daniel turns it into a Research task from Bot Operations.`,
+    `- Build Queue (the BUILDER track — what the team prepared for Muse to build): ${buildQueueLine()}. The bots prepare research, spec, and verification with evidence only — they write no code and run no builds; Muse implements in the clone and Daniel marks items IMPLEMENTED when they land. Ask "what's ready to build" for the list.`,
     `- Swap Desk (the execution track — owner decisions D1 YES, D2 DEX only with no KYC venue, D3 $50 starting capital): ${swapDeskSummary().swappableCount} catalogued tokens are swappable across Ethereum and Base (${swapDeskSummary().baseSwappableCount} on Base, the low-fee leg; quotes run Paraswap → KyberSwap → CoW Swap on both networks). ${swapDeskSummary().prepared} swap(s) prepared awaiting approval, ${swapDeskSummary().approved} owner-approved, ${swapDeskSummary().handedOff} handed off to Daniel's wallet for signing. ${swapDeskSummary().watch ? 'A watch wallet is set (public address only, read-only balances).' : 'No watch wallet is set yet — Daniel adds his public address in the Swap Desk.'} Every handoff passes a live Honeypot.is security gate on the token he would receive. The desk prepares and records; it never signs, never broadcasts, never holds keys or funds. Signing happens in Daniel's own wallet at the venue.`,
     `- Display currencies in the catalogue: ${DISPLAY_CURRENCIES.map((c) => c.code).join(', ')}. No wallet is connected: holdings are UNAVAILABLE, never zero.`,
     '- Live data now flows for crypto prices (CoinGecko → Coinbase → CoinPaprika), price history, and DefiLlama yields; every figure carries provenance (source, fetch time, LIVE/CACHED/STALE). Transit stops and departures can be queried through the platform proxy.',
