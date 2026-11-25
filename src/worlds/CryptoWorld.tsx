@@ -20,6 +20,7 @@ import {
 } from '../worlds-data';
 import { fetchYields, fmtUsd, useObservation, useProvenanceLog } from '../live-data';
 import { ProvenanceChip } from '../ProvenanceChip';
+import { OpportunityScannerPanel } from '../screens/OpportunityScannerPanel';
 import { CANONICAL_60, ENCYCLOPEDIA_FAMILIES } from '../encyclopedia-data';
 import { ENTITY_COUNTS, ENTITY_UNIVERSE } from '../entity-data';
 import {
@@ -527,6 +528,10 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
       </div>
 
       <LiveYieldsPanel />
+
+      {/* Opportunity Scanner (v214) — the unified board over
+          everything the bots find, ranked by evidence */}
+      <OpportunityScannerPanel />
 
       <CostRiskPanel />
 

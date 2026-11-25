@@ -23,6 +23,7 @@ import { bridgeRegistrySummary } from './bridge-registry';
 import { poolVaultSummary } from './pool-vault-registry';
 import { approvalPackageText, loadApprovalPackage } from './approval-packages';
 import { swapDeskSummaryText } from './swap-desk';
+import { scannerSummaryText } from './opportunity-scanner';
 import { loadReplaySummary, replaySummaryText } from './archive-replay';
 import { assetUniverseSummary } from './asset-universe';
 import { moneyRadarSummaryText } from './money-radar';
@@ -116,8 +117,15 @@ function entityAnswer(q: string): string | null {
 export function answerLocally(raw: string): string | null {
   const q = raw.toLowerCase();
 
+  if (/(swap desk|prepared swap|swap quote)/.test(q)) {
+    return `${FROM_RECORDS}${swapDeskSummaryText()}`;
+  }
+
+  if (/(opportunity scanner|top opportunities|best opportunities)/.test(q))
+    return scannerSummaryText();
+
   if (/(execut|buy|sell|trade|swap|withdraw|send money|place an order)/.test(q))
-    return 'I cannot do that, by design. Work in this platform ends at PREPARED on the capability ladder (MONITOR \u2192 ANALYZE \u2192 RECOMMEND \u2192 PREPARE \u2192 OWNER APPROVAL \u2192 EXECUTE), and EXECUTE is disabled. Nothing was acted on.';
+    return 'I cannot execute that myself — no bot here can. The work the bots do ends at PREPARED on the capability ladder; the EXECUTE rung is the owner\'s own hand at the Swap Desk (Crypto Market screen), where he approves a prepared swap and signs it in his own wallet (DEX only, no KYC — D1/D2) (MONITOR \u2192 ANALYZE \u2192 RECOMMEND \u2192 PREPARE \u2192 OWNER APPROVAL \u2192 EXECUTE). Nothing was acted on.';
 
   if (/(money radar|capital flow|money move|what's happening|what is happening|radar)/.test(q))
     return moneyRadarSummaryText();
@@ -160,9 +168,6 @@ export function answerLocally(raw: string): string | null {
       return `${FROM_RECORDS}no approval package has been generated yet. Say "run an approval package" and I assemble every placed candidate — DEX, Bridge, Pool, Vault registries plus the relationship candidates — into one package for Daniel's review. Generating it promotes nothing; the gate is Daniel's alone.`;
     }
     return `${FROM_RECORDS}${approvalPackageText(pkg)}`;
-  }
-  if (/(swap desk|prepared swap|swap quote)/.test(q)) {
-    return `${FROM_RECORDS}${swapDeskSummaryText()}`;
   }
   if (/(archive replay|replay)/.test(q)) {
     const s = loadReplaySummary();
