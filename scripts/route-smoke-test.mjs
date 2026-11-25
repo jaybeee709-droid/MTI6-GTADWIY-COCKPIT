@@ -342,6 +342,7 @@ try {
     !worldMapText.includes('PLACE INTELLIGENCE'),
     'relationship panel stays hidden until a place or stop is focused',
   );
+  check('places toggle present', worldMapText.includes('PLACES'), 'MAP VIEW bar has PLACES');
 
   // Honest states, checked across the whole rendered document after visiting
   // every route (last route visited is Crypto Workspaces; re-visit Globe and

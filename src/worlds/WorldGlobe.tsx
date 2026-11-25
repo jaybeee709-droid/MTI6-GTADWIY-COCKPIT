@@ -175,11 +175,11 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // (Coverage = every layer's data state at once). Persisted —
   // the choice survives reloads.
   type MapLens = 'world' | 'crypto' | 'earnings' | 'security' | 'transit' | 'coverage';
-  const readViewSel = (): { base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean } => {
+  const readViewSel = (): { base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean } => {
     try {
       const raw = localStorage.getItem(MAP_VIEW_SEL_KEY);
-      if (!raw) return { base: 'streets', terrain: 'off', lens: 'world', night: true };
-      const parsed = JSON.parse(raw) as Partial<{ base: string; terrain: string; lens: string; night: unknown }>;
+      if (!raw) return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false };
+      const parsed = JSON.parse(raw) as Partial<{ base: string; terrain: string; lens: string; night: unknown; places: unknown }>;
       return {
         base: parsed.base === 'satellite' || parsed.base === 'floor' ? (parsed.base as MapBaseStyle) : 'streets',
         terrain: parsed.terrain === 'hillshade' ? 'hillshade' : 'off',
@@ -189,13 +189,16 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
         // v224 — day/night terminator, on by default. An old saved
         // selection without the key reads ON.
         night: parsed.night === false ? false : true,
+        // v226 — POI/business layer, off by default. An old saved
+        // selection without the key reads OFF.
+        places: parsed.places === true,
       };
     } catch {
-      return { base: 'streets', terrain: 'off', lens: 'world', night: true };
+      return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false };
     }
   };
   const [viewSel, setViewSelState] = useState(readViewSel);
-  const setViewSel = (next: Partial<{ base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean }>) => {
+  const setViewSel = (next: Partial<{ base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean }>) => {
     setViewSelState((prev) => {
       const merged = { ...prev, ...next };
       try {
@@ -275,6 +278,41 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // never auto-polled. These are the map's first real markers: each
   // carries a location the source itself published.
   const [transitStops, setTransitStops] = useState<MapMarker[]>([]);
+  // v226 — POI/business layer (D2 revisit): real businesses from
+  // OpenStreetMap via Nominatim, one explicit query (never a poll).
+  // Overpass was probed and is NOT wireable from this host
+  // (406/502 on the primary, 000 on both mirrors); the OSM map
+  // API answers but returns ~9 MB per small bbox — too heavy for
+  // a read layer. Nominatim's category search returns real local
+  // places with name, kind and address parts. Fair use: 1 req/s,
+  // so categories run sequentially with a 1.1 s gap (only after a
+  // successful request — a failed one costs no quota).
+  interface PoiRecord {
+    id: string;
+    label: string;
+    lat: number;
+    lon: number;
+    kind: string;
+    road?: string;
+    suburb?: string;
+    postcode?: string;
+    city?: string;
+  }
+  const POI_CATEGORIES = [
+    { param: 'amenity', value: 'restaurant', label: 'RESTAURANTS' },
+    { param: 'amenity', value: 'cafe', label: 'CAFES' },
+    { param: 'amenity', value: 'fast_food', label: 'FAST FOOD' },
+    { param: 'shop', value: 'supermarket', label: 'SUPERMARKETS' },
+    { param: 'amenity', value: 'bar', label: 'BARS' },
+  ] as const;
+  const [poiMarkers, setPoiMarkers] = useState<MapMarker[]>([]);
+  const [poiRecords, setPoiRecords] = useState<Record<string, PoiRecord>>({});
+  const [selectedPoi, setSelectedPoi] = useState<PoiRecord | null>(null);
+  const [poiQuery, setPoiQuery] = useState<{
+    state: 'idle' | 'loading' | 'ok' | 'error';
+    message: string;
+    fetchedAt: number | null;
+  }>({ state: 'idle', message: 'NOT QUERIED — Nominatim is ready; nothing has been polled.', fetchedAt: null });
   const [transitQuery, setTransitQuery] = useState<{
     state: 'idle' | 'loading' | 'ok' | 'error';
     message: string;
@@ -314,7 +352,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // the map draws a link line from the focus to each one. Alerts
   // match only when an alert's recorded area names this place —
   // area is null unless the owner sets it at intake.
-  const focusPoint = selectedStop ?? placeMarker;
+  const focusPoint = selectedStop ?? selectedPoi ?? placeMarker;
   const nearbyStops = useMemo(() => {
     if (!focusPoint) return [];
     return transitStops
@@ -484,6 +522,109 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     } catch {
       setDepartures({ state: 'error', message: 'DEPARTURES QUERY FAILED (NETWORK).', rows: [], fetchedAt: null });
     }
+  };
+
+  const queryPlaces = async () => {
+    if (typeof fetch !== 'function') {
+      setPoiQuery({ state: 'error', message: 'NO FETCH IN THIS ENVIRONMENT.', fetchedAt: null });
+      return;
+    }
+    const lat = mapView.lat;
+    const lon = mapView.lon;
+    const minLon = (lon - 0.02).toFixed(5);
+    const minLat = (lat - 0.02).toFixed(5);
+    const maxLon = (lon + 0.02).toFixed(5);
+    const maxLat = (lat + 0.02).toFixed(5);
+    setPoiQuery({ state: 'loading', message: 'QUERYING PLACES… 0/5', fetchedAt: null });
+    const seen = new Set<string>();
+    const markers: MapMarker[] = [];
+    const records: Record<string, PoiRecord> = {};
+    let failed = 0;
+    for (let i = 0; i < POI_CATEGORIES.length; i++) {
+      const cat = POI_CATEGORIES[i];
+      setPoiQuery({
+        state: 'loading',
+        message: `QUERYING PLACES… ${i + 1}/5 — ${cat.label}`,
+        fetchedAt: null,
+      });
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&limit=8&${cat.param}=${cat.value}&viewbox=${minLon},${minLat},${maxLon},${maxLat}&bounded=1`,
+          { headers: { 'Accept-Language': 'en' } },
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as {
+          place_id?: number;
+          lat?: string;
+          lon?: string;
+          display_name?: string;
+          class?: string;
+          type?: string;
+          address?: { road?: string; house_number?: string; suburb?: string; city?: string; town?: string; postcode?: string };
+        }[];
+        if (Array.isArray(data)) {
+          for (const r of data) {
+            if (!r || typeof r.place_id !== 'number') continue;
+            const key = String(r.place_id);
+            if (seen.has(key)) continue;
+            const rLat = typeof r.lat === 'string' ? parseFloat(r.lat) : NaN;
+            const rLon = typeof r.lon === 'string' ? parseFloat(r.lon) : NaN;
+            if (!Number.isFinite(rLat) || !Number.isFinite(rLon)) continue;
+            if (typeof r.display_name !== 'string' || r.display_name.length === 0) continue;
+            seen.add(key);
+            const name = r.display_name.split(',')[0].trim();
+            const rec: PoiRecord = {
+              id: `poi-${key}`,
+              label: name,
+              lat: rLat,
+              lon: rLon,
+              kind: `${r.class ?? 'place'}:${r.type ?? 'unknown'}`,
+              road: r.address?.road
+                ? r.address.house_number
+                  ? `${r.address.house_number} ${r.address.road}`
+                  : r.address.road
+                : undefined,
+              suburb: r.address?.suburb,
+              postcode: r.address?.postcode,
+              city: r.address?.city ?? r.address?.town,
+            };
+            records[rec.id] = rec;
+            markers.push({ id: rec.id, lat: rLat, lon: rLon, label: name });
+            if (markers.length >= 25) break;
+          }
+        }
+        // Fair use: 1 req/s — wait only after a request that
+        // actually reached the server.
+        if (i < POI_CATEGORIES.length - 1) {
+          await new Promise((r) => setTimeout(r, 1100));
+        }
+      } catch {
+        failed += 1;
+      }
+      if (markers.length >= 25) break;
+    }
+    const limited = markers.slice(0, 25);
+    setPoiMarkers(limited);
+    setPoiRecords(records);
+    if (limited.length === 0) {
+      setPoiQuery({
+        state: 'error',
+        message:
+          failed === POI_CATEGORIES.length
+            ? 'QUERY FAILED (NETWORK) — Nominatim did not answer; no places are shown.'
+            : 'NO PLACES FOUND — Nominatim answered but returned no named businesses in this area.',
+        fetchedAt: null,
+      });
+      return;
+    }
+    setPoiQuery({
+      state: 'ok',
+      message:
+        failed > 0
+          ? `LIVE · ${limited.length} PLACES · ${failed} of 5 categories failed — partial results.`
+          : `LIVE · ${limited.length} PLACES`,
+      fetchedAt: Date.now(),
+    });
   };
 
   const queryTransitStops = async () => {
@@ -779,6 +920,27 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 </button>
               ))}
             </span>
+            {/* v226 — POI/business layer (D2 revisit): real businesses
+                from OpenStreetMap via Nominatim. OFF by default; the
+                query runs only on the owner's explicit tap. */}
+            <span className="flex items-center gap-1">
+              <span className="text-[#B8B8B8]">PLACES</span>
+              {([true, false] as const).map((p) => (
+                <button
+                  key={String(p)}
+                  type="button"
+                  onClick={() => setViewSel({ places: p })}
+                  aria-pressed={viewSel.places === p}
+                  className={`h-9 px-2.5 rounded border transition ${
+                    viewSel.places === p
+                      ? 'border-[#00B7FF] bg-[#00B7FF]/15 text-white'
+                      : 'border-white/15 text-[#B8B8B8] hover:border-white/40'
+                  }`}
+                >
+                  {p ? 'ON' : 'OFF'}
+                </button>
+              ))}
+            </span>
             <span className="flex items-center gap-1">
               <span className="text-[#B8B8B8]">LENS</span>
               {(['world', 'crypto', 'earnings', 'security', 'transit', 'coverage'] as const).map((l) => (
@@ -824,7 +986,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               floorMode={floorMode}
               defaultMarkerColor={routeColor}
               markerPulse={markerPulse}
-              markers={[...(transitOn ? transitStops : []), ...(placeMarker ? [placeMarker] : [])]}
+              markers={[...(transitOn ? transitStops : []), ...(viewSel.places ? poiMarkers : []), ...(placeMarker ? [placeMarker] : [])]}
               focusPoint={mapFocus}
               links={focusLinks}
               ringMarkerId={focusPoint?.id}
@@ -833,9 +995,18 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               onMarkerSelect={(m) => {
                 if (m.id.startsWith('place-')) {
                   setSelectedStop(null);
+                  setSelectedPoi(null);
+                  return;
+                }
+                if (m.id.startsWith('poi-')) {
+                  setSelectedStop(null);
+                  setSelectedPoi(poiRecords[m.id] ?? null);
+                  setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
+                  setDeparturesDay('TODAY');
                   return;
                 }
                 setSelectedStop(m);
+                setSelectedPoi(null);
                 setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                 setDeparturesDay('TODAY');
               }}
@@ -913,6 +1084,29 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                       OPEN CRYPTO WORLD
                     </button>
                   )}
+                </div>
+              )}
+              {/* v226 — POI/business layer: an explicit Nominatim
+                  query (never a poll) places real businesses. */}
+              {viewSel.places && (
+                <div className="pointer-events-auto self-start rounded border border-[#00B7FF]/50 bg-[#0b0b0b]/90 px-2.5 py-2 font-mono text-[11px] text-[#B8B8B8] 2xl:self-stretch">
+                  <span className="font-semibold text-[#00B7FF]">PLACES — LIVE QUERY.</span>{' '}
+                  {poiQuery.message}
+                  {poiQuery.fetchedAt !== null && (
+                    <>
+                      {' '}
+                      SOURCE: OPENSTREETMAP (NOMINATIM) · FETCHED{' '}
+                      {new Date(poiQuery.fetchedAt).toLocaleTimeString('en-US', { hour12: false })}
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={queryPlaces}
+                    disabled={poiQuery.state === 'loading'}
+                    className="ml-2 font-semibold text-white underline decoration-[#00B7FF] underline-offset-2 disabled:opacity-50"
+                  >
+                    {poiQuery.state === 'loading' ? 'QUERYING…' : 'QUERY PLACES NEAR CENTRE'}
+                  </button>
                 </div>
               )}
               {/* Live transit: an explicit query (never a poll) places
@@ -1099,7 +1293,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   : 'OFF — turn on NIGHT in MAP VIEW'}
               </div>
               <div>
-                MARKERS PLACED: {(transitOn ? transitStops.length : 0) + (placeMarker ? 1 : 0)}
+                MARKERS PLACED: {(transitOn ? transitStops.length : 0) + (viewSel.places ? poiMarkers.length : 0) + (placeMarker ? 1 : 0)}
                 {transitOn && transitStops.length > 0
                   ? ' — Transitland stops (sourced locations)'
                   : ' — no verified locations'}
@@ -1217,8 +1411,43 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               <p className="font-mono text-[10px] text-[#B8B8B8]">
                 FOCUS: <span className="text-white">{focusPoint.label}</span> ·{' '}
                 {focusPoint.lat.toFixed(5)}, {focusPoint.lon.toFixed(5)} · SOURCE:{' '}
-                {selectedStop ? 'TRANSITLAND' : 'GEOCODING PROVIDER'}
+                {selectedStop ? 'TRANSITLAND' : selectedPoi ? 'OPENSTREETMAP (NOMINATIM)' : 'GEOCODING PROVIDER'}
               </p>
+              {selectedPoi && (
+                <div>
+                  <div className="font-mono text-[10px] text-white">BUSINESS — OVERVIEW</div>
+                  <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    KIND: <span className="text-white">{selectedPoi.kind}</span>
+                    {selectedPoi.road && (
+                      <>
+                        {' '}· ADDRESS: <span className="text-white">{selectedPoi.road}</span>
+                      </>
+                    )}
+                    {selectedPoi.suburb && (
+                      <>
+                        {', '}
+                        <span className="text-white">{selectedPoi.suburb}</span>
+                      </>
+                    )}
+                    {selectedPoi.postcode && (
+                      <>
+                        {' '}
+                        <span className="text-white">{selectedPoi.postcode}</span>
+                      </>
+                    )}
+                    {selectedPoi.city && (
+                      <>
+                        {', '}
+                        <span className="text-white">{selectedPoi.city}</span>
+                      </>
+                    )}
+                  </p>
+                  <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    Products, orders and deliveries are not in OpenStreetMap — they arrive with a
+                    business integration, not a map query.
+                  </p>
+                </div>
+              )}
               <div>
                 <div className="font-mono text-[10px] text-white">NEARBY NODES — WITHIN 1 KM</div>
                 {transitStops.length === 0 ? (
