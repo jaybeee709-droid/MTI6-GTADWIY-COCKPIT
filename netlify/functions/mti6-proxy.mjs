@@ -136,6 +136,20 @@ const CALTRANS_CCTV_BASE = "https://caltrans-gis.dot.ca.gov/arcgis/rest/services
 const MAX_CALTRANS_CAMERAS = 200;
 const MARYLAND_CHART_BASE = "https://chartimap1.sha.maryland.gov/arcgis/rest/services/CHART/Cameras/MapServer/0/query";
 const MAX_MARYLAND_CAMERAS = 200;
+// v237 — Louisiana 511 (Baton Rouge city + St. George city
+// ArcGIS views of the same 511LA feed; both send no CORS
+// header, so both go through the proxy and merge server-side).
+const LOUISIANA_BR_BASE = "https://maps.brla.gov/gis/rest/services/Transportation/Traffic_Camera/MapServer/0/query";
+const LOUISIANA_SG_BASE = "https://gis.stgeorgela.gov/server/rest/services/Traffic_Cameras/FeatureServer/0/query";
+const MAX_LOUISIANA_CAMERAS = 200;
+// v237 — Utah UDOT (IBI 511 platform). The keyless
+// GetUserCameras endpoint answers JSON but only after a
+// session cookie is set by the homepage — the proxy does
+// the two-step server-side. It returns a fixed set of 10
+// featured cameras, not the statewide list (that needs the
+// free UDOT developer key — see KEYS-NEEDED-2026-11-25.md).
+const UDOT_HOME_URL = "https://www.udottraffic.utah.gov";
+const UDOT_CAMERAS_URL = "https://www.udottraffic.utah.gov/Camera/GetUserCameras";
 const MAX_BBOX_SPAN_DEG = 12;
 const MAX_FLIGHT_DIST_NM = 100;
 const MAX_FLIGHTS = 40;
@@ -1100,6 +1114,165 @@ async function handleCamerasMaryland(payload) {
   return envelope(true, "maryland", { cameras }, null, 200);
 }
 
+// Louisiana cameras: cameras.louisiana (Baton Rouge + St.
+// George ArcGIS views of the 511LA feed) — same bbox
+// discipline as Maryland. Both services send no CORS header,
+// so the proxy queries both and merges the results. The
+// image URL is the 511LA Cctv page URL (an image, like
+// Ontario's). Only cameras with an image URL are returned.
+function louisianaFail(code, message, status) {
+  return envelope(false, "louisiana", null, { code, message }, status);
+}
+
+function validateLouisianaBbox(payload) {
+  if (!isPlainObject(payload)) {
+    return { error: louisianaFail("INVALID_REQUEST", "cameras.louisiana payload must be an object.", 400) };
+  }
+  const bad = unknownKey(payload, new Set(["minLon", "minLat", "maxLon", "maxLat"]));
+  if (bad) {
+    return { error: louisianaFail("INVALID_REQUEST", "Unknown parameter \"" + bad + "\" for cameras.louisiana.", 400) };
+  }
+  const nums = ["minLon", "minLat", "maxLon", "maxLat"].map((k) => payload[k]);
+  if (nums.some((v) => !isFiniteNumber(v))) {
+    return { error: louisianaFail("INVALID_REQUEST", "minLon, minLat, maxLon and maxLat must all be numbers.", 400) };
+  }
+  const [minLon, minLat, maxLon, maxLat] = nums;
+  if (minLon < -180 || maxLon > 180 || minLat < -90 || maxLat > 90 || minLon >= maxLon || minLat >= maxLat) {
+    return { error: louisianaFail("INVALID_REQUEST", "The bounding box must be a valid lon/lat range.", 400) };
+  }
+  if (maxLon - minLon > MAX_BBOX_SPAN_DEG || maxLat - minLat > MAX_BBOX_SPAN_DEG) {
+    return { error: louisianaFail("INVALID_REQUEST", "The bounding box span must be at most 12 degrees per side.", 400) };
+  }
+  return { minLon, minLat, maxLon, maxLat };
+}
+
+async function handleCamerasLouisiana(payload) {
+  const validated = validateLouisianaBbox(payload);
+  if (validated.error) return validated.error;
+  const params = new URLSearchParams({
+    where: "1=1",
+    outFields: "ID,IMAGE_VIEW",
+    f: "json",
+    returnGeometry: "true",
+    resultRecordCount: String(MAX_LOUISIANA_CAMERAS),
+    geometry: validated.minLon + "," + validated.minLat + "," + validated.maxLon + "," + validated.maxLat,
+    geometryType: "esriGeometryEnvelope",
+    spatialRel: "esriSpatialRelIntersects",
+    inSR: "4326"
+  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  let results;
+  try {
+    results = await Promise.allSettled([
+      fetch(LOUISIANA_BR_BASE + "?" + params.toString(), { signal: controller.signal, headers: { Accept: "application/json" } }),
+      fetch(LOUISIANA_SG_BASE + "?" + params.toString(), { signal: controller.signal, headers: { Accept: "application/json" } })
+    ]);
+  } catch {
+    return louisianaFail("UPSTREAM_ERROR", "Louisiana 511 could not be reached.", 502);
+  } finally {
+    clearTimeout(timer);
+  }
+  const cameras = [];
+  const sources = [
+    { result: results[0], prefix: "br", namePrefix: "BATON ROUGE CAMERA" },
+    { result: results[1], prefix: "sg", namePrefix: "ST. GEORGE CAMERA" }
+  ];
+  for (const src of sources) {
+    if (src.result.status !== "fulfilled") continue;
+    const res = src.result.value;
+    let data = null;
+    try { data = await res.json(); } catch { data = null; }
+    if (!res.ok || data === null || typeof data !== "object" || !Array.isArray(data.features)) continue;
+    for (const f of data.features) {
+      if (!f || typeof f !== "object") continue;
+      const a = f.attributes && typeof f.attributes === "object" ? f.attributes : null;
+      if (!a) continue;
+      const id = typeof a.ID === "number" ? a.ID : null;
+      const imageUrl = typeof a.IMAGE_VIEW === "string" && a.IMAGE_VIEW.length > 0 ? a.IMAGE_VIEW : null;
+      const lat = f.geometry && typeof f.geometry.y === "number" && Number.isFinite(f.geometry.y) ? f.geometry.y : null;
+      const lon = f.geometry && typeof f.geometry.x === "number" && Number.isFinite(f.geometry.x) ? f.geometry.x : null;
+      if (id === null || !imageUrl || lat === null || lon === null) continue;
+      cameras.push({ id: src.prefix + "-" + id, name: src.namePrefix + " " + id, lat, lon, area: "LOUISIANA", imageUrl });
+      if (cameras.length >= MAX_LOUISIANA_CAMERAS) break;
+    }
+    if (cameras.length >= MAX_LOUISIANA_CAMERAS) break;
+  }
+  if (results.every((r) => r.status === "rejected")) {
+    return louisianaFail("UPSTREAM_ERROR", "Louisiana 511 could not be reached.", 502);
+  }
+  return envelope(true, "louisiana", { cameras }, null, 200);
+}
+
+// Utah cameras: cameras.utah (UDOT IBI GetUserCameras) —
+// two-step: GET the homepage to set the session cookie,
+// then GET the JSON listing with that cookie. The listing
+// returns a fixed set of 10 featured cameras. Payload must
+// be an object with no keys (no bbox — the endpoint ignores
+// one). The client filters by distance as usual.
+function utahFail(code, message, status) {
+  return envelope(false, "utah", null, { code, message }, status);
+}
+
+async function handleCamerasUtah(payload) {
+  if (!isPlainObject(payload)) {
+    return utahFail("INVALID_REQUEST", "cameras.utah payload must be an object.", 400);
+  }
+  const bad = unknownKey(payload, new Set([]));
+  if (bad) {
+    return utahFail("INVALID_REQUEST", "Unknown parameter \"" + bad + "\" for cameras.utah.", 400);
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  let cookie = "";
+  try {
+    const home = await fetch(UDOT_HOME_URL, { signal: controller.signal, headers: { Accept: "text/html" } });
+    if (typeof home.headers.getSetCookie === "function") {
+      cookie = home.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+    } else {
+      const single = home.headers.get("set-cookie");
+      if (single) cookie = single.split(";")[0];
+    }
+    if (!home.ok) {
+      return utahFail("UPSTREAM_ERROR", "UDOT Traffic could not be reached.", 502);
+    }
+  } catch {
+    return utahFail("UPSTREAM_ERROR", "UDOT Traffic could not be reached.", 502);
+  }
+  let res;
+  try {
+    res = await fetch(UDOT_CAMERAS_URL, {
+      signal: controller.signal,
+      headers: { Accept: "application/json", ...(cookie ? { Cookie: cookie } : {}) }
+    });
+  } catch {
+    return utahFail("UPSTREAM_ERROR", "UDOT cameras could not be reached.", 502);
+  } finally {
+    clearTimeout(timer);
+  }
+  let data = null;
+  try { data = await res.json(); } catch { data = null; }
+  if (!res.ok || data === null || typeof data !== "object" || !Array.isArray(data.data)) {
+    return utahFail("UPSTREAM_ERROR", "UDOT cameras returned an unexpected response.", 502);
+  }
+  const cameras = [];
+  for (const c of data.data) {
+    if (!c || typeof c !== "object") continue;
+    const id = typeof c.id === "number" ? c.id : null;
+    const name = typeof c.location === "string" && c.location.length > 0 ? c.location : (typeof c.roadway === "string" ? c.roadway : null);
+    const wkt = c.latLng && c.latLng.geography && typeof c.latLng.geography.wellKnownText === "string" ? c.latLng.geography.wellKnownText : null;
+    const m = wkt ? wkt.match(/POINT\s*\(\s*(-?[\d.]+)\s+(-?[\d.]+)\s*\)/) : null;
+    const lon = m ? Number(m[1]) : null;
+    const lat = m ? Number(m[2]) : null;
+    const images = Array.isArray(c.images) ? c.images : [];
+    const first = images.length > 0 && images[0] && typeof images[0] === "object" ? images[0] : null;
+    const imagePath = first && typeof first.imageUrl === "string" && first.imageUrl.length > 0 && !first.disabled && !first.blocked ? first.imageUrl : null;
+    if (id === null || !name || lat === null || lon === null || !Number.isFinite(lat) || !Number.isFinite(lon) || !imagePath) continue;
+    cameras.push({ id, name, lat, lon, area: "UTAH", imageUrl: UDOT_HOME_URL + imagePath });
+  }
+  return envelope(true, "utah", { cameras }, null, 200);
+}
+
 export default async (req) => {
   if (req.method !== "POST") {
     return fail("METHOD_NOT_ALLOWED", "POST required.", 405);
@@ -1137,8 +1310,8 @@ export default async (req) => {
     case "gateway.status": {
       const star = readStarConfig();
       return envelope(true, "gateway", {
-        providers: ["transitland", "star", "coingecko", "geoapify", "locationiq", "adsb.lol", "nycdot", "gdacs", "caltrans", "maryland"],
-        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures", "star.chat", "market.prices", "geo.geocode", "flights.nearby", "cameras.nyc", "disasters.gdacs", "cameras.california", "cameras.maryland"],
+        providers: ["transitland", "star", "coingecko", "geoapify", "locationiq", "adsb.lol", "nycdot", "gdacs", "caltrans", "maryland", "louisiana", "utah"],
+        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures", "star.chat", "market.prices", "geo.geocode", "flights.nearby", "cameras.nyc", "disasters.gdacs", "cameras.california", "cameras.maryland", "cameras.louisiana", "cameras.utah"],
         providersConfigured: {
           transitland: readTransitlandKey() !== null,
           star: star.configured,
@@ -1149,7 +1322,9 @@ export default async (req) => {
           nycdot: true,
           gdacs: true,
           caltrans: true,
-          maryland: true
+          maryland: true,
+          louisiana: true,
+          utah: true
         },
         star: { configured: star.configured, model: star.configured ? star.model : null },
         note: "Providers sit behind the proxy as Capability Router providers; configured means the server's Netlify variable exists (presence only, never a value). CoinGecko also answers keyless at public limits. STAR chat is available when star.configured is true; otherwise STAR remains in demo mode."
@@ -1193,6 +1368,14 @@ export default async (req) => {
     case "cameras.maryland": {
       const payload = body.payload === undefined ? {} : body.payload;
       return handleCamerasMaryland(payload);
+    }
+    case "cameras.louisiana": {
+      const payload = body.payload === undefined ? {} : body.payload;
+      return handleCamerasLouisiana(payload);
+    }
+    case "cameras.utah": {
+      const payload = body.payload === undefined ? {} : body.payload;
+      return handleCamerasUtah(payload);
     }
     default:
       return fail("UNSUPPORTED_ACTION", "That MTI6 action is not enabled.", 400);

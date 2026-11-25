@@ -176,11 +176,11 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // (Coverage = every layer's data state at once). Persisted —
   // the choice survives reloads.
   type MapLens = 'world' | 'crypto' | 'earnings' | 'security' | 'transit' | 'coverage';
-  const readViewSel = (): { base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean; cameras: boolean; quakes: boolean; disasters: boolean; timeTravel: boolean; cinematic: boolean; simTime: number | null } => {
+  const readViewSel = (): { base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean; cameras: boolean; quakes: boolean; disasters: boolean; streams: boolean; timeTravel: boolean; cinematic: boolean; simTime: number | null } => {
     try {
       const raw = localStorage.getItem(MAP_VIEW_SEL_KEY);
-      if (!raw) return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false, cameras: false, quakes: false, disasters: false, timeTravel: false, cinematic: false, simTime: null };
-      const parsed = JSON.parse(raw) as Partial<{ base: string; terrain: string; lens: string; night: unknown; places: unknown; flights: unknown; weather: unknown; cameras: unknown; quakes: unknown; disasters: unknown; timeTravel: unknown; cinematic: unknown; simTime: unknown }>;
+      if (!raw) return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false, cameras: false, quakes: false, disasters: false, streams: false, timeTravel: false, cinematic: false, simTime: null };
+      const parsed = JSON.parse(raw) as Partial<{ base: string; terrain: string; lens: string; night: unknown; places: unknown; flights: unknown; weather: unknown; cameras: unknown; quakes: unknown; disasters: unknown; streams: unknown; timeTravel: unknown; cinematic: unknown; simTime: unknown }>;
       return {
         base: parsed.base === 'satellite' || parsed.base === 'floor' ? (parsed.base as MapBaseStyle) : 'streets',
         terrain: parsed.terrain === 'hillshade' ? 'hillshade' : 'off',
@@ -201,6 +201,8 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
         quakes: parsed.quakes === true,
         // v234 — disasters, off by default.
         disasters: parsed.disasters === true,
+        // v237 — social live streams (YouTube), off by default.
+        streams: parsed.streams === true,
         // v228 — time travel + cinematic, off by default; a
         // persisted simulated time survives reloads.
         timeTravel: parsed.timeTravel === true,
@@ -208,11 +210,11 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
         simTime: typeof parsed.simTime === 'number' && Number.isFinite(parsed.simTime) ? parsed.simTime : null,
       };
     } catch {
-      return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false, cameras: false, quakes: false, disasters: false, timeTravel: false, cinematic: false, simTime: null };
+      return { base: 'streets', terrain: 'off', lens: 'world', night: true, places: false, flights: false, weather: false, cameras: false, quakes: false, disasters: false, streams: false, timeTravel: false, cinematic: false, simTime: null };
     }
   };
   const [viewSel, setViewSelState] = useState(readViewSel);
-  const setViewSel = (next: Partial<{ base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean; cameras: boolean; quakes: boolean; disasters: boolean; timeTravel: boolean; cinematic: boolean; simTime: number | null }>) => {
+  const setViewSel = (next: Partial<{ base: MapBaseStyle; terrain: MapTerrainMode; lens: MapLens; night: boolean; places: boolean; flights: boolean; weather: boolean; cameras: boolean; quakes: boolean; disasters: boolean; streams: boolean; timeTravel: boolean; cinematic: boolean; simTime: number | null }>) => {
     setViewSelState((prev) => {
       const merged = { ...prev, ...next };
       try {
@@ -403,7 +405,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     lon: number;
     area: string | null;
     imageUrl: string;
-    source: 'NYCDOT' | 'CALTRANS' | 'GDOT' | 'TFL' | 'FL511' | 'KYTC' | 'OR-TRIPCHECK' | 'IADOT' | 'IDOT' | 'WSDOT-ARC' | 'MODOT' | 'MD-CHART' | 'ATD' | 'MCTX' | 'MTO' | 'NZTA';
+    source: 'NYCDOT' | 'CALTRANS' | 'GDOT' | 'TFL' | 'FL511' | 'KYTC' | 'OR-TRIPCHECK' | 'IADOT' | 'IDOT' | 'WSDOT-ARC' | 'MODOT' | 'MD-CHART' | 'ATD' | 'MCTX' | 'MTO' | 'NZTA' | 'TXDOT' | 'CDOT' | 'HI-DOT' | 'LA-511' | 'UT-IBI' | 'CARS-MN' | 'CARS-IN' | 'CARS-KS' | 'CARS-MA' | 'CARS-NE';
     detail: string | null;
     // When set, the snapshot block shows a link with this label
     // instead of an inline image — used for video feeds
@@ -432,6 +434,40 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     message: string;
     fetchedAt: number | null;
   }>({ state: 'idle', message: 'NOT QUERIED — NYCDOT is ready; nothing has been polled.', fetchedAt: null });
+  // v237 — social live streams: public YouTube live streams
+  // of places (EarthCam and other channels), curated from a
+  // public directory that re-checked them live on Nov 12,
+  // 2026, and re-verified live + embeddable from the shell on
+  // Nov 25, 2026 (all 12: isLive true, playableInEmbed true).
+  // A stream can go offline at any time — the player shows
+  // the current state, and the UI never claims otherwise.
+  // These are NOT traffic cameras: they are social live video
+  // of public places, shown with the official YouTube player.
+  interface LiveStreamRecord {
+    id: string;
+    title: string;
+    place: string;
+    channel: string;
+    lat: number;
+    lon: number;
+    videoId: string;
+  }
+  const LIVE_STREAMS: LiveStreamRecord[] = [
+    { id: 'stream-times-square', title: 'Times Square (North View)', place: 'New York, USA', channel: 'EarthCam', lat: 40.758, lon: -73.9855, videoId: 'ZxCeWQ3Lcig' },
+    { id: 'stream-statue-liberty', title: 'Statue of Liberty', place: 'New York, USA', channel: 'EarthCam', lat: 40.6892, lon: -74.0445, videoId: 'o5Ie_LpZ9uk' },
+    { id: 'stream-brooklyn-bridge', title: 'Brooklyn Bridge', place: 'New York, USA', channel: 'EarthCam', lat: 40.7061, lon: -73.9969, videoId: 'tErYxn2UM5Y' },
+    { id: 'stream-washington-monument', title: 'Washington Monument', place: 'Washington, D.C., USA', channel: 'EarthCam', lat: 38.8895, lon: -77.0353, videoId: 'mG2gAWY_Guw' },
+    { id: 'stream-abbey-road', title: 'Abbey Road Crossing', place: 'London, UK', channel: 'EarthCam', lat: 51.5321, lon: -0.1773, videoId: 'zMCea32gpmg' },
+    { id: 'stream-siena', title: 'Siena Piazza del Campo', place: 'Siena, Italy', channel: 'Paesaggi Digitali', lat: 43.3184, lon: 11.3317, videoId: 'd6IstgeKiiU' },
+    { id: 'stream-fuji', title: 'Mount Fuji 4K Live Camera', place: 'Kawaguchiko, Japan', channel: 'Fujiyama Navi', lat: 35.501, lon: 138.7536, videoId: 'Sv9hcJ3k5h4' },
+    { id: 'stream-shinjuku', title: 'Tokyo Shinjuku Crossing', place: 'Tokyo, Japan', channel: 'Tokyo Views LIVE', lat: 35.6938, lon: 139.7034, videoId: '6dp-bvQ7RWo' },
+    { id: 'stream-dam-square', title: 'Amsterdam Dam Square', place: 'Amsterdam, Netherlands', channel: 'Now4Rent', lat: 52.3731, lon: 4.8931, videoId: 'Gd9d4q6WvUY' },
+    { id: 'stream-elephant-pan', title: 'Elephant Pan Waterhole', place: 'Northern Botswana', channel: 'Africam', lat: -19.9857, lon: 23.4254, videoId: 'QJe1tGI1EZc' },
+    { id: 'stream-table-mountain', title: 'Table Mountain & Bloubergstrand', place: 'Cape Town, South Africa', channel: 'Table Mountain Live', lat: -33.807, lon: 18.464, videoId: 'vOLCjL4kv-w' },
+    { id: 'stream-midway', title: 'Midway Airport', place: 'Chicago, USA', channel: 'EarthCam', lat: 41.7868, lon: -87.7522, videoId: 'EiUyBIcG4fQ' },
+  ];
+  const streamMarkers: MapMarker[] = LIVE_STREAMS.map((s) => ({ id: s.id, lat: s.lat, lon: s.lon, label: `STREAM — ${s.title}`, color: '#00B7FF' }));
+  const [selectedStream, setSelectedStream] = useState<LiveStreamRecord | null>(null);
   const [quakeMarkers, setQuakeMarkers] = useState<MapMarker[]>([]);
   const [quakeRecords, setQuakeRecords] = useState<Record<string, QuakeRecord>>({});
   const [selectedQuake, setSelectedQuake] = useState<QuakeRecord | null>(null);
@@ -520,7 +556,10 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // the map draws a link line from the focus to each one. Alerts
   // match only when an alert's recorded area names this place —
   // area is null unless the owner sets it at intake.
-  const focusPoint = selectedStop ?? selectedPoi ?? selectedFlight ?? selectedCamera ?? selectedQuake ?? selectedDisaster ?? tappedPoint ?? placeMarker;
+  const streamFocus: MapMarker | null = selectedStream
+    ? { id: selectedStream.id, lat: selectedStream.lat, lon: selectedStream.lon, label: `STREAM — ${selectedStream.title}`, color: '#00B7FF' }
+    : null;
+  const focusPoint = selectedStop ?? selectedPoi ?? selectedFlight ?? selectedCamera ?? selectedQuake ?? selectedDisaster ?? streamFocus ?? tappedPoint ?? placeMarker;
   const nearbyStops = useMemo(() => {
     if (!focusPoint) return [];
     return transitStops
@@ -1052,22 +1091,40 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // fetcher needs). All of them are direct ArcGIS queries
   // (ACAO *) except Maryland CHART, which sends no CORS header
   // and goes through the proxy (cameras.maryland). 511NY needs
-  // a free developer key and is NOT wired; Texas statewide
-  // needs a MapLarge request shape + a terms review and is NOT
-  // wired (Austin + Montgomery County TX are in, city-level);
-  // Hawaii's ArcGIS service requires a token and is NOT wired;
-  // Utah + DC publish camera inventories with no viewable feed;
-  // the New Orleans list is enforcement cameras, not CCTV; the
-  // German Autobahn webcam API answers 200 but returns zero
+  // a free developer key and is NOT wired (statewide NY);
+  // the New Orleans list is enforcement cameras, not CCTV;
+  // the German Autobahn webcam API answers 200 but returns zero
   // webcams. The IBI 511 mapIcons route (az511 + fl511) returns
   // 000 from this host and is NOT used — Florida is covered by
   // the FL511 ArcGIS layer. Cameras are filtered to 50 km of
   // the centre and capped at 40 nearest. Snapshots are still
   // images, never video — except Maryland + Missouri, which
   // serve video links.
+  // v237 — the registry grows again, by the same targeted
+  // portal searches (one per unwired state) plus two new
+  // platforms found while scraping the web for keyless feeds:
+  // TxDOT statewide (the service's url field is a Windy CDN
+  // image — note the attributes' latitude/longitude are
+  // SWAPPED, so the fetcher uses geometry x/y only), CDOT
+  // Colorado (still images over plain HTTP — new-tab links),
+  // Hawaii DOT (a second, public service — the token-gated
+  // one is not used), Louisiana 511 (Baton Rouge + St. George
+  // ArcGIS views, no CORS — proxy cameras.louisiana merges
+  // both), Utah UDOT (IBI GetUserCameras, cookie-gated —
+  // proxy cameras.utah does the two-step; it returns a fixed
+  // set of 10 featured cameras, not the statewide list), and
+  // the Castle Rock CARS platform (keyless JSON, bounds
+  // filter): Minnesota, Indiana, Kansas, Massachusetts,
+  // Nebraska. CARS Iowa is NOT wired — it is the same cameras
+  // as the IADOT ArcGIS layer. Pennsylvania's ArcGIS service
+  // 400s "Invalid URL" and its IBI endpoint returns 000;
+  // Arizona + Wisconsin IBI also return 000 from this host;
+  // DC's layers are inventories with no feed. Those states
+  // need free Travel-IQ / 511NY keys — see
+  // KEYS-NEEDED-2026-11-25.md.
   const CAMERA_MAX_DIST_M = 50000;
   const MAX_CAMERA_MARKERS = 40;
-  const CAMERA_SOURCES: { id: 'nycdot' | 'caltrans' | 'gdot' | 'tfl' | 'fl511' | 'kytc' | 'ortrip' | 'iadot' | 'idot' | 'wsdotarc' | 'modot' | 'mdchart' | 'atd' | 'mctx' | 'mto' | 'nzta'; label: string; bbox: [number, number, number, number] }[] = [
+  const CAMERA_SOURCES: { id: 'nycdot' | 'caltrans' | 'gdot' | 'tfl' | 'fl511' | 'kytc' | 'ortrip' | 'iadot' | 'idot' | 'wsdotarc' | 'modot' | 'mdchart' | 'atd' | 'mctx' | 'mto' | 'nzta' | 'txdot' | 'cdot' | 'hidot' | 'la511' | 'utibi' | 'carsmn' | 'carsin' | 'carsks' | 'carsma' | 'carsne'; label: string; bbox: [number, number, number, number] }[] = [
     { id: 'nycdot', label: 'NYCDOT', bbox: [-74.35, 40.45, -73.65, 40.95] },
     { id: 'caltrans', label: 'CALTRANS', bbox: [-124.5, 32.5, -114.0, 42.0] },
     { id: 'gdot', label: 'GDOT', bbox: [-85.6, 30.3, -80.8, 35.0] },
@@ -1084,9 +1141,19 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     { id: 'mctx', label: 'MCTX', bbox: [-95.8, 30.0, -95.2, 30.5] },
     { id: 'mto', label: 'MTO', bbox: [-95.2, 41.7, -74.3, 56.9] },
     { id: 'nzta', label: 'NZTA', bbox: [166.0, -47.5, 178.6, -34.4] },
+    { id: 'txdot', label: 'TXDOT', bbox: [-106.6, 25.8, -93.5, 36.6] },
+    { id: 'cdot', label: 'CDOT', bbox: [-109.1, 36.9, -102.0, 41.0] },
+    { id: 'hidot', label: 'HI-DOT', bbox: [-160.3, 18.9, -154.8, 22.3] },
+    { id: 'la511', label: 'LA-511', bbox: [-91.4, 30.2, -90.8, 30.7] },
+    { id: 'utibi', label: 'UT-IBI', bbox: [-114.1, 36.9, -109.0, 42.0] },
+    { id: 'carsmn', label: 'CARS-MN', bbox: [-97.3, 43.4, -89.4, 49.1] },
+    { id: 'carsin', label: 'CARS-IN', bbox: [-88.1, 37.7, -84.8, 41.8] },
+    { id: 'carsks', label: 'CARS-KS', bbox: [-102.1, 36.9, -94.6, 40.0] },
+    { id: 'carsma', label: 'CARS-MA', bbox: [-73.5, 41.2, -69.9, 42.9] },
+    { id: 'carsne', label: 'CARS-NE', bbox: [-104.1, 39.9, -95.3, 43.0] },
   ];
   const CAMERA_COVERAGE_LINE =
-    'NEW YORK CITY + CALIFORNIA + GEORGIA + FLORIDA + KENTUCKY + OREGON + IOWA + ILLINOIS + WASHINGTON + MISSOURI + MARYLAND + TEXAS (AUSTIN + MONTGOMERY CO) + LONDON + ONTARIO + NEW ZEALAND';
+    'NEW YORK CITY + CALIFORNIA + GEORGIA + FLORIDA + KENTUCKY + OREGON + IOWA + ILLINOIS + WASHINGTON + MISSOURI + MARYLAND + TEXAS (STATEWIDE) + COLORADO + HAWAII + LOUISIANA (BATON ROUGE) + UTAH (10 FEATURED) + MINNESOTA + INDIANA + KANSAS + MASSACHUSETTS + NEBRASKA + LONDON + ONTARIO + NEW ZEALAND';
   const queryCameras = async () => {
     if (typeof fetch !== 'function') {
       setCameraQuery({ state: 'error', message: 'NO FETCH IN THIS ENVIRONMENT.', fetchedAt: null });
@@ -1655,6 +1722,191 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
           return { id: `cam-nz-${id}`, label, lat: la, lon: lo, area: 'New Zealand', imageUrl, source: 'NZTA', detail: [str(a.direction), str(a.region)].filter((x) => x !== null).join(' · ') || null, openLabel: null };
         },
       );
+    // v237 — Texas statewide (TxDOT). The service's url field
+    // is a Windy CDN image — but the attributes' latitude and
+    // longitude are SWAPPED, so only geometry x/y are used.
+    const fetchTxdot = async () =>
+      fetchArcGis(
+        'https://services7.arcgis.com/bF49JeI2xZRhCsD9/arcgis/rest/services/TxDoT_Cameras/FeatureServer/0/query',
+        "url <> '' AND status = 'Active'",
+        'OBJECTID,Camera_ID,Equipment_Name,url,roadway,status,city,county',
+        [-106.6, 25.8, -93.5, 36.6],
+        (a, lon, lat) => {
+          const id = typeof a.OBJECTID === 'number' ? a.OBJECTID : null;
+          const imageUrl = str(a.url);
+          const label = str(a.Equipment_Name) ?? str(a.roadway);
+          if (id === null || !imageUrl || !label || lat === null || lon === null) return null;
+          return { id: `cam-tx-${id}`, label, lat, lon, area: str(a.county) ?? 'Texas', imageUrl, source: 'TXDOT', detail: [str(a.city), str(a.county)].filter((x) => x !== null).join(' · ') || 'TEXAS STATEWIDE', openLabel: null };
+        },
+      );
+    // v237 — Colorado (CDOT). Still images only; the image
+    // URLs are plain HTTP, so they open in a new tab.
+    const fetchCdot = async () =>
+      fetchArcGis(
+        'https://services.arcgis.com/DO4gTjwJVIJ7O9Ca/arcgis/rest/services/CDOT_Traffic_Cameras_V2/FeatureServer/0/query',
+        "CameraType = 'Still'",
+        'CameraViewId,CameraId,CameraName,CameraType,URL_Cam,RoadName,Direction,Latitude,Longitude',
+        [-109.1, 36.9, -102.0, 41.0],
+        (a, lon, lat) => {
+          const id = typeof a.CameraViewId === 'number' ? a.CameraViewId : null;
+          const imageUrl = str(a.URL_Cam);
+          const label = str(a.CameraName);
+          const la = typeof a.Latitude === 'number' ? a.Latitude : lat;
+          const lo = typeof a.Longitude === 'number' ? a.Longitude : lon;
+          if (id === null || !imageUrl || !label || la === null || lo === null) return null;
+          return { id: `cam-co-${id}`, label, lat: la, lon: lo, area: 'Colorado', imageUrl, source: 'CDOT', detail: [str(a.RoadName), str(a.Direction)].filter((x) => x !== null).join(' · ') || null, openLabel: null };
+        },
+      );
+    // v237 — Hawaii (a second, public service — the first
+    // Honolulu service needs an ArcGIS token and is not used).
+    // Snapshots are plain HTTP Akamai images: new-tab links.
+    const fetchHidot = async () =>
+      fetchArcGis(
+        'https://services.arcgis.com/6I1ysurtNWNxkuwd/arcgis/rest/services/HawaiiTrafficCameras/FeatureServer/0/query',
+        '1=1',
+        'OBJECTID,URL,Camera_Description,camerastill',
+        [-160.3, 18.9, -154.8, 22.3],
+        (a, lon, lat) => {
+          const id = typeof a.OBJECTID === 'number' ? a.OBJECTID : null;
+          const imageUrl = str(a.URL);
+          const label = str(a.Camera_Description);
+          if (id === null || !imageUrl || !label || lat === null || lon === null) return null;
+          return { id: `cam-hi-${id}`, label, lat, lon, area: 'Hawaii', imageUrl, source: 'HI-DOT', detail: 'HAWAII', openLabel: null };
+        },
+      );
+    // v237 — shared proxy-camera reader for the two new
+    // proxy actions (Louisiana + Utah). The proxy returns
+    // { cameras: [{ id, name, lat, lon, area, imageUrl }] }.
+    const fetchProxyCameras = async (
+      action: string,
+      payload: Record<string, number>,
+      prefix: string,
+      source: CameraRecord['source'],
+      area: string,
+      detail: string | null,
+    ): Promise<{ rec: CameraRecord; dist: number }[]> => {
+      const res = await fetch('/api/mti6', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, payload }),
+      });
+      const env = (await res.json().catch(() => null)) as
+        | { ok?: boolean; data?: unknown; error?: { code?: string } }
+        | null;
+      if (!env || !env.ok) throw new Error(env?.error?.code ?? 'UPSTREAM_ERROR');
+      const data = env.data as { cameras?: unknown[] } | null;
+      const out: { rec: CameraRecord; dist: number }[] = [];
+      if (data && Array.isArray(data.cameras)) {
+        for (const raw of data.cameras) {
+          if (!raw || typeof raw !== 'object') continue;
+          const c = raw as Record<string, unknown>;
+          const lat = typeof c.lat === 'number' ? c.lat : null;
+          const lon = typeof c.lon === 'number' ? c.lon : null;
+          const id = typeof c.id === 'string' || typeof c.id === 'number' ? String(c.id) : null;
+          const name = typeof c.name === 'string' ? c.name : null;
+          const imageUrl = typeof c.imageUrl === 'string' ? c.imageUrl : null;
+          if (lat === null || lon === null || !id || !name || !imageUrl) continue;
+          const dist = haversineM(mapView.lat, mapView.lon, lat, lon);
+          if (dist > CAMERA_MAX_DIST_M) continue;
+          out.push({
+            rec: { id: `${prefix}-${id}`, label: name, lat, lon, area, imageUrl, source, detail, openLabel: null },
+            dist,
+          });
+        }
+      }
+      return out;
+    };
+    // v237 — Louisiana 511 (Baton Rouge + St. George, merged
+    // server-side by cameras.louisiana). The image URL is the
+    // 511LA Cctv page URL — an image, like Ontario's.
+    const fetchLa511 = async () => {
+      const box = {
+        minLon: Math.max(-91.4, mapView.lon - 0.6),
+        minLat: Math.max(30.2, mapView.lat - 0.45),
+        maxLon: Math.min(-90.8, mapView.lon + 0.6),
+        maxLat: Math.min(30.7, mapView.lat + 0.45),
+      };
+      return fetchProxyCameras('cameras.louisiana', box, 'cam-la', 'LA-511', 'Louisiana', 'BATON ROUGE + ST. GEORGE');
+    };
+    // v237 — Utah UDOT (IBI, via proxy cameras.utah). The
+    // listing returns a fixed set of 10 featured cameras — the
+    // card says so honestly; the full statewide list needs the
+    // free UDOT developer key.
+    const fetchUtibi = async () =>
+      fetchProxyCameras('cameras.utah', {}, 'cam-ut', 'UT-IBI', 'Utah', 'FEATURED — 10 CAMERAS ONLY');
+    // v237 — Castle Rock CARS platform (keyless JSON, server-side
+    // bounds filter). One fetcher, five states. The static preview
+    // URL (public.carsprogram.org) is a JPEG; the HLS url field
+    // is the live video and is NOT used inline.
+    const fetchCars = async (
+      base: string,
+      prefix: string,
+      source: CameraRecord['source'],
+      area: string,
+      bbox: [number, number, number, number],
+    ): Promise<{ rec: CameraRecord; dist: number }[]> => {
+      const box = {
+        minLon: Math.max(bbox[0], mapView.lon - 0.6),
+        minLat: Math.max(bbox[1], mapView.lat - 0.45),
+        maxLon: Math.min(bbox[2], mapView.lon + 0.6),
+        maxLat: Math.min(bbox[3], mapView.lat + 0.45),
+      };
+      const params = new URLSearchParams({
+        publicOnly: 'true',
+        bounds: `[${box.minLon},${box.minLat},${box.maxLon},${box.maxLat}]`,
+      });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      let res: Response;
+      try {
+        res = await fetch(`${base}?${params.toString()}`, { signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as unknown;
+      const out: { rec: CameraRecord; dist: number }[] = [];
+      if (Array.isArray(data)) {
+        for (const raw of data) {
+          if (!raw || typeof raw !== 'object') continue;
+          const c = raw as Record<string, unknown>;
+          if (c.public !== true) continue;
+          const id = typeof c.id === 'number' ? c.id : null;
+          const name = typeof c.name === 'string' ? c.name : null;
+          const loc = c.location && typeof c.location === 'object' ? (c.location as Record<string, unknown>) : null;
+          const lat = loc && typeof loc.latitude === 'number' ? loc.latitude : null;
+          const lon = loc && typeof loc.longitude === 'number' ? loc.longitude : null;
+          const views = Array.isArray(c.views) ? c.views : [];
+          const first = views.length > 0 && views[0] && typeof views[0] === 'object' ? (views[0] as Record<string, unknown>) : null;
+          const imageUrl = first && typeof first.videoPreviewUrl === 'string' ? first.videoPreviewUrl : null;
+          if (id === null || !name || lat === null || lon === null || !imageUrl) continue;
+          const dist = haversineM(mapView.lat, mapView.lon, lat, lon);
+          if (dist > CAMERA_MAX_DIST_M) continue;
+          const route = loc && typeof loc.routeId === 'string' ? loc.routeId : null;
+          const city = loc && typeof loc.cityReference === 'string' ? loc.cityReference : null;
+          out.push({
+            rec: {
+              id: `${prefix}-${id}`,
+              label: name,
+              lat,
+              lon,
+              area,
+              imageUrl,
+              source,
+              detail: [route, city].filter((x) => x !== null).join(' · ') || null,
+              openLabel: null,
+            },
+            dist,
+          });
+        }
+      }
+      return out;
+    };
+    const fetchCarsMn = async () => fetchCars('https://mntg.carsprogram.org/cameras_v1/api/cameras', 'cam-mn', 'CARS-MN', 'Minnesota', [-97.3, 43.4, -89.4, 49.1]);
+    const fetchCarsIn = async () => fetchCars('https://intg.carsprogram.org/cameras_v1/api/cameras', 'cam-in', 'CARS-IN', 'Indiana', [-88.1, 37.7, -84.8, 41.8]);
+    const fetchCarsKs = async () => fetchCars('https://kstg.carsprogram.org/cameras_v1/api/cameras', 'cam-ks', 'CARS-KS', 'Kansas', [-102.1, 36.9, -94.6, 40.0]);
+    const fetchCarsMa = async () => fetchCars('https://matg.carsprogram.org/cameras_v1/api/cameras', 'cam-ma', 'CARS-MA', 'Massachusetts', [-73.5, 41.2, -69.9, 42.9]);
+    const fetchCarsNe = async () => fetchCars('https://netg.carsprogram.org/cameras_v1/api/cameras', 'cam-ne', 'CARS-NE', 'Nebraska', [-104.1, 39.9, -95.3, 43.0]);
     const fetchFor = (s: (typeof CAMERA_SOURCES)[number]): Promise<{ rec: CameraRecord; dist: number }[]> => {
       switch (s.id) {
         case 'nycdot': return fetchNycdot();
@@ -1673,6 +1925,16 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
         case 'mctx': return fetchMctx();
         case 'mto': return fetchMto();
         case 'nzta': return fetchNzta();
+        case 'txdot': return fetchTxdot();
+        case 'cdot': return fetchCdot();
+        case 'hidot': return fetchHidot();
+        case 'la511': return fetchLa511();
+        case 'utibi': return fetchUtibi();
+        case 'carsmn': return fetchCarsMn();
+        case 'carsin': return fetchCarsIn();
+        case 'carsks': return fetchCarsKs();
+        case 'carsma': return fetchCarsMa();
+        case 'carsne': return fetchCarsNe();
       }
     };
     const results = await Promise.allSettled(covering.map((s) => fetchFor(s)));
@@ -2430,6 +2692,28 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 </button>
               ))}
             </span>
+            {/* v237 — social live streams: 12 curated public
+                YouTube live streams of places (EarthCam and
+                others), verified live + embeddable Nov 25, 2026.
+                Off by default; markers show when on. */}
+            <span className="flex items-center gap-1">
+              <span className="text-[#B8B8B8]">STREAMS</span>
+              {([true, false] as const).map((s) => (
+                <button
+                  key={String(s)}
+                  type="button"
+                  onClick={() => setViewSel({ streams: s })}
+                  aria-pressed={viewSel.streams === s}
+                  className={`h-9 px-2.5 rounded border transition ${
+                    viewSel.streams === s
+                      ? 'border-[#00B7FF] bg-[#00B7FF]/15 text-white'
+                      : 'border-white/15 text-[#B8B8B8] hover:border-white/40'
+                  }`}
+                >
+                  {s ? 'ON' : 'OFF'}
+                </button>
+              ))}
+            </span>
             {/* v228 — Time travel + cinematic (vision slice 5).
                 TIME opens the TIME TRAVEL card; CINEMATIC runs the
                 slow-drift camera and smooth fly-to. Both off by
@@ -2517,7 +2801,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               floorMode={floorMode}
               defaultMarkerColor={routeColor}
               markerPulse={markerPulse}
-              markers={[...(transitOn ? transitStops : []), ...(viewSel.places ? poiMarkers : []), ...(viewSel.flights ? flightMarkers : []), ...(viewSel.cameras ? cameraMarkers : []), ...(viewSel.quakes ? quakeMarkers : []), ...(viewSel.disasters ? disasterMarkers : []), ...(placeMarker ? [placeMarker] : []), ...(tappedPoint ? [tappedPoint] : [])]}
+              markers={[...(transitOn ? transitStops : []), ...(viewSel.places ? poiMarkers : []), ...(viewSel.flights ? flightMarkers : []), ...(viewSel.cameras ? cameraMarkers : []), ...(viewSel.quakes ? quakeMarkers : []), ...(viewSel.disasters ? disasterMarkers : []), ...(viewSel.streams ? streamMarkers : []), ...(placeMarker ? [placeMarker] : []), ...(tappedPoint ? [tappedPoint] : [])]}
               focusPoint={mapFocus}
               links={focusLinks}
               ringMarkerId={focusPoint?.id}
@@ -2537,6 +2821,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   setSelectedCamera(null);
                   setSelectedQuake(null);
                   setSelectedDisaster(null);
+                  setSelectedStream(null);
                   return;
                 }
                 if (m.id.startsWith('poi-')) {
@@ -2546,6 +2831,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   setSelectedCamera(null);
                   setSelectedQuake(null);
                   setSelectedDisaster(null);
+                  setSelectedStream(null);
                   setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                   setDeparturesDay('TODAY');
                   return;
@@ -2557,6 +2843,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   setSelectedCamera(null);
                   setSelectedQuake(null);
                   setSelectedDisaster(null);
+                  setSelectedStream(null);
                   setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                   setDeparturesDay('TODAY');
                   return;
@@ -2568,6 +2855,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   setSelectedCamera(cameraRecords[m.id] ?? null);
                   setSelectedQuake(null);
                   setSelectedDisaster(null);
+                  setSelectedStream(null);
                   setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                   setDeparturesDay('TODAY');
                   return;
@@ -2579,6 +2867,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   setSelectedCamera(null);
                   setSelectedQuake(quakeRecords[m.id] ?? null);
                   setSelectedDisaster(null);
+                  setSelectedStream(null);
                   setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                   setDeparturesDay('TODAY');
                   return;
@@ -2590,6 +2879,19 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   setSelectedCamera(null);
                   setSelectedQuake(null);
                   setSelectedDisaster(disasterRecords[m.id] ?? null);
+                  setSelectedStream(null);
+                  setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
+                  setDeparturesDay('TODAY');
+                  return;
+                }
+                if (m.id.startsWith('stream-')) {
+                  setSelectedStop(null);
+                  setSelectedPoi(null);
+                  setSelectedFlight(null);
+                  setSelectedCamera(null);
+                  setSelectedQuake(null);
+                  setSelectedDisaster(null);
+                  setSelectedStream(LIVE_STREAMS.find((x) => x.id === m.id) ?? null);
                   setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                   setDeparturesDay('TODAY');
                   return;
@@ -2600,6 +2902,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                 setSelectedCamera(null);
                 setSelectedQuake(null);
                 setSelectedDisaster(null);
+                  setSelectedStream(null);
                 setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
                 setDeparturesDay('TODAY');
               }}
@@ -2753,13 +3056,52 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   </button>
                   <div className="mt-1">
                     COVERAGE SO FAR: {CAMERA_COVERAGE_LINE}. SNAPSHOTS, NOT VIDEO — EXCEPT MARYLAND +
-                    MISSOURI, WHICH ARE VIDEO LINKS. GEORGIA + KENTUCKY + NEW ZEALAND SNAPSHOTS OPEN IN
-                    A NEW TAB — THOSE FEEDS SERVE IMAGES OVER PLAIN HTTP, WHICH A SECURE PAGE CANNOT
-                    SHOW INLINE. 511NY NEEDS A FREE DEVELOPER KEY AND IS NOT WIRED; WINDY WEBCAMS NEED
-                    A FREE API KEY AND ARE NOT WIRED. STILL HUNTING: TEXAS STATEWIDE · ARIZONA ·
-                    PENNSYLVANIA · COLORADO — THE SCOUTS ARE SCRAPING THE WEB FOR THEM. HAWAII NEEDS
-                    AN ARCGIS TOKEN; UTAH + DC HAVE CAMERA LISTS BUT NO VIEWABLE FEED; THE NEW ORLEANS
-                    LIST IS ENFORCEMENT CAMERAS, NOT CCTV.
+                    MISSOURI, WHICH ARE VIDEO LINKS. GEORGIA + KENTUCKY + NEW ZEALAND + COLORADO +
+                    HAWAII SNAPSHOTS OPEN IN A NEW TAB — THOSE FEEDS SERVE IMAGES OVER PLAIN HTTP,
+                    WHICH A SECURE PAGE CANNOT SHOW INLINE. UTAH IS 10 FEATURED CAMERAS ONLY — THE
+                    FULL STATEWIDE LIST NEEDS A FREE UDOT DEVELOPER KEY. 511NY NEEDS A FREE DEVELOPER
+                    KEY AND IS NOT WIRED; WINDY WEBCAMS NEED A FREE API KEY AND ARE NOT WIRED — SEE
+                    KEYS-NEEDED-2026-11-25 FOR THE FULL KEY LIST. STILL HUNTING: ARIZONA ·
+                    PENNSYLVANIA · WISCONSIN · NEW YORK (STATEWIDE) · ALASKA · IDAHO · CONNECTICUT ·
+                    NORTH CAROLINA — THOSE NEED FREE TRAVEL-IQ / 511NY KEYS. DC HAS CAMERA LISTS BUT
+                    NO VIEWABLE FEED; THE NEW ORLEANS LIST IS ENFORCEMENT CAMERAS, NOT CCTV.
+                  </div>
+                </div>
+              )}
+              {/* v237 — social live streams: 12 curated public
+                  YouTube live streams of places. Clicking one
+                  centres the map on it and opens the player in
+                  the Place Intelligence panel. */}
+              {viewSel.streams && (
+                <div className="pointer-events-auto self-start rounded border border-[#00B7FF]/50 bg-[#0b0b0b]/90 px-2.5 py-2 font-mono text-[11px] text-[#B8B8B8] 2xl:self-stretch">
+                  <span className="font-semibold text-[#00B7FF]">LIVE STREAMS — SOCIAL.</span>{' '}
+                  12 PUBLIC YOUTUBE LIVE STREAMS OF PLACES, CURATED FROM A PUBLIC DIRECTORY AND
+                  VERIFIED LIVE + EMBEDDABLE ON NOV 25, 2026. THESE ARE SOCIAL LIVE VIDEO, NOT
+                  TRAFFIC CAMERAS — THEY SHOW THE OFFICIAL YOUTUBE PLAYER. A STREAM CAN GO OFFLINE
+                  AT ANY TIME; THE PLAYER SHOWS THE CURRENT STATE.
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                    {LIVE_STREAMS.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedStream(s);
+                          setSelectedCamera(null);
+                          setSelectedQuake(null);
+                          setSelectedDisaster(null);
+                          setSelectedFlight(null);
+                          setSelectedPoi(null);
+                          setSelectedStop(null);
+                          setTappedPoint(null);
+                          setDepartures({ state: 'idle', message: '', rows: [], fetchedAt: null });
+                          setDeparturesDay('TODAY');
+                          setMapFocus((f) => ({ lon: s.lon, lat: s.lat, nonce: (f?.nonce ?? 0) + 1 }));
+                        }}
+                        className={`underline decoration-[#00B7FF] underline-offset-2 ${selectedStream?.id === s.id ? 'font-semibold text-white' : ''}`}
+                      >
+                        {s.title.toUpperCase()} ({s.place.toUpperCase()})
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}
@@ -3104,7 +3446,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   : 'OFF — turn on CINEMATIC in MAP VIEW'}
               </div>
               <div>
-                MARKERS PLACED: {(transitOn ? transitStops.length : 0) + (viewSel.places ? poiMarkers.length : 0) + (viewSel.flights ? flightMarkers.length : 0) + (viewSel.cameras ? cameraMarkers.length : 0) + (viewSel.quakes ? quakeMarkers.length : 0) + (viewSel.disasters ? disasterMarkers.length : 0) + (placeMarker ? 1 : 0)}
+                MARKERS PLACED: {(transitOn ? transitStops.length : 0) + (viewSel.places ? poiMarkers.length : 0) + (viewSel.flights ? flightMarkers.length : 0) + (viewSel.cameras ? cameraMarkers.length : 0) + (viewSel.quakes ? quakeMarkers.length : 0) + (viewSel.disasters ? disasterMarkers.length : 0) + (viewSel.streams ? streamMarkers.length : 0) + (placeMarker ? 1 : 0)}
                 {transitOn && transitStops.length > 0
                   ? ' — Transitland stops (sourced locations)'
                   : ' — no verified locations'}
@@ -3228,11 +3570,19 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                     ? 'OPENSTREETMAP (NOMINATIM)'
                     : selectedFlight
                       ? 'ADSB.LOL'
-                      : focusPoint === tappedPoint
-                        ? tapNamed
-                          ? 'NOMINATIM REVERSE'
-                          : 'COORDINATES — REVERSE LOOKUP FAILED'
-                        : 'GEOCODING PROVIDER'}
+                      : selectedCamera
+                        ? selectedCamera.source
+                        : selectedQuake
+                          ? 'USGS'
+                          : selectedDisaster
+                            ? selectedDisaster.source
+                            : selectedStream
+                              ? 'YOUTUBE (PUBLIC LIVE STREAM)'
+                              : focusPoint === tappedPoint
+                                ? tapNamed
+                                  ? 'NOMINATIM REVERSE'
+                                  : 'COORDINATES — REVERSE LOOKUP FAILED'
+                                : 'GEOCODING PROVIDER'}
               </p>
               {selectedPoi && (
                 <div>
@@ -3339,6 +3689,41 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                       </p>
                     </>
                   )}
+                </div>
+              )}
+              {/* v237 — social live stream: the official YouTube
+                  player for a public live stream of a place.
+                  These are social live video, not traffic
+                  cameras. A stream can go offline at any time —
+                  the player shows the current state. */}
+              {selectedStream && (
+                <div>
+                  <div className="font-mono text-[10px] text-white">STREAM — LIVE</div>
+                  <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    <span className="text-white">{selectedStream.title}</span>
+                    {' '}· <span className="text-white">{selectedStream.place}</span>
+                    {' '}· CHANNEL: <span className="text-white">{selectedStream.channel}</span>
+                  </p>
+                  <iframe
+                    key={selectedStream.videoId}
+                    src={`https://www.youtube-nocookie.com/embed/${selectedStream.videoId}?autoplay=1&mute=1&rel=0`}
+                    title={`Live stream — ${selectedStream.title}`}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                    className="mt-1 aspect-video w-full max-w-[320px] rounded border border-white/15"
+                  />
+                  <p className="mt-1 font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                    PUBLIC YOUTUBE LIVE STREAM — VERIFIED LIVE + EMBEDDABLE ON NOV 25, 2026. IF THE
+                    PLAYER SHOWS OFFLINE, THE STREAM ENDED.{' '}
+                    <a
+                      href={`https://www.youtube.com/watch?v=${selectedStream.videoId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-semibold text-white underline decoration-[#00B7FF] underline-offset-2"
+                    >
+                      OPEN ON YOUTUBE
+                    </a>
+                  </p>
                 </div>
               )}
               {selectedQuake && (
