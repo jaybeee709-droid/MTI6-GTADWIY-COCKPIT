@@ -66,6 +66,7 @@ import {
 } from '../positions';
 import { RISK_DIMENSIONS } from '../cost-risk-data';
 import { DevicesPanel } from './DevicesPanel';
+import { OwnerLockPanel } from './OwnerLockPanel';
 import {
   loadSimulations,
   saveSimulations,
@@ -2327,6 +2328,10 @@ export const SettingsWorld: React.FC<{
           which panels are cast or pinned to each screen.
         </p>
         <DevicesPanel />
+        {/* v248 part 1 — owner lock status + setup steps, next to the
+            Devices panel it gates. Read-only: the password is set via
+            the Secure Vault form, never here. */}
+        <OwnerLockPanel />
       </div>
     </div>
   );

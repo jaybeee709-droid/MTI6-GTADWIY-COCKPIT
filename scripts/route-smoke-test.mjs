@@ -103,6 +103,34 @@ function serveDist() {
   return new Promise((resolve) => {
     const server = http.createServer(async (req, res) => {
       try {
+        // v248 — owner lock: the app fails CLOSED when the gateway is
+        // unreachable (checkLockStatus resolves to LOCKED), and this
+        // smoke server has no gateway. Answer the lock-status query
+        // with the TRUE current state — no MTI6_APP_LOCK_HASH is set
+        // in Netlify, so configured:false and the app opens as today.
+        // This stub never bypasses the lock; it only supplies the
+        // gateway's answer. If Daniel ever sets the hash, update this
+        // stub to configured:true and extend the smoke test to cover
+        // the locked path. All other actions fall through to the
+        // existing 404 path, unchanged.
+        if (req.method === 'POST' && new URL(req.url, 'http://x').pathname === '/api/mti6') {
+          const body = await new Promise((resolve) => {
+            let raw = '';
+            req.on('data', (c) => (raw += c));
+            req.on('end', () => resolve(raw));
+          });
+          let action = '';
+          try {
+            action = JSON.parse(String(body)).action ?? '';
+          } catch {
+            /* malformed — falls through to 404 below */
+          }
+          if (action === 'appLock.status') {
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, source: 'appLock', data: { configured: false } }));
+            return;
+          }
+        }
         const urlPath = decodeURIComponent(new URL(req.url, 'http://x').pathname);
         // Minimal test page: #root + the exact dist bundle as a classic script.
         // (dist/index.html itself uses <script type="module">, which jsdom
@@ -155,6 +183,22 @@ try {
     resources: 'usable',
     pretendToBeVisual: true,
     virtualConsole: vc,
+    // v248 — owner lock: the app's gateway() needs a working fetch, and
+    // this jsdom has none (fetch is undefined here, so every gateway
+    // call throws and the lock fails closed). Give the window a fetch
+    // that forwards ONLY /api/mti6 to this smoke server (answered by
+    // the stub above) and rejects everything else immediately — so
+    // every other live-data call behaves exactly as before (no fetch
+    // → NOT_CONNECTED), and only the lock gate gets its answer.
+    beforeParse(window) {
+      window.fetch = async (url, opts) => {
+        const u = String(url);
+        if (u === '/api/mti6' || u.startsWith('/api/mti6?') || u.startsWith('/api/mti6/')) {
+          return fetch(`http://127.0.0.1:${port}/api/mti6`, opts);
+        }
+        throw new Error('fetch unavailable in smoke test');
+      };
+    },
   });
   check('smoke page loads dist bundle as classic script', true, `bundle: dist/assets/${BUNDLE}`);
   const { window } = dom;

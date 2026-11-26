@@ -41,6 +41,72 @@ import { getJobForPrincipal } from './principal-jobs';
 import { answerNetlifyQuestion } from './netlify-knowledge';
 import { API_REGISTRY, getNoFallbackEntries, getWiredFallbackEntries } from './api-registry';
 import { getActiveProjectKnowledge, projectKnowledgeSummary } from './project-knowledge';
+import { issueHandsCommand, loadHandsDevices, localHandsSummaryText } from './local-hands';
+
+// v248 part 2 — Local Hands: STAR issues device commands from chat
+// into the PENDING queue only. Nothing executes without the owner's
+// per-action approval tap in Settings > Devices. The command's
+// target must be in the owner's scope allowlist and its device
+// registered; the device's READY state is checked at handoff, not
+// at issue — a command may wait PENDING while the owner installs
+// the companion.
+const HANDS_SCREENS: Record<string, string> = {
+  'crypto world': 'Crypto World',
+  globe: 'World Globe',
+  'world globe': 'World Globe',
+  settings: 'Settings',
+  'bot operations': 'Bot Operations',
+  opportunities: 'Opportunities',
+  earnings: 'Earnings',
+  encyclopedia: 'Encyclopedia',
+  security: 'Security',
+  accounts: 'Accounts',
+  positions: 'Positions',
+  devices: 'Devices',
+};
+
+function handsIssueFromChat(q: string): string | null {
+  const openMatch = q.match(/open\s+(.+?)\s+on my\s+(phone|device|pc|computer|tablet)\b/);
+  const tapMatch = q.match(/tap\s+(.+?)\s+on my\s+(phone|device|pc|computer|tablet)\b/);
+  const settingMatch = q.match(/change\s+(.+?)\s+on my\s+(phone|device|pc|computer|tablet)\b/);
+  const match = openMatch ?? tapMatch ?? settingMatch;
+  if (!match) return null;
+  const spoken = match[1].trim();
+  const devices = loadHandsDevices();
+  if (devices.length === 0) {
+    return `${FROM_RECORDS}I cannot do that yet — no device has a local-hands companion registered. A web page cannot reach outside the browser sandbox, so the hands must live on the device: install the companion on the device, grant its permissions there, and register it in Settings > Devices > Local Hands first. Nothing was queued.`;
+  }
+  // If the owner named a device, use it; otherwise the single
+  // registered device; more than one unnamed means ask.
+  const named = devices.find((d) => q.includes(d.label.toLowerCase()));
+  const device = named ?? (devices.length === 1 ? devices[0] : null);
+  if (!device) {
+    return `${FROM_RECORDS}you have ${devices.length} devices registered for local hands (${devices.map((d) => d.label).join(', ')}) — say which one, e.g. "open ${spoken} on my ${devices[0].label}". Nothing was queued.`;
+  }
+  let kind: 'open-app' | 'open-screen' | 'tap' | 'change-setting' = 'open-app';
+  let target = spoken;
+  if (openMatch) {
+    const screen = HANDS_SCREENS[spoken.toLowerCase()];
+    if (screen) {
+      kind = 'open-screen';
+      target = screen;
+    }
+  } else if (tapMatch) {
+    kind = 'tap';
+  } else {
+    kind = 'change-setting';
+  }
+  const result = issueHandsCommand({
+    principal: 'STAR',
+    targetDeviceId: device.id,
+    kind,
+    target,
+  });
+  if (!result.ok) {
+    return `${FROM_RECORDS}that command was refused and recorded: ${result.detail} Nothing was queued, nothing executed.`;
+  }
+  return `${FROM_RECORDS}queued as PENDING for ${device.label} — "${kind === 'open-screen' ? 'open screen' : kind} ${target}". It waits for your approval in Settings > Devices > Local Hands; nothing executes without your tap, and the device must be READY (companion installed + permissions granted) before the handoff.`;
+}
 
 // §69 WHY? for a named workspace: the recorded chain behind what
 // the workspace shows, from the registry + coverage records only.
@@ -243,6 +309,16 @@ export function answerLocally(raw: string): string | null {
 
   if (/(bot browser|browser session|github browser|bots.*github|github.*bot)/.test(q))
     return botBrowserSummaryText();
+
+  // v248 part 2 — Local Hands. The issue branch comes first so
+  // "open X on my phone" queues a command instead of answering
+  // the capability question; the capability branch answers "can
+  // you control my device" from the real state.
+  const handsIssued = handsIssueFromChat(q);
+  if (handsIssued) return handsIssued;
+
+  if (/(control my|control the|control this|take over my|local hands|hands.*device|can you.*device|operate my)/.test(q))
+    return localHandsSummaryText();
 
   // v247 direction #7 — the Angels, active on security/alert work
   // in their own registry (never Tribe members). Status is derived

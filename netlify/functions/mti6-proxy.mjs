@@ -119,6 +119,25 @@
 // the IBI 511 mapIcons route (az511 + fl511 return 000 from
 // this host — the FL511 ArcGIS layer already covers Florida).
 
+// OWNER LOCK (added 2026-11-25, v248 part 1 — the owner's gate for
+// the whole app): two narrowly scoped actions behind the same
+// discipline — appLock.status (reports only whether a lock hash is
+// configured) and appLock.verify (checks one password against the
+// hash). The hash is read ONLY from the Netlify dashboard environment
+// variable MTI6_APP_LOCK_HASH (Functions scope): the plain password
+// is NEVER stored in the repo, the frontend, or this file — Daniel
+// sets the password via the Secure Vault form and only its SHA-256
+// hex lands in the env var. verify hashes the supplied password
+// server-side with SHA-256 and compares with a constant-time compare;
+// it answers { ok: true/false } only — never the hash, never the
+// password, never a reason that leaks which part failed, and it
+// answers ok:false (not an error) when no hash is configured, so the
+// endpoint cannot distinguish "no lock" from "wrong password".
+// The Google step of the lock is client-side (Google Identity
+// Services email vs the owner's address) and never touches this file.
+
+import { createHash, timingSafeEqual } from "node:crypto";
+
 const MAX_BODY_BYTES = 65536;
 const STAR_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
 // v244 (2026-11-25): v242's default google/gemma-4-31b-it:free
@@ -233,6 +252,49 @@ function readTransitlandKey() {
     ? process.env.TRANSITLAND_API_KEY
     : undefined;
   return typeof v === "string" && v.length > 0 ? v : null;
+}
+
+// Owner lock (v248): the SHA-256 hex of the app password, from the
+// Netlify dashboard environment variable MTI6_APP_LOCK_HASH only.
+// Never logged, never echoed, never returned to the client.
+function readAppLockHash() {
+  const v = typeof process !== "undefined" && process.env
+    ? process.env.MTI6_APP_LOCK_HASH
+    : undefined;
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+
+const APP_LOCK_HASH_HEX_RE = /^[0-9a-fA-F]{64}$/;
+
+// Server-side password check for appLock.verify. Hashes the supplied
+// password with SHA-256 and compares against the stored hex with a
+// constant-time compare. Returns false for every failure mode —
+// missing hash, malformed hash, wrong password — with no reason, so
+// the caller cannot learn which part failed.
+function verifyAppLockPassword(password) {
+  const stored = readAppLockHash();
+  if (stored === null || !APP_LOCK_HASH_HEX_RE.test(stored)) return false;
+  const expected = Buffer.from(stored, "hex");
+  const actual = createHash("sha256").update(password, "utf8").digest();
+  if (expected.length !== actual.length) return false;
+  return timingSafeEqual(expected, actual);
+}
+
+// Server-side validation for appLock.verify. Returns { password } on
+// success or { error } (a Response) on failure. No hash comparison
+// happens for invalid input.
+function validateAppLockVerify(payload) {
+  if (!isPlainObject(payload)) {
+    return { error: fail("INVALID_REQUEST", "appLock.verify payload must be an object.", 400, "appLock") };
+  }
+  const bad = unknownKey(payload, new Set(["password"]));
+  if (bad) {
+    return { error: fail("INVALID_REQUEST", "Unknown parameter \"" + bad + "\" for appLock.verify.", 400, "appLock") };
+  }
+  if (typeof payload.password !== "string" || payload.password.length < 1 || payload.password.length > 1024) {
+    return { error: fail("INVALID_REQUEST", "password must be a string of 1 to 1024 characters.", 400, "appLock") };
+  }
+  return { password: payload.password };
 }
 
 function isPlainObject(v) {
@@ -1551,10 +1613,11 @@ export default async (req) => {
       const star = readStarConfig();
       return envelope(true, "gateway", {
         providers: ["transitland", "star", "coingecko", "geoapify", "locationiq", "adsb.lol", "nycdot", "gdacs", "caltrans", "maryland", "louisiana", "utah"],
-        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures", "star.chat", "star.providers", "market.prices", "geo.geocode", "flights.nearby", "cameras.nyc", "disasters.gdacs", "cameras.california", "cameras.maryland", "cameras.louisiana", "cameras.utah"],
+        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures", "star.chat", "star.providers", "market.prices", "geo.geocode", "flights.nearby", "cameras.nyc", "disasters.gdacs", "cameras.california", "cameras.maryland", "cameras.louisiana", "cameras.utah", "appLock.status", "appLock.verify"],
         providersConfigured: {
           transitland: readTransitlandKey() !== null,
           star: star.configured,
+          appLock: readAppLockHash() !== null,
           anthropic: readStarProviderKeys().anthropic !== null,
           gemini: readStarProviderKeys().gemini !== null,
           coingecko: readPipelineKeys().coingecko !== null,
@@ -1574,6 +1637,19 @@ export default async (req) => {
     }
     case "gateway.ping":
       return envelope(true, "gateway", { pong: true }, null, 200);
+    // v248 — owner lock. appLock.status takes no parameters and
+    // reports only whether a lock hash is configured (env presence
+    // only, never a value). appLock.verify checks one password
+    // server-side and answers { ok } only — never a reason.
+    case "appLock.status": {
+      return envelope(true, "appLock", { configured: readAppLockHash() !== null }, null, 200);
+    }
+    case "appLock.verify": {
+      const payload = body.payload === undefined ? {} : body.payload;
+      const checked = validateAppLockVerify(payload);
+      if (checked.error) return checked.error;
+      return envelope(true, "appLock", { ok: verifyAppLockPassword(checked.password) }, null, 200);
+    }
     case "transit.stopsNear":
     case "transit.departures": {
       const payload = body.payload === undefined ? {} : body.payload;

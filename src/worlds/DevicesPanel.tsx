@@ -75,6 +75,33 @@ import {
   type ScreenListReason,
 } from '../pinning';
 import { CastPicker, PinnedList, ScreenPicker } from './PinnedPanels';
+// v248 part 2 — Local Hands: the on-device companion command
+// channel (src/local-hands.ts). The panel is where the owner sees
+// per-device hands state, manages the scope allowlist, and
+// approves/refuses pending commands.
+import {
+  LOCAL_HANDS_CHANGED_EVENT,
+  LOCAL_HANDS_DEVICE_STATE_LABELS,
+  LOCAL_HANDS_KINDS,
+  addScopeEntry,
+  approveHandsCommand,
+  executeApprovedHandsCommand,
+  guessThisDevicePlatform,
+  isInScope,
+  loadHandsCommands,
+  loadHandsDevices,
+  loadHandsScope,
+  markCompanionState,
+  refuseHandsCommand,
+  registerHandsDevice,
+  removeHandsDevice,
+  removeScopeEntry,
+  thisDeviceLabel,
+  type LocalHandsCommand,
+  type LocalHandsDevice,
+  type LocalHandsScopeEntry,
+  type LocalHandsScopeKind,
+} from '../local-hands';
 
 // ---------------------------------------------------------------------------
 // Styles (inline — this file owns no CSS file; matches PinnedPanels.tsx)
@@ -232,6 +259,42 @@ export function DevicesPanel(): React.ReactNode {
   // window handle at render time).
   const [, setTick] = useState(0);
   const [pickerPanelId, setPickerPanelId] = useState<string>('');
+
+  // --- Local Hands (v248 part 2) -----------------------------------------
+  const [handsDevices, setHandsDevices] = useState<LocalHandsDevice[]>(() => loadHandsDevices());
+  const [handsScope, setHandsScope] = useState<LocalHandsScopeEntry[]>(() => loadHandsScope());
+  const [handsCommands, setHandsCommands] = useState<LocalHandsCommand[]>(() => loadHandsCommands());
+  const [scopeKind, setScopeKind] = useState<LocalHandsScopeKind>('app');
+  const [scopeTarget, setScopeTarget] = useState('');
+  const [permDrafts, setPermDrafts] = useState<Record<string, string>>({});
+  const [refuseDrafts, setRefuseDrafts] = useState<Record<string, string>>({});
+  const [handsNote, setHandsNote] = useState('');
+
+  const refreshHands = useCallback(() => {
+    setHandsDevices(loadHandsDevices());
+    setHandsScope(loadHandsScope());
+    setHandsCommands(loadHandsCommands());
+  }, []);
+
+  useEffect(() => {
+    refreshHands();
+    const onChange = () => refreshHands();
+    window.addEventListener(LOCAL_HANDS_CHANGED_EVENT, onChange);
+    const onStorage = (e: StorageEvent) => {
+      if (
+        e.key === 'mti6_local_hands_devices_v1' ||
+        e.key === 'mti6_local_hands_scope_v1' ||
+        e.key === 'mti6_local_hands_commands_v1'
+      ) {
+        refreshHands();
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener(LOCAL_HANDS_CHANGED_EVENT, onChange);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [refreshHands]);
 
   const refreshScreens = useCallback(() => {
     setScreenState({ status: 'loading' });
@@ -591,6 +654,382 @@ export function DevicesPanel(): React.ReactNode {
       <div style={{ marginTop: 16 }}>
         <div style={SECTION_TITLE_STYLE}>All pinned panels</div>
         <PinnedList />
+      </div>
+
+      {/* ---------------------------------------------------------------
+          LOCAL HANDS (v248 part 2) — the on-device companion.
+          Web brain + local hands: STAR thinks in the cloud and issues
+          commands; the companion ON the device taps, types, opens
+          apps, and changes settings. A web page cannot reach outside
+          the browser sandbox, so the hands must live on the device.
+          Nothing here is faked: a device reads NOT_INSTALLED until
+          the companion is installed on it AND the owner grants its
+          permissions there; a command executes only after the
+          owner's per-action approval; an approved command is handed
+          to the companion — the handoff is recorded, and only the
+          companion's own report proves the device acted.
+      --------------------------------------------------------------- */}
+      <div style={{ marginTop: 24, borderTop: '1px solid #2a3348', paddingTop: 16 }}>
+        <div style={SECTION_TITLE_STYLE}>Local Hands — control this device and others</div>
+        <p style={{ ...NOTE_STYLE, marginBottom: 10 }}>
+          STAR is the web brain: he thinks, plans, and issues commands.
+          The <strong>local hands</strong> are a small companion that runs{' '}
+          <strong>on the device</strong> and does the tapping, typing, opening
+          apps, and changing settings. A web page cannot reach outside the
+          browser sandbox — that is why the hands must live on the device.
+          Until a companion is installed on a device and its permissions are
+          granted there, that device reads <strong>NOT_INSTALLED</strong> and
+          no hand moves on it.
+        </p>
+        <p style={{ ...NOTE_STYLE, marginBottom: 10 }}>
+          Rules: every command needs your explicit per-action approval — there
+          is no auto-approve and no &ldquo;approve all&rdquo;. A command&apos;s
+          target must be in the scope allowlist below, or it is refused and
+          the reason is recorded. An approved command is handed to the
+          companion on the device; the handoff is recorded, and only the
+          companion&apos;s own report proves the device acted. Device READY
+          state is <strong>owner-attested</strong>: you confirm the install
+          and the permissions after doing them on the device — the web page
+          cannot verify a companion itself.
+        </p>
+
+        <div style={GROUP_LABEL_STYLE}>Devices</div>
+        {handsDevices.length === 0 ? (
+          <p style={NOTE_STYLE}>
+            No device has a local-hands companion yet. To add one: (1) install
+            the MTI6 companion on the device (the mobile companion lives in
+            the repo under mobile/ — see the Local Hands design doc for the
+            install steps), (2) grant its permissions on the device, (3)
+            register the device below and confirm the install.
+          </p>
+        ) : (
+          handsDevices.map((device) => (
+            <div key={device.id} style={SCREEN_CARD_STYLE}>
+              <div style={SCREEN_HEAD_STYLE}>
+                <span>{device.label}</span>
+                <span style={BADGE_STYLE}>{device.platform.toUpperCase()}</span>
+                <span
+                  style={{
+                    ...BADGE_STYLE,
+                    borderColor: device.state === 'READY' ? '#32D74B' : '#fbbf24',
+                    background:
+                      device.state === 'READY' ? 'rgba(50,215,75,0.12)' : 'rgba(251,191,36,0.10)',
+                    color: device.state === 'READY' ? '#4ade80' : '#fbbf24',
+                  }}
+                >
+                  {device.state}
+                </span>
+              </div>
+              <div style={SCREEN_META_STYLE}>
+                {LOCAL_HANDS_DEVICE_STATE_LABELS[device.state]}
+                {device.companionVersion ? ` · Companion ${device.companionVersion}` : ''}
+                {device.permissionsGranted.length > 0
+                  ? ` · Permissions granted on device: ${device.permissionsGranted.join(', ')}`
+                  : ' · No permissions recorded'}
+                {device.ownerAttested ? ' · Owner-attested (the web page cannot verify a companion itself)' : ''}
+                {device.lastSeenAt ? ` · Last companion report: ${new Date(device.lastSeenAt).toLocaleString()}` : ' · No companion report ever received'}
+                {' · Registered '}
+                {new Date(device.registeredAt).toLocaleString()}
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  aria-label={`Permissions granted on ${device.label}`}
+                  placeholder="Permissions granted on the device, comma-separated (leave blank if none)"
+                  value={permDrafts[device.id] ?? device.permissionsGranted.join(', ')}
+                  onChange={(e) =>
+                    setPermDrafts((prev) => ({ ...prev, [device.id]: e.target.value }))
+                  }
+                  style={{
+                    flex: '1 1 260px',
+                    padding: '5px 8px',
+                    borderRadius: 6,
+                    border: '1px solid #2a3348',
+                    background: '#1f2937',
+                    color: '#e5e7eb',
+                    fontSize: 12,
+                  }}
+                />
+                <button
+                  type="button"
+                  style={SMALL_BUTTON_STYLE}
+                  onClick={() => {
+                    const perms = (permDrafts[device.id] ?? device.permissionsGranted.join(', '))
+                      .split(',')
+                      .map((p) => p.trim())
+                      .filter(Boolean);
+                    markCompanionState(device.id, perms, device.companionVersion);
+                    setHandsNote(
+                      perms.length > 0
+                        ? `${device.label} marked READY (owner-attested — you confirmed the install and permissions on the device).`
+                        : `${device.label} marked INSTALLED, NO PERMISSION — grant the companion's permissions on the device, then save them here.`,
+                    );
+                    refreshHands();
+                  }}
+                >
+                  Save companion state
+                </button>
+                <button
+                  type="button"
+                  style={SMALL_BUTTON_STYLE}
+                  onClick={() => {
+                    removeHandsDevice(device.id);
+                    refreshHands();
+                  }}
+                >
+                  Remove device
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+        <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            style={REFRESH_BUTTON_STYLE}
+            onClick={() => {
+              registerHandsDevice(thisDeviceLabel(), guessThisDevicePlatform());
+              setHandsNote(
+                'Device registered as NOT_INSTALLED. Install the companion on it and grant its permissions, then save the companion state above.',
+              );
+              refreshHands();
+            }}
+          >
+            Register this device
+          </button>
+        </div>
+        {handsNote && (
+          <p style={{ ...NOTE_STYLE, marginTop: 8, color: '#c4b5fd' }}>{handsNote}</p>
+        )}
+
+        <div style={GROUP_LABEL_STYLE}>Scope allowlist — what STAR may touch</div>
+        <p style={{ ...NOTE_STYLE, marginBottom: 8 }}>
+          The allowlist starts empty, and STAR can touch nothing until you add
+          it here. Add an app (name or URL scheme), an MTI6 screen, a setting,
+          or an action. A command whose target is not listed is refused and
+          the refusal is recorded with its reason. Nothing is pre-filled for
+          you — the scope is yours to choose.
+        </p>
+        {handsScope.length === 0 ? (
+          <p style={NOTE_STYLE}>
+            Allowlist is empty — STAR may touch nothing on any device yet.
+          </p>
+        ) : (
+          handsScope.map((entry) => (
+            <div key={entry.id} style={ROW_STYLE}>
+              <span style={{ ...BADGE_STYLE, textTransform: 'uppercase' }}>{entry.kind}</span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <strong>{entry.target}</strong>{' '}
+                <span style={{ color: '#9ca3af' }}>
+                  · added {new Date(entry.addedAt).toLocaleString()}
+                </span>
+              </span>
+              <button
+                type="button"
+                style={SMALL_BUTTON_STYLE}
+                onClick={() => {
+                  removeScopeEntry(entry.id);
+                  refreshHands();
+                }}
+              >
+                Remove
+              </button>
+            </div>
+          ))
+        )}
+        <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <select
+            aria-label="Scope entry kind"
+            value={scopeKind}
+            onChange={(e) => setScopeKind(e.target.value as LocalHandsScopeKind)}
+            style={{
+              padding: '5px 8px',
+              borderRadius: 6,
+              border: '1px solid #2a3348',
+              background: '#1f2937',
+              color: '#e5e7eb',
+              fontSize: 12,
+            }}
+          >
+            <option value="app">App</option>
+            <option value="screen">Screen</option>
+            <option value="setting">Setting</option>
+            <option value="action">Action</option>
+          </select>
+          <input
+            type="text"
+            aria-label="Scope entry target"
+            placeholder="App name / screen / setting / action to allow"
+            value={scopeTarget}
+            onChange={(e) => setScopeTarget(e.target.value)}
+            style={{
+              flex: '1 1 220px',
+              padding: '5px 8px',
+              borderRadius: 6,
+              border: '1px solid #2a3348',
+              background: '#1f2937',
+              color: '#e5e7eb',
+              fontSize: 12,
+            }}
+          />
+          <button
+            type="button"
+            style={SMALL_BUTTON_STYLE}
+            onClick={() => {
+              const added = addScopeEntry(scopeKind, scopeTarget);
+              if (added) {
+                setScopeTarget('');
+                setHandsNote(`Allowlist: added ${added.kind} "${added.target}".`);
+              } else {
+                setHandsNote('Nothing added — type what STAR may touch first.');
+              }
+              refreshHands();
+            }}
+          >
+            Add to allowlist
+          </button>
+        </div>
+
+        <div style={GROUP_LABEL_STYLE}>Approval queue — commands waiting on you</div>
+        <p style={{ ...NOTE_STYLE, marginBottom: 8 }}>
+          STAR issues commands from chat into this queue as PENDING. Nothing
+          executes without your tap. Approving hands the command to the
+          companion on the device (a handoff record — only the companion&apos;s
+          own report proves the device acted). Refusing records your reason.
+        </p>
+        {handsCommands.length === 0 ? (
+          <p style={NOTE_STYLE}>
+            No commands yet. Ask STAR in chat — e.g. &ldquo;open Crypto World
+            on my phone&rdquo; — and the command lands here as PENDING once its
+            target is in the allowlist and its device is registered.
+          </p>
+        ) : (
+          handsCommands.map((command) => (
+            <div key={command.id} style={SCREEN_CARD_STYLE}>
+              <div style={SCREEN_HEAD_STYLE}>
+                <span>
+                  {LOCAL_HANDS_KINDS.find((k) => k.kind === command.kind)?.label ?? command.kind}
+                  {' — '}
+                  {command.target}
+                </span>
+                <span
+                  style={{
+                    ...BADGE_STYLE,
+                    borderColor:
+                      command.state === 'EXECUTED'
+                        ? '#32D74B'
+                        : command.state === 'REFUSED'
+                          ? '#f87171'
+                          : command.state === 'APPROVED'
+                            ? '#00B7FF'
+                            : '#fbbf24',
+                    background: 'transparent',
+                    color:
+                      command.state === 'EXECUTED'
+                        ? '#4ade80'
+                        : command.state === 'REFUSED'
+                          ? '#f87171'
+                          : command.state === 'APPROVED'
+                            ? '#7dd3fc'
+                            : '#fbbf24',
+                  }}
+                >
+                  {command.state}
+                </span>
+              </div>
+              <div style={SCREEN_META_STYLE}>
+                Issued by {command.principal} · {command.targetDeviceLabel} ·{' '}
+                {new Date(command.issuedAt).toLocaleString()}
+                {command.detail ? ` · Detail: ${command.detail}` : ''}
+                {command.refusalReason
+                  ? ` · Refused (${command.refusalReason}): ${command.refusalDetail ?? ''}`
+                  : ''}
+                {command.state === 'EXECUTED'
+                  ? ' · Handed off to the companion — awaiting its execution report.'
+                  : ''}
+                {!isInScope(command.kind, command.target) && command.state === 'PENDING'
+                  ? ' · Note: target is no longer in the allowlist.'
+                  : ''}
+              </div>
+              {command.evidence.length > 0 && (
+                <div style={{ ...SCREEN_META_STYLE, marginTop: 6 }}>
+                  {command.evidence.map((line, i) => (
+                    <div key={i}>{line}</div>
+                  ))}
+                </div>
+              )}
+              {command.state === 'PENDING' && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    style={{ ...SMALL_BUTTON_STYLE, borderColor: '#32D74B', color: '#4ade80' }}
+                    onClick={() => {
+                      const approved = approveHandsCommand(command.id);
+                      if (!approved) return;
+                      const result = executeApprovedHandsCommand(command.id);
+                      setHandsNote(
+                        result.ok
+                          ? `Handed off to the companion on ${command.targetDeviceLabel}. Awaiting the companion's execution report — the handoff is recorded, not proof the device acted.`
+                          : `Handoff refused: ${result.detail}`,
+                      );
+                      refreshHands();
+                    }}
+                  >
+                    Approve &amp; hand off
+                  </button>
+                  <input
+                    type="text"
+                    aria-label={`Refusal reason for ${command.target}`}
+                    placeholder="Reason for refusing (optional)"
+                    value={refuseDrafts[command.id] ?? ''}
+                    onChange={(e) =>
+                      setRefuseDrafts((prev) => ({ ...prev, [command.id]: e.target.value }))
+                    }
+                    style={{
+                      flex: '1 1 200px',
+                      padding: '5px 8px',
+                      borderRadius: 6,
+                      border: '1px solid #2a3348',
+                      background: '#1f2937',
+                      color: '#e5e7eb',
+                      fontSize: 12,
+                    }}
+                  />
+                  <button
+                    type="button"
+                    style={{ ...SMALL_BUTTON_STYLE, borderColor: '#f87171', color: '#f87171' }}
+                    onClick={() => {
+                      refuseHandsCommand(command.id, refuseDrafts[command.id] ?? '');
+                      setHandsNote(`Refused: ${command.target}. The reason is recorded.`);
+                      refreshHands();
+                    }}
+                  >
+                    Refuse
+                  </button>
+                </div>
+              )}
+              {command.state === 'APPROVED' && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    style={{ ...SMALL_BUTTON_STYLE, borderColor: '#32D74B', color: '#4ade80' }}
+                    onClick={() => {
+                      const result = executeApprovedHandsCommand(command.id);
+                      setHandsNote(
+                        result.ok
+                          ? `Handed off to the companion on ${command.targetDeviceLabel}. Awaiting the companion's execution report.`
+                          : `Handoff refused: ${result.detail}`,
+                      );
+                      refreshHands();
+                    }}
+                  >
+                    Hand off to companion
+                  </button>
+                </div>
+              )}
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

@@ -30,6 +30,7 @@ import {
   NETLIFY_TEAM,
 } from './netlify-knowledge';
 import { projectKnowledgeSummary } from './project-knowledge';
+import { handsSummary, loadHandsDevices } from './local-hands';
 
 /* STAR's grounding context — the platform snapshot STAR answers
  * from. Everything here is derived from the app's own data modules
@@ -77,6 +78,26 @@ function buildQueueLine(): string {
     return `${s.total} build item(s) (${s.prepared} PREPARED, ${s.implemented} IMPLEMENTED, ${s.superseded} SUPERSEDED)${s.readyTitles.length > 0 ? ` — ready to build: ${s.readyTitles.join('; ')}` : ''}`;
   } catch {
     return 'build queue unreadable this session';
+  }
+}
+
+// v248 part 2 — Local Hands: the on-device companion that taps,
+// types, opens apps, and changes settings. Web brain + local
+// hands: you think and issue commands; the companion on the device
+// executes them. A web page cannot reach outside the browser
+// sandbox. Commands queue PENDING and need the owner's explicit
+// per-action approval; the scope allowlist starts empty.
+function handsLine(): string {
+  try {
+    const s = handsSummary();
+    const devices = loadHandsDevices();
+    const stateLine =
+      s.devices === 0
+        ? 'no device has a local-hands companion yet — every device reads NOT_INSTALLED until the companion is installed on it and its permissions are granted there'
+        : devices.map((d) => `${d.label} (${d.platform}): ${d.state} (owner-attested)`).join('; ');
+    return `local hands: ${stateLine}; ${s.ready} of ${s.devices} device(s) READY; scope allowlist holds ${s.scopeEntries} entries (starts empty — you can touch nothing until the owner adds it); command queue: ${s.pending} pending approval, ${s.executed} handed off to a companion, ${s.refused} refused. You issue device commands from chat only into the PENDING queue ("open X on my phone") — nothing executes without the owner's per-action approval tap in Settings > Devices, and an approved command is handed to the companion on the device; only the companion's own report proves the device acted`;
+  } catch {
+    return 'local hands unreadable this session';
   }
 }
 
@@ -243,6 +264,7 @@ export function buildStarSystemPrompt(): string {
     `- Web Harvest (Tribe scouts, page-open only): ${harvestLine()} — excerpts are RAW and UNVERIFIED; a record becomes work only when Daniel turns it into a Research task from Bot Operations.`,
     `- Build Queue (the BUILDER track — what the team prepared for Muse to build): ${buildQueueLine()}. The bots prepare research, spec, and verification with evidence only — they write no code and run no builds; Muse implements in the clone and Daniel marks items IMPLEMENTED when they land. Ask "what's ready to build" for the list.`,
     `- Bot Browser (the governed in-app browser session for GitHub build work, Universal Search spec Phase 3): ${botBrowserLine()}. The bot never acts inside GitHub — an approved, in-scope page opens in a new tab for Daniel to perform and verify. There is no commit or push action in the session; every push still needs his own approval tap.`,
+    `- Local Hands (the on-device companion — web brain + local hands, v248): ${handsLine()}. A web page cannot reach outside the browser sandbox, so device control needs the companion installed on the device with its permissions granted there. Ask "can you control my device" for the state.`,
     `- Lessons the team learned from mistakes: ${lessonsLine()}. The runtime consults active lessons before every executor run; ask "what did the team learn" for the list.`,
     `- API Registry (every API the platform needs, per bot): ${registryLine()}. Fallback chains are recorded per entry — wired where the code actually falls back, labelled documented-only where not; entries with no fallback say so. Ask "which APIs" for the list.`,
     `- Netlify (deploy + hosting): ${netlifyLine()}. Ask "what is Netlify" or "where is the app deployed".`,

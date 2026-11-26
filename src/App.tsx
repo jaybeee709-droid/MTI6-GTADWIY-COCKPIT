@@ -16,6 +16,7 @@ import {
   LayoutGrid,
   Library,
   ListChecks,
+  LockKeyhole,
   Maximize2,
   Menu,
   Mic,
@@ -27,6 +28,7 @@ import {
   Send,
   Settings,
   Shield,
+  ShieldCheck,
   Sparkles,
   TrendingUp,
   User,
@@ -50,6 +52,17 @@ import {
   type AppearanceSettings,
 } from './appearance';
 import { loadAngelStore } from './angel-security';
+import {
+  OWNER_EMAIL,
+  checkLockStatus,
+  googleClientId,
+  loadGoogleIdentity,
+  markUnlocked,
+  renderGoogleButton,
+  verifyGoogleEmail,
+  verifyPassword,
+  type LockState,
+} from './owner-lock';
 import { fetchStarStatus, recordLocalReply, starChat, StarError } from './star-client';
 import { buildStarSystemPrompt } from './star-context';
 import { answerLocally } from './star-local';
@@ -313,6 +326,212 @@ function BigScreenPopout() {
   );
 }
 
+/* Owner lock screen (v248 part 1) — shown FIRST whenever a lock
+ *  hash is configured and this tab has not unlocked yet. BOTH steps
+ *  are required: (1) Continue with Google, signed in to the owner's
+ *  account (jaybeee709@gmail.com); (2) the fresh app password, checked
+ *  server-side. The password alone never unlocks the app, and without
+ *  a Google OAuth client ID the lock cannot be satisfied — the screen
+ *  says so honestly instead of opening. Nothing of the app renders
+ *  behind this screen. */
+function OwnerLockScreen({
+  unreachable,
+  onUnlocked,
+}: {
+  unreachable: boolean;
+  onUnlocked: () => void;
+}) {
+  const clientId = googleClientId();
+  const [googleDone, setGoogleDone] = useState(false);
+  const [googleError, setGoogleError] = useState<string | null>(null);
+  const [gisState, setGisState] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle');
+  const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordOk, setPasswordOk] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const googleBtnRef = useRef<HTMLDivElement | null>(null);
+  const googleRenderedRef = useRef(false);
+
+  useEffect(() => {
+    if (!clientId || googleRenderedRef.current) return;
+    let live = true;
+    setGisState('loading');
+    loadGoogleIdentity()
+      .then(() => {
+        if (!live) return;
+        try {
+          if (googleBtnRef.current) {
+            renderGoogleButton(googleBtnRef.current, (email) => {
+              if (!live) return;
+              if (verifyGoogleEmail(email)) {
+                setGoogleDone(true);
+                setGoogleError(null);
+              } else {
+                setGoogleError(
+                  email
+                    ? `That Google account is not the owner's account. Sign in with ${OWNER_EMAIL}.`
+                    : 'Google did not return an account email. Try again.',
+                );
+              }
+            });
+            googleRenderedRef.current = true;
+          }
+          setGisState('ready');
+        } catch {
+          setGisState('failed');
+          setGoogleError('Google sign-in is not set up yet.');
+        }
+      })
+      .catch(() => {
+        if (!live) return;
+        setGisState('failed');
+        setGoogleError('Google sign-in could not be loaded — check the connection and try again.');
+      });
+    return () => {
+      live = false;
+    };
+  }, [clientId]);
+
+  // Both steps passed in this tab: mark the session unlocked and open the app.
+  useEffect(() => {
+    if (googleDone && passwordOk) {
+      markUnlocked();
+      onUnlocked();
+    }
+  }, [googleDone, passwordOk, onUnlocked]);
+
+  const submitPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (busy || unreachable) return;
+    setBusy(true);
+    setPasswordError(null);
+    const ok = await verifyPassword(password);
+    setBusy(false);
+    setPassword('');
+    if (ok) {
+      setPasswordOk(true);
+    } else {
+      setPasswordError('That password did not unlock the app.');
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[#050505] p-4 text-white">
+      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#101010] p-6">
+        <div className="mb-1 flex items-center gap-2">
+          <LockKeyhole className="h-5 w-5 text-[#00B7FF]" />
+          <h1 className="text-lg font-bold">MTI6 — Owner lock</h1>
+        </div>
+        <p className="mb-5 text-xs leading-relaxed text-[#B8B8B8]">
+          This app opens only on a device signed in to the owner&rsquo;s Google account, with the
+          fresh app password. Both checks are required.
+        </p>
+
+        {unreachable && (
+          <p className="mb-4 rounded-lg bg-[#FFB020]/10 px-3 py-2 text-xs text-[#FFB020]">
+            The gateway could not be reached, so the lock state could not be checked. The app
+            stays locked rather than opening by default.
+          </p>
+        )}
+
+        {/* Step 1 — Google */}
+        <div className="mb-5">
+          <div className="mb-2 flex items-center gap-2">
+            <span
+              className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold ${
+                googleDone ? 'bg-[#32D74B] text-black' : 'bg-[#202020] text-[#B8B8B8]'
+              }`}
+            >
+              {googleDone ? '✓' : '1'}
+            </span>
+            <h2 className="text-sm font-semibold">Continue with Google</h2>
+            {googleDone && <ShieldCheck className="h-4 w-4 text-[#32D74B]" />}
+          </div>
+          {googleDone ? (
+            <p className="pl-7 text-xs text-[#32D74B]">
+              Signed in as {OWNER_EMAIL}.
+            </p>
+          ) : !clientId ? (
+            <p className="rounded-lg bg-[#FFB020]/10 px-3 py-2 pl-7 text-xs leading-relaxed text-[#FFB020]">
+              Google sign-in not set up yet — no OAuth client ID is configured. Create a Google
+              Cloud OAuth client ID, set VITE_MTI6_GOOGLE_CLIENT_ID in Netlify, and redeploy.
+              Until then the lock cannot be satisfied and the app stays behind this screen.
+            </p>
+          ) : (
+            <>
+              <p className="mb-2 pl-7 text-xs text-[#B8B8B8]">
+                Sign in with the owner&rsquo;s Google account ({OWNER_EMAIL}).
+              </p>
+              <div className="pl-7">
+                <div ref={googleBtnRef} />
+                {gisState === 'loading' && (
+                  <p className="text-xs text-[#B8B8B8]">Loading Google sign-in…</p>
+                )}
+              </div>
+            </>
+          )}
+          {googleError && (
+            <p className="mt-2 rounded-lg bg-[#FF3B30]/10 px-3 py-2 text-xs text-[#FF6B61]">
+              {googleError}
+            </p>
+          )}
+        </div>
+
+        {/* Step 2 — app password */}
+        <div>
+          <div className="mb-2 flex items-center gap-2">
+            <span
+              className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold ${
+                passwordOk ? 'bg-[#32D74B] text-black' : 'bg-[#202020] text-[#B8B8B8]'
+              }`}
+            >
+              {passwordOk ? '✓' : '2'}
+            </span>
+            <h2 className="text-sm font-semibold">App password</h2>
+            {passwordOk && <ShieldCheck className="h-4 w-4 text-[#32D74B]" />}
+          </div>
+          {passwordOk ? (
+            <p className="pl-7 text-xs text-[#32D74B]">App password accepted.</p>
+          ) : (
+            <form onSubmit={submitPassword} className="pl-7">
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter the app password"
+                autoComplete="current-password"
+                aria-label="App password"
+                disabled={busy || unreachable}
+                className="mb-2 w-full rounded-lg border border-white/15 bg-[#0A0A0A] px-3 py-2 text-sm text-white placeholder:text-[#666] focus:border-[#00B7FF] focus:outline-none disabled:opacity-50"
+              />
+              <button
+                type="submit"
+                disabled={busy || unreachable || password.length === 0}
+                className="w-full rounded-lg bg-[#00B7FF] px-3 py-2 text-sm font-semibold text-black hover:bg-[#33C5FF] disabled:opacity-50"
+              >
+                {busy ? 'Checking…' : 'Unlock'}
+              </button>
+              <p className="mt-2 text-[11px] leading-relaxed text-[#B8B8B8]">
+                The password alone never unlocks the app — the Google sign-in above is required
+                too. The password is checked server-side and never stored.
+              </p>
+            </form>
+          )}
+          {passwordError && (
+            <p className="mt-2 rounded-lg bg-[#FF3B30]/10 px-3 py-2 text-xs text-[#FF6B61]">
+              {passwordError}
+            </p>
+          )}
+        </div>
+
+        {googleDone && passwordOk && (
+          <p className="mt-4 text-center text-xs text-[#32D74B]">Both checks passed — opening the app…</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function App() {
   const [activeWorld, setActiveWorld] = useState<WorldId>('globe');
   const [viewMode, setViewMode] = useState<ViewMode>('All');
@@ -374,6 +593,24 @@ export function App() {
   const [menuOpen, setMenuOpen] = useState<boolean>(false);
   // v247 — the pinned Netlify screen overlay (first pinned screen).
   const [netlifyOpen, setNetlifyOpen] = useState<boolean>(false);
+  // v248 part 1 — owner lock. checkLockStatus is the authority: the
+  // app opens as today when no lock hash is configured ('not-set-up'),
+  // and stays behind the lock screen when one is ('locked') until
+  // BOTH the Google step and the password step pass this session.
+  // An unreachable gateway fails closed (locked + unreachable).
+  const [lockState, setLockState] = useState<LockState>('checking');
+  const [lockUnreachable, setLockUnreachable] = useState(false);
+  useEffect(() => {
+    let live = true;
+    checkLockStatus().then((r) => {
+      if (!live) return;
+      setLockState(r.state);
+      setLockUnreachable(r.unreachable);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [searchFocus, setSearchFocus] = useState<boolean>(false);
   const [phoneSearchOpen, setPhoneSearchOpen] = useState<boolean>(false);
@@ -925,6 +1162,28 @@ export function App() {
       )}
     </div>
   );
+
+  // v248 part 1 — owner lock gate. While the lock state is being
+  // checked, show a bare loading screen (never the app shell); while
+  // locked, the lock screen is the whole app. 'not-set-up' and
+  // 'unlocked' fall through and the app opens as today. The gate
+  // sits before the ?panel= pop-outs too: no window of the app runs
+  // without both checks once the lock is configured.
+  if (lockState === 'checking') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#050505] text-white">
+        <p className="font-mono text-xs text-[#B8B8B8]">Checking the owner lock…</p>
+      </div>
+    );
+  }
+  if (lockState === 'locked') {
+    return (
+      <OwnerLockScreen
+        unreachable={lockUnreachable}
+        onUnlocked={() => setLockState('unlocked')}
+      />
+    );
+  }
 
   // v247 — ?panel= contract (pinning system): a pop-out window loads
   // the app with ?panel=<id> and renders just that panel alone.
