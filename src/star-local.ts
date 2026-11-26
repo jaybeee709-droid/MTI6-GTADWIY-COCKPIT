@@ -36,6 +36,7 @@ import { CRYPTO_WORKSPACES } from './crypto-workspaces-data';
 import { loadHarvestAssignments, loadHarvestRecords } from './web-harvest';
 import { buildQueueSummaryText } from './build-queue';
 import { botBrowserSummaryText } from './bot-browser';
+import { extensionSearchSummaryText } from './extension-search';
 import { getActiveLessons } from './bot-lessons';
 import { getJobForPrincipal } from './principal-jobs';
 import { answerNetlifyQuestion } from './netlify-knowledge';
@@ -309,6 +310,14 @@ export function answerLocally(raw: string): string | null {
 
   if (/(bot browser|browser session|github browser|bots.*github|github.*bot)/.test(q))
     return botBrowserSummaryText();
+
+  // v250 part 2 — extension search: STAR answers from the real
+  // recorded state (NOT_SUPPORTED_IN_APP_BROWSER, real store
+  // search, desktop install path) — never an invented listing
+  // or install state. Placed beside the bot-browser route; the
+  // generic /(bot|tribe|...)/ branch below must not swallow it.
+  if (/(extension|chrome web store|firefox add-ons|firefox addons)/.test(q))
+    return extensionSearchSummaryText();
 
   // v248 part 2 — Local Hands. The issue branch comes first so
   // "open X on my phone" queues a command instead of answering

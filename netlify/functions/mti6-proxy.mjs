@@ -121,18 +121,22 @@
 
 // OWNER LOCK (added 2026-11-25, v248 part 1 — the owner's gate for
 // the whole app): two narrowly scoped actions behind the same
-// discipline — appLock.status (reports only whether a lock hash is
+// discipline — appLock.status (reports only whether a lock is
 // configured) and appLock.verify (checks one password against the
-// hash). The hash is read ONLY from the Netlify dashboard environment
-// variable MTI6_APP_LOCK_HASH (Functions scope): the plain password
-// is NEVER stored in the repo, the frontend, or this file — Daniel
-// sets the password via the Secure Vault form and only its SHA-256
-// hex lands in the env var. verify hashes the supplied password
-// server-side with SHA-256 and compares with a constant-time compare;
-// it answers { ok: true/false } only — never the hash, never the
-// password, never a reason that leaks which part failed, and it
-// answers ok:false (not an error) when no hash is configured, so the
-// endpoint cannot distinguish "no lock" from "wrong password".
+// stored secret). The stored secret is read ONLY from Netlify
+// dashboard environment variables (Functions scope), in either of
+// two forms — MTI6_APP_LOCK_HASH (SHA-256 hex of the password,
+// preferred when set) or MTI6_APP_LOCK_PASSWORD (the password
+// itself, as a secret; the proxy hashes it server-side with SHA-256
+// and compares constant-time — added v250, because the hash cannot
+// be produced without seeing the password, and the password must
+// never be seen, copied, or written anywhere by anyone except the
+// owner). The plain password is NEVER stored in the repo, the
+// frontend, or this file. verify answers { ok: true/false } only —
+// never the hash, never the password, never a reason that leaks
+// which part failed, and it answers ok:false (not an error) when no
+// lock is configured, so the endpoint cannot distinguish "no lock"
+// from "wrong password".
 // The Google step of the lock is client-side (Google Identity
 // Services email vs the owner's address) and never touches this file.
 
@@ -264,17 +268,47 @@ function readAppLockHash() {
   return typeof v === "string" && v.length > 0 ? v : null;
 }
 
+// Owner lock (v250): the app password itself, from the Netlify
+// dashboard environment variable MTI6_APP_LOCK_PASSWORD (Functions
+// scope, secret). The fallback when no hash is set — the hash cannot
+// be produced without seeing the password, and the password must
+// never be seen by anyone except the owner. Never logged, never
+// echoed, never returned to the client; hashed server-side only.
+function readAppLockPassword() {
+  const v = typeof process !== "undefined" && process.env
+    ? process.env.MTI6_APP_LOCK_PASSWORD
+    : undefined;
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+
+// Owner lock (v250): configured when EITHER stored form is set —
+// the SHA-256 hex (preferred) or the password secret. Presence only,
+// never a value.
+function isAppLockConfigured() {
+  return readAppLockHash() !== null || readAppLockPassword() !== null;
+}
+
 const APP_LOCK_HASH_HEX_RE = /^[0-9a-fA-F]{64}$/;
 
 // Server-side password check for appLock.verify. Hashes the supplied
-// password with SHA-256 and compares against the stored hex with a
-// constant-time compare. Returns false for every failure mode —
-// missing hash, malformed hash, wrong password — with no reason, so
+// password with SHA-256 and compares against the stored secret with
+// a constant-time compare. The stored secret is the SHA-256 hex when
+// MTI6_APP_LOCK_HASH is set (preferred); otherwise the password
+// secret MTI6_APP_LOCK_PASSWORD is hashed server-side first and
+// compared the same way. Returns false for every failure mode —
+// missing secret, malformed hash, wrong password — with no reason, so
 // the caller cannot learn which part failed.
 function verifyAppLockPassword(password) {
-  const stored = readAppLockHash();
-  if (stored === null || !APP_LOCK_HASH_HEX_RE.test(stored)) return false;
-  const expected = Buffer.from(stored, "hex");
+  const storedHash = readAppLockHash();
+  if (storedHash !== null && APP_LOCK_HASH_HEX_RE.test(storedHash)) {
+    const expected = Buffer.from(storedHash, "hex");
+    const actual = createHash("sha256").update(password, "utf8").digest();
+    if (expected.length !== actual.length) return false;
+    return timingSafeEqual(expected, actual);
+  }
+  const storedPassword = readAppLockPassword();
+  if (storedPassword === null) return false;
+  const expected = createHash("sha256").update(storedPassword, "utf8").digest();
   const actual = createHash("sha256").update(password, "utf8").digest();
   if (expected.length !== actual.length) return false;
   return timingSafeEqual(expected, actual);
@@ -1617,7 +1651,7 @@ export default async (req) => {
         providersConfigured: {
           transitland: readTransitlandKey() !== null,
           star: star.configured,
-          appLock: readAppLockHash() !== null,
+          appLock: isAppLockConfigured(),
           anthropic: readStarProviderKeys().anthropic !== null,
           gemini: readStarProviderKeys().gemini !== null,
           coingecko: readPipelineKeys().coingecko !== null,
@@ -1638,11 +1672,11 @@ export default async (req) => {
     case "gateway.ping":
       return envelope(true, "gateway", { pong: true }, null, 200);
     // v248 — owner lock. appLock.status takes no parameters and
-    // reports only whether a lock hash is configured (env presence
-    // only, never a value). appLock.verify checks one password
-    // server-side and answers { ok } only — never a reason.
+    // reports only whether a lock is configured (either stored form;
+    // env presence only, never a value). appLock.verify checks one
+    // password server-side and answers { ok } only — never a reason.
     case "appLock.status": {
-      return envelope(true, "appLock", { configured: readAppLockHash() !== null }, null, 200);
+      return envelope(true, "appLock", { configured: isAppLockConfigured() }, null, 200);
     }
     case "appLock.verify": {
       const payload = body.payload === undefined ? {} : body.payload;
