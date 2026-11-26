@@ -398,10 +398,12 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // snapshot is a plain <img> load (display needs no CORS).
   // Quakes are the USGS past-day feed, direct from the browser
   // (it sends ACAO * and was verified live: 237 quakes). Windy
-  // webcams need a free API key and are NOT wired; the ISS
-  // position API was probed twice and is unreachable from this
-  // host (fetch failed both times). Camera snapshots are still
-  // images, never video.
+  // webcams are wired (v251, F6) through the gateway
+  // (cameras.windy — free tier, image URLs expire ~10 min
+  // after fetch per Windy's docs, so the client re-queries).
+  // The ISS position API was probed twice and is unreachable
+  // from this host (fetch failed both times). Camera snapshots
+  // are still images, never video.
   interface CameraRecord {
     id: string;
     label: string;
@@ -409,7 +411,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     lon: number;
     area: string | null;
     imageUrl: string;
-    source: 'NYCDOT' | 'CALTRANS' | 'GDOT' | 'TFL' | 'FL511' | 'KYTC' | 'OR-TRIPCHECK' | 'IADOT' | 'IDOT' | 'WSDOT-ARC' | 'MODOT' | 'MD-CHART' | 'ATD' | 'MCTX' | 'MTO' | 'NZTA' | 'TXDOT' | 'CDOT' | 'HI-DOT' | 'LA-511' | 'UT-IBI' | 'CARS-MN' | 'CARS-IN' | 'CARS-KS' | 'CARS-MA' | 'CARS-NE';
+    source: 'NYCDOT' | 'CALTRANS' | 'GDOT' | 'TFL' | 'FL511' | 'KYTC' | 'OR-TRIPCHECK' | 'IADOT' | 'IDOT' | 'WSDOT-ARC' | 'MODOT' | 'MD-CHART' | 'ATD' | 'MCTX' | 'MTO' | 'NZTA' | 'TXDOT' | 'CDOT' | 'HI-DOT' | 'LA-511' | 'UT-IBI' | 'CARS-MN' | 'CARS-IN' | 'CARS-KS' | 'CARS-MA' | 'CARS-NE' | 'WINDY';
     detail: string | null;
     // When set, the snapshot block shows a link with this label
     // instead of an inline image — used for video feeds
@@ -627,6 +629,81 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   ];
   const twitchMarkers: MapMarker[] = TWITCH_CHANNELS.filter((c) => c.lat !== null && c.lon !== null).map((c) => ({ id: c.id, lat: c.lat as number, lon: c.lon as number, label: `TWITCH — ${c.channel.toUpperCase()} (${(c.place as string).toUpperCase()})`, color: '#00B7FF' }));
   const [selectedTwitch, setSelectedTwitch] = useState<TwitchChannel | null>(null);
+  // v251 (F6) — Twitch Helix live status via the gateway
+  // (streams.twitch). Read-only observation: the gateway checks
+  // exactly the five recorded channels above and returns live /
+  // offline per channel. The player still shows live/offline
+  // on its own; Helix adds the badge + title + viewers without
+  // opening the player. When the Twitch keys are absent the
+  // gateway answers NOT_CONFIGURED and the UI says so — never
+  // a fake live badge.
+  interface TwitchLiveStatus {
+    channel: string;
+    isLive: boolean;
+    title: string | null;
+    viewers: number | null;
+    startedAt: string | null;
+  }
+  const [twitchLive, setTwitchLive] = useState<Record<string, TwitchLiveStatus>>({});
+  const [twitchLiveQuery, setTwitchLiveQuery] = useState<{
+    state: 'idle' | 'loading' | 'ok' | 'error';
+    message: string;
+    fetchedAt: number | null;
+  }>({ state: 'idle', message: 'LIVE STATUS NOT CHECKED — HELIX IS READY; NOTHING HAS BEEN POLLED.', fetchedAt: null });
+  const queryTwitchLive = async () => {
+    if (typeof fetch !== 'function') {
+      setTwitchLiveQuery({ state: 'error', message: 'NO FETCH IN THIS ENVIRONMENT.', fetchedAt: null });
+      return;
+    }
+    setTwitchLiveQuery({ state: 'loading', message: 'CHECKING TWITCH LIVE STATUS (HELIX)…', fetchedAt: null });
+    let res: Response;
+    try {
+      res = await fetch('/api/mti6', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'streams.twitch', payload: {} }),
+      });
+    } catch {
+      setTwitchLiveQuery({ state: 'error', message: 'TWITCH HELIX: QUERY FAILED (NETWORK) — LIVE STATUS UNKNOWN; THE PLAYER STILL SHOWS LIVE/OFFLINE.', fetchedAt: null });
+      return;
+    }
+    const env = (await res.json().catch(() => null)) as
+      | { ok?: boolean; data?: { channels?: unknown[] }; error?: { code?: string } }
+      | null;
+    if (!env || !env.ok) {
+      if (env?.error?.code === 'NOT_CONFIGURED') {
+        setTwitchLiveQuery({ state: 'error', message: 'TWITCH HELIX: NOT_CONFIGURED — THE TWITCH KEYS ARE NOT SET ON THE SERVER, SO LIVE STATUS IS UNAVAILABLE; THE PLAYER STILL SHOWS LIVE/OFFLINE.', fetchedAt: null });
+      } else {
+        setTwitchLiveQuery({ state: 'error', message: `TWITCH HELIX: QUERY FAILED (${env?.error?.code ?? 'UPSTREAM_ERROR'}) — LIVE STATUS UNKNOWN; THE PLAYER STILL SHOWS LIVE/OFFLINE.`, fetchedAt: null });
+      }
+      return;
+    }
+    const data = env.data as { channels?: unknown[] } | null;
+    const next: Record<string, TwitchLiveStatus> = {};
+    let liveCount = 0;
+    if (data && Array.isArray(data.channels)) {
+      for (const raw of data.channels) {
+        if (!raw || typeof raw !== 'object') continue;
+        const c = raw as Record<string, unknown>;
+        const channel = typeof c.channel === 'string' ? c.channel : null;
+        if (channel === null || typeof c.isLive !== 'boolean') continue;
+        if (c.isLive) liveCount += 1;
+        next[channel] = {
+          channel,
+          isLive: c.isLive,
+          title: typeof c.title === 'string' ? c.title : null,
+          viewers: typeof c.viewers === 'number' ? c.viewers : null,
+          startedAt: typeof c.startedAt === 'string' ? c.startedAt : null,
+        };
+      }
+    }
+    setTwitchLive(next);
+    setTwitchLiveQuery({
+      state: 'ok',
+      message: `TWITCH HELIX: ${liveCount} OF ${Object.keys(next).length} RECORDED CHANNELS LIVE RIGHT NOW.`,
+      fetchedAt: Date.now(),
+    });
+  };
   const [quakeMarkers, setQuakeMarkers] = useState<MapMarker[]>([]);
   const [quakeRecords, setQuakeRecords] = useState<Record<string, QuakeRecord>>({});
   const [selectedQuake, setSelectedQuake] = useState<QuakeRecord | null>(null);
@@ -1291,8 +1368,13 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
   // KEYS-NEEDED-2026-11-25.md.
   const CAMERA_MAX_DIST_M = 50000;
   const MAX_CAMERA_MARKERS = 40;
-  const CAMERA_SOURCES: { id: 'nycdot' | 'caltrans' | 'gdot' | 'tfl' | 'fl511' | 'kytc' | 'ortrip' | 'iadot' | 'idot' | 'wsdotarc' | 'modot' | 'mdchart' | 'atd' | 'mctx' | 'mto' | 'nzta' | 'txdot' | 'cdot' | 'hidot' | 'la511' | 'utibi' | 'carsmn' | 'carsin' | 'carsks' | 'carsma' | 'carsne'; label: string; bbox: [number, number, number, number] }[] = [
+  const CAMERA_SOURCES: { id: 'nycdot' | 'caltrans' | 'gdot' | 'tfl' | 'fl511' | 'kytc' | 'ortrip' | 'iadot' | 'idot' | 'wsdotarc' | 'modot' | 'mdchart' | 'atd' | 'mctx' | 'mto' | 'nzta' | 'txdot' | 'cdot' | 'hidot' | 'la511' | 'utibi' | 'carsmn' | 'carsin' | 'carsks' | 'carsma' | 'carsne' | 'windy'; label: string; bbox: [number, number, number, number] }[] = [
     { id: 'nycdot', label: 'NYCDOT', bbox: [-74.35, 40.45, -73.65, 40.95] },
+    // v251 (F6) — Windy webcams cover the whole world (the
+    // worldwide bbox always covers the centre), via the
+    // gateway (cameras.windy). Free tier: image URLs expire
+    // ~10 min after fetch, so each query re-fetches.
+    { id: 'windy', label: 'WINDY', bbox: [-180, -90, 180, 90] },
     { id: 'caltrans', label: 'CALTRANS', bbox: [-124.5, 32.5, -114.0, 42.0] },
     { id: 'gdot', label: 'GDOT', bbox: [-85.6, 30.3, -80.8, 35.0] },
     { id: 'tfl', label: 'TFL', bbox: [-0.6, 51.2, 0.3, 51.8] },
@@ -1320,7 +1402,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     { id: 'carsne', label: 'CARS-NE', bbox: [-104.1, 39.9, -95.3, 43.0] },
   ];
   const CAMERA_COVERAGE_LINE =
-    'NEW YORK CITY + CALIFORNIA + GEORGIA + FLORIDA + KENTUCKY + OREGON + IOWA + ILLINOIS + WASHINGTON + MISSOURI + MARYLAND + TEXAS (STATEWIDE) + COLORADO + HAWAII + LOUISIANA (BATON ROUGE) + UTAH (10 FEATURED) + MINNESOTA + INDIANA + KANSAS + MASSACHUSETTS + NEBRASKA + LONDON + ONTARIO + NEW ZEALAND';
+    'NEW YORK CITY + CALIFORNIA + GEORGIA + FLORIDA + KENTUCKY + OREGON + IOWA + ILLINOIS + WASHINGTON + MISSOURI + MARYLAND + TEXAS (STATEWIDE) + COLORADO + HAWAII + LOUISIANA (BATON ROUGE) + UTAH (10 FEATURED) + MINNESOTA + INDIANA + KANSAS + MASSACHUSETTS + NEBRASKA + LONDON + ONTARIO + NEW ZEALAND + WINDY WEBCAMS (WORLDWIDE)';
   const queryCameras = async () => {
     if (typeof fetch !== 'function') {
       setCameraQuery({ state: 'error', message: 'NO FETCH IN THIS ENVIRONMENT.', fetchedAt: null });
@@ -1426,6 +1508,55 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
               imageUrl,
               source: 'CALTRANS',
               detail: [route, county, nearby].filter((x) => x !== null).join(' · ') || null,
+              openLabel: null,
+            },
+            dist,
+          });
+        }
+      }
+      return out;
+    };
+    // v251 (F6) — Windy webcams worldwide via the gateway
+    // (cameras.windy). The gateway answers NOT_CONFIGURED when
+    // the Windy key is absent; that failure is reported per
+    // source like any other, never a fake camera. Image URLs
+    // expire ~10 min after fetch (free tier), so every query
+    // re-fetches — nothing is cached.
+    const fetchWindy = async (): Promise<{ rec: CameraRecord; dist: number }[]> => {
+      const res = await fetch('/api/mti6', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cameras.windy', payload: { lat: mapView.lat, lon: mapView.lon, radiusKm: 50, limit: 20 } }),
+      });
+      const env = (await res.json().catch(() => null)) as
+        | { ok?: boolean; data?: unknown; error?: { code?: string } }
+        | null;
+      if (!env || !env.ok) throw new Error(env?.error?.code ?? 'UPSTREAM_ERROR');
+      const data = env.data as { webcams?: unknown[] } | null;
+      const out: { rec: CameraRecord; dist: number }[] = [];
+      if (data && Array.isArray(data.webcams)) {
+        for (const raw of data.webcams) {
+          if (!raw || typeof raw !== 'object') continue;
+          const c = raw as Record<string, unknown>;
+          const lat = typeof c.lat === 'number' ? c.lat : null;
+          const lon = typeof c.lon === 'number' ? c.lon : null;
+          const id = typeof c.id === 'string' ? c.id : null;
+          const title = typeof c.title === 'string' ? c.title : null;
+          const imageUrl = typeof c.imageUrl === 'string' ? c.imageUrl : null;
+          if (lat === null || lon === null || !id || !title || !imageUrl) continue;
+          const dist = haversineM(mapView.lat, mapView.lon, lat, lon);
+          if (dist > CAMERA_MAX_DIST_M) continue;
+          const url = typeof c.url === 'string' ? c.url : null;
+          out.push({
+            rec: {
+              id: `cam-windy-${id}`,
+              label: title,
+              lat,
+              lon,
+              area: null,
+              imageUrl,
+              source: 'WINDY',
+              detail: url,
               openLabel: null,
             },
             dist,
@@ -2077,6 +2208,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
     const fetchFor = (s: (typeof CAMERA_SOURCES)[number]): Promise<{ rec: CameraRecord; dist: number }[]> => {
       switch (s.id) {
         case 'nycdot': return fetchNycdot();
+        case 'windy': return fetchWindy();
         case 'caltrans': return fetchCaltrans();
         case 'gdot': return fetchGdot();
         case 'tfl': return fetchTfl();
@@ -3306,7 +3438,9 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                   the gateway (the list sends no CORS header).
                   Snapshots are still images, never video; tap a
                   camera marker to see its latest snapshot. Windy
-                  webcams need a free API key and are not wired. */}
+                  webcams are wired too (v251, F6) via the gateway
+                  — worldwide, free tier, image URLs expire ~10 min
+                  after fetch so each query re-fetches. */}
               {viewSel.cameras && (
                 <div className="pointer-events-auto self-start rounded border border-[#00B7FF]/50 bg-[#0b0b0b]/90 px-2.5 py-2 font-mono text-[11px] text-[#B8B8B8] 2xl:self-stretch">
                   <span className="font-semibold text-[#00B7FF]">CAMERAS — LIVE QUERY.</span>{' '}
@@ -3332,7 +3466,8 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                     HAWAII SNAPSHOTS OPEN IN A NEW TAB — THOSE FEEDS SERVE IMAGES OVER PLAIN HTTP,
                     WHICH A SECURE PAGE CANNOT SHOW INLINE. UTAH IS 10 FEATURED CAMERAS ONLY — THE
                     FULL STATEWIDE LIST NEEDS A FREE UDOT DEVELOPER KEY. 511NY NEEDS A FREE DEVELOPER
-                    KEY AND IS NOT WIRED; WINDY WEBCAMS NEED A FREE API KEY AND ARE NOT WIRED — SEE
+                    KEY AND IS NOT WIRED; WINDY WEBCAMS ARE WIRED THROUGH THE GATEWAY (FREE TIER —
+                    IMAGE URLS EXPIRE ~10 MIN AFTER FETCH, SO RE-QUERY FOR A FRESH SNAPSHOT) — SEE
                     KEYS-NEEDED-2026-11-25 FOR THE FULL KEY LIST. STILL HUNTING: ARIZONA ·
                     PENNSYLVANIA · WISCONSIN · NEW YORK (STATEWIDE) · ALASKA · IDAHO · CONNECTICUT ·
                     NORTH CAROLINA — THOSE NEED FREE TRAVEL-IQ / 511NY KEYS. DC HAS CAMERA LISTS BUT
@@ -3395,6 +3530,25 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                     THAT CHECK. INSTAGRAM LIVE, TIKTOK LIVE AND X LIVE HAVE NO PUBLIC EMBED — THEY
                     CANNOT BE SHOWN HERE. FACEBOOK LIVE EMBEDS ONE VIDEO AT A TIME AND HAS NO
                     PUBLIC LIVE DIRECTORY.
+                    <div className="mt-1">
+                      <span className="font-semibold text-white">HELIX LIVE STATUS (v251).</span>{' '}
+                      {twitchLiveQuery.message}
+                      {twitchLiveQuery.fetchedAt !== null && (
+                        <>
+                          {' '}
+                          SOURCE: TWITCH · FETCHED{' '}
+                          {new Date(twitchLiveQuery.fetchedAt).toLocaleTimeString('en-US', { hour12: false })}
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={queryTwitchLive}
+                        disabled={twitchLiveQuery.state === 'loading'}
+                        className="ml-2 font-semibold text-white underline decoration-[#00B7FF] underline-offset-2 disabled:opacity-50"
+                      >
+                        {twitchLiveQuery.state === 'loading' ? 'CHECKING…' : 'CHECK TWITCH LIVE STATUS'}
+                      </button>
+                    </div>
                     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
                       {TWITCH_CHANNELS.map((c) => (
                         <button
@@ -3418,7 +3572,7 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                           }}
                           className={`underline decoration-[#00B7FF] underline-offset-2 ${selectedTwitch?.id === c.id ? 'font-semibold text-white' : ''}`}
                         >
-                          {c.channel.toUpperCase()} (TWITCH{c.place !== null ? ` — ${c.place.toUpperCase()}` : ''})
+                          {c.channel.toUpperCase()} (TWITCH{c.place !== null ? ` — ${c.place.toUpperCase()}` : ''}{twitchLive[c.channel] ? (twitchLive[c.channel].isLive ? ' ● LIVE' : ' ○ OFFLINE') : ''})
                         </button>
                       ))}
                     </div>
@@ -3434,6 +3588,24 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                             </>
                           )}
                         </p>
+                        {twitchLive[selectedTwitch.channel] && (
+                          <p className="font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
+                            SOURCE: TWITCH (HELIX) ·{' '}
+                            {twitchLive[selectedTwitch.channel].isLive ? (
+                              <>
+                                <span className="text-white">LIVE NOW</span>
+                                {twitchLive[selectedTwitch.channel].title !== null && (
+                                  <> — <span className="text-white">{twitchLive[selectedTwitch.channel].title}</span></>
+                                )}
+                                {twitchLive[selectedTwitch.channel].viewers !== null && (
+                                  <> · <span className="text-white">{twitchLive[selectedTwitch.channel].viewers} VIEWERS</span></>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-white">OFFLINE</span>
+                            )}
+                          </p>
+                        )}
                         <iframe
                           key={selectedTwitch.channel}
                           src={`https://player.twitch.tv/?channel=${selectedTwitch.channel}&parent=mti6-gtadwiy-cockpit.netlify.app&parent=deploy-preview-1--mti6-gtadwiy-cockpit.netlify.app&parent=localhost&autoplay=true&muted=true`}
@@ -4044,6 +4216,10 @@ export const WorldGlobe: React.FC<WorldGlobeProps> = ({ onSelectWorld }) => {
                       />
                       <p className="mt-1 font-mono text-[10px] leading-relaxed text-[#B8B8B8]">
                         A STILL IMAGE — NOT VIDEO.{' '}
+                        {selectedCamera.source === 'WINDY' && (
+                          <>WINDY — IMAGE URLS EXPIRE ~10 MIN AFTER FETCH (FREE TIER); RE-QUERY CAMERAS FOR A FRESH SNAPSHOT.{' '}
+                          </>
+                        )}
                         <button
                           type="button"
                           onClick={() => setCamImgNonce((n) => n + 1)}

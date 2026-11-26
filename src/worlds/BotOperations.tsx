@@ -353,8 +353,8 @@ export const BotOperations: React.FC = () => {
   const discoveryBusy = useRef(false);
   // Rotation titles live here; the step order is the runtime's
   // exported CONTINUOUS_DISCOVERY_ROTATION (v243) so the
-  // build-spec executor can verify membership — dry-run is not a
-  // step yet (F3 in the Build Queue), it is not added silently.
+  // build-spec executor can verify membership — dry-run joined
+  // as the 7th step in v251 (F3 in the Build Queue, now built).
   const ROTATION_TITLES: Record<string, string> = {
     'money-radar': 'Continuous discovery — Money Radar sweep',
     'dex-scan': 'Continuous discovery — DEX scan',
@@ -1796,7 +1796,7 @@ export const BotOperations: React.FC = () => {
           </button>
           <span className="font-mono text-[9px] text-[#B8B8B8]">
             WHILE ON AND THIS PAGE IS OPEN, THE DISCOVERY SCANS ROTATE ON THEIR OWN — MONEY
-            RADAR → DEX → BRIDGE → POOL+VAULT → OPPORTUNITY → CATALOGUE, ONE EVERY FIVE
+            RADAR → DEX → BRIDGE → POOL+VAULT → OPPORTUNITY → CATALOGUE → DRY-RUN, ONE EVERY FIVE
             MINUTES, EACH RECORDED AS A TASK WITH EVIDENCE. CLOSING THE PAGE STOPS IT.
           </span>
         </div>

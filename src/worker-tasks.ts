@@ -115,7 +115,7 @@ const slug = (s: string): string =>
 
 export function createTask(
   tasks: WorkerTask[],
-  input: { title: string; role: string; principal: string | null },
+  input: { title: string; role: string; principal: string | null; note?: string },
 ): WorkerTask[] {
   const title = input.title.trim();
   if (!title || !(ROLE_LABELS as readonly string[]).includes(input.role)) return tasks;
@@ -138,7 +138,12 @@ export function createTask(
     inputs: [],
     outputs: [],
     blockerReason: null,
-    history: [{ at: stamp, from: null, to: 'UNASSIGNED', note: 'Task created.' }],
+    // v251 (F4): an optional creation note, set at creation — never
+    // via a fake transition. STAR chat passes 'STAR chat — "<owner
+    // message>"' here so the build-queue verifier can count
+    // chat-created tasks. All existing callers omit it and keep
+    // the original 'Task created.' note.
+    history: [{ at: stamp, from: null, to: 'UNASSIGNED', note: input.note?.trim() || 'Task created.' }],
     completionEvidence: null,
     evidence: null,
     completion: null,

@@ -82,6 +82,17 @@ import { PinnablePanel, PinnedList, PinnedPanels } from './worlds/PinnedPanels';
 import { BotTheater } from './worlds/BotTheater';
 import { TRIBE_PRINCIPALS } from './worlds-data';
 import { loadTasks, type WorkerTask } from './worker-tasks';
+import {
+  clearPendingProposal,
+  confirmPendingProposal,
+  createTaskFromChat,
+  getPendingProposal,
+  isChatConfirmation,
+  isChatDecline,
+  parseChatTaskRequest,
+  principalDisplayName,
+  proposeTaskFromChat,
+} from './star-tasks';
 import { loadKinds, type RuntimeKindMap } from './worker-runtime';
 import {
   loadHarvestAssignments,
@@ -767,6 +778,76 @@ export function App() {
           ]);
         })
         .finally(() => setStarBusy(false));
+      return;
+    }
+    // v251 (F4) — STAR task creation from chat. Runs after the
+    // runtime-command check and before either brain, so it works
+    // in both STAR modes. A task is created ONLY from the owner's
+    // explicit words here (a direct request, or "yes" confirming
+    // a proposal STAR just made) — never unprompted, never from
+    // STAR's own initiative, and a bare "yes" with no pending
+    // proposal creates nothing.
+    const pending = getPendingProposal();
+    if (pending) {
+      if (isChatConfirmation(text)) {
+        const res = confirmPendingProposal(loadTasks());
+        setStarThread([
+          ...threadWithUser,
+          {
+            role: 'assistant',
+            content: res?.created
+              ? `Created — "${res.task?.title}" is now an UNASSIGNED task in Bot Operations (${res.task?.role} · ${principalDisplayName(res.task?.principal ?? null)}). Approval is still required before anything runs; nothing has been executed.`
+              : res?.duplicate
+                ? `That task already exists in Bot Operations — "${res.task?.title}" (${res.task?.state}). I didn't create a second one.`
+                : 'I could not create that task — the title was missing. Nothing was recorded.',
+            kind: 'chat',
+          },
+        ]);
+        return;
+      }
+      if (isChatDecline(text)) {
+        clearPendingProposal();
+        setStarThread([
+          ...threadWithUser,
+          { role: 'assistant', content: 'Understood — I won\'t create that task. Nothing was recorded.', kind: 'chat' },
+        ]);
+        return;
+      }
+      // Any other message is a change of topic: the proposal lapses.
+      clearPendingProposal();
+    }
+    const chatTask = parseChatTaskRequest(text);
+    if (chatTask) {
+      if (chatTask.proposal) {
+        proposeTaskFromChat(chatTask, text);
+        setStarThread([
+          ...threadWithUser,
+          {
+            role: 'assistant',
+            content: `Here's the task I'd create: "${chatTask.title}" — ${chatTask.role} · ${principalDisplayName(chatTask.principal)}. Say "yes" to create it, or "no" to drop it. Nothing is recorded until you confirm.`,
+            kind: 'chat',
+          },
+        ]);
+        return;
+      }
+      const res = createTaskFromChat(loadTasks(), {
+        title: chatTask.title,
+        role: chatTask.role,
+        principal: chatTask.principal,
+        ownerMessage: text,
+      });
+      setStarThread([
+        ...threadWithUser,
+        {
+          role: 'assistant',
+          content: res.created
+            ? `Created — "${res.task?.title}" is now an UNASSIGNED task in Bot Operations (${res.task?.role} · ${principalDisplayName(res.task?.principal ?? null)}). Approval is still required before anything runs; nothing has been executed.`
+            : res.duplicate
+              ? `That task already exists in Bot Operations — "${res.task?.title}" (${res.task?.state}). I didn't create a second one.`
+              : 'I could not create that task — the title was missing. Nothing was recorded.',
+          kind: 'chat',
+        },
+      ]);
       return;
     }
     if (starConfigured !== true) {

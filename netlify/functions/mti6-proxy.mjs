@@ -73,7 +73,13 @@
 // proxy: the feed sends ACAO * and is fetched directly. The
 // ISS position API (api.open-notify.org) was probed twice and
 // is unreachable from this host (fetch failed both times);
-// Windy webcams need a free API key and are not wired.
+// Windy webcams are WIRED (v251, F6 — cameras.windy below):
+// the free key lives in Netlify as MTI6_WINDY_API_KEY and the
+// proxy queries the v3 list endpoint near the map centre.
+// Verified against Windy's public docs 2026-11-26: the v3 path
+// is /webcams/api/v3/webcams (NOT /api/webcams/v3/webcams) and
+// free-tier image URLs expire after 10 minutes (NOT 15) —
+// the client re-queries for a fresh snapshot.
 //
 // DISASTERS + CALIFORNIA CAMERAS (added 2026-11-25, v234 —
 // the owner's "every state city and country cameras too" and
@@ -209,6 +215,28 @@ const UDOT_CAMERAS_URL = "https://www.udottraffic.utah.gov/Camera/GetUserCameras
 const MAX_BBOX_SPAN_DEG = 12;
 const MAX_FLIGHT_DIST_NM = 100;
 const MAX_FLIGHTS = 40;
+// v251 (F6) — Windy Webcams API v3. Verified against Windy's
+// public docs 2026-11-26 (api.windy.com/webcams/docs + the v2→v3
+// migration guide): base https://api.windy.com, list path
+// /webcams/api/v3/webcams, key ONLY in the x-windy-api-key
+// header, nearby=lat,lon,radiusKm (max 250 km), limit 0–50,
+// offset capped at 1,000 on the listing, include=images,location,
+// urls selects the response parts. Free-tier image URLs carry a
+// token that expires after 10 minutes — the client re-queries
+// for a fresh snapshot instead of caching image URLs.
+const WINDY_WEBCAMS_BASE = "https://api.windy.com/webcams/api/v3/webcams";
+const WINDY_DEFAULT_LIMIT = 20;
+const WINDY_MAX_LIMIT = 50;
+const WINDY_MAX_RADIUS_KM = 250;
+const WINDY_IMAGE_VALIDITY_MINUTES = 10;
+// v251 (F6) — Twitch Helix live status. App access token via the
+// client-credentials flow (POST id.twitch.tv/oauth2/token), then
+// GET api.twitch.tv/helix/streams with Client-Id + Bearer.
+// The token is cached in module scope only (never persisted,
+// never returned to the client, never logged). Read-only
+// observation only — no broadcast, no account actions, no chat.
+const TWITCH_TOKEN_URL = "https://id.twitch.tv/oauth2/token";
+const TWITCH_STREAMS_URL = "https://api.twitch.tv/helix/streams";
 const UPSTREAM_TIMEOUT_MS = 10000;
 const MAX_RADIUS_M = 10000;
 const MAX_LIMIT = 50;
@@ -1609,6 +1637,314 @@ async function handleCamerasUtah(payload) {
   return envelope(true, "utah", { cameras }, null, 200);
 }
 
+// ------------------------------------------------------------------
+// Windy webcams: cameras.windy (v251, F6) — same discipline:
+// validate first, key only from Netlify env, normalize what
+// comes back, static error strings, never echo the upstream
+// body. Payload { lat, lon, radiusKm?, limit? }: webcams near
+// the map centre. Free tier: link/embed only, image URLs valid
+// ~10 minutes (Windy docs) — the response says so and the
+// client re-queries instead of caching image URLs. Listing
+// offset is always 0 here (never above the 1,000 cap).
+// ------------------------------------------------------------------
+
+// Literal env reads (one named variable per provider) so the
+// posture generator can mechanically extract every env NAME this
+// file reads — no dynamic lookups.
+function readWindyKey() {
+  const v = typeof process !== "undefined" && process.env
+    ? process.env.MTI6_WINDY_API_KEY
+    : undefined;
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+
+function readTwitchKeys() {
+  const env = typeof process !== "undefined" && process.env ? process.env : {};
+  const pick = (v) => (typeof v === "string" && v.length > 0 ? v : null);
+  return {
+    clientId: pick(env.MTI6_TWITCH_CLIENT_ID),
+    clientSecret: pick(env.MTI6_TWITCH_CLIENT_SECRET)
+  };
+}
+
+function windyFail(code, message, status) {
+  return envelope(false, "windy", null, { code, message }, status);
+}
+
+function validateCamerasWindy(payload) {
+  if (!isPlainObject(payload)) {
+    return { error: windyFail("INVALID_REQUEST", "cameras.windy payload must be an object.", 400) };
+  }
+  const bad = unknownKey(payload, new Set(["lat", "lon", "radiusKm", "limit"]));
+  if (bad) {
+    return { error: windyFail("INVALID_REQUEST", "Unknown parameter \"" + bad + "\" for cameras.windy.", 400) };
+  }
+  if (!isFiniteNumber(payload.lat) || payload.lat < -90 || payload.lat > 90) {
+    return { error: windyFail("INVALID_REQUEST", "lat must be a number between -90 and 90.", 400) };
+  }
+  if (!isFiniteNumber(payload.lon) || payload.lon < -180 || payload.lon > 180) {
+    return { error: windyFail("INVALID_REQUEST", "lon must be a number between -180 and 180.", 400) };
+  }
+  const radiusKm = payload.radiusKm === undefined ? 50 : payload.radiusKm;
+  if (!isFiniteNumber(radiusKm) || radiusKm <= 0 || radiusKm > WINDY_MAX_RADIUS_KM) {
+    return { error: windyFail("INVALID_REQUEST", "radiusKm must be a number greater than 0 and at most 250.", 400) };
+  }
+  const limit = payload.limit === undefined ? WINDY_DEFAULT_LIMIT : payload.limit;
+  if (!isIntInRange(limit, 1, WINDY_MAX_LIMIT)) {
+    return { error: windyFail("INVALID_REQUEST", "limit must be an integer between 1 and 50.", 400) };
+  }
+  return { lat: payload.lat, lon: payload.lon, radiusKm, limit };
+}
+
+async function handleCamerasWindy(payload) {
+  const validated = validateCamerasWindy(payload);
+  if (validated.error) return validated.error;
+  const apiKey = readWindyKey();
+  if (!apiKey) {
+    return windyFail("NOT_CONFIGURED", "No Windy API key is configured on the server (Netlify MTI6_WINDY_API_KEY).", 503);
+  }
+  const params = new URLSearchParams({
+    include: "images,location,urls",
+    nearby: validated.lat + "," + validated.lon + "," + validated.radiusKm,
+    limit: String(validated.limit),
+    offset: "0"
+  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(WINDY_WEBCAMS_BASE + "?" + params.toString(), {
+      signal: controller.signal,
+      headers: { Accept: "application/json", "x-windy-api-key": apiKey }
+    });
+  } catch {
+    return windyFail("UPSTREAM_ERROR", "Windy could not be reached.", 502);
+  } finally {
+    clearTimeout(timer);
+  }
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  if (res.status === 401 || res.status === 403) {
+    return windyFail("AUTH_REQUIRED", "Windy rejected the API key. Check the MTI6_WINDY_API_KEY Netlify variable.", 401);
+  }
+  if (!res.ok || data === null || typeof data !== "object" || !Array.isArray(data.webcams)) {
+    return windyFail("UPSTREAM_ERROR", "Windy returned an unexpected error.", 502);
+  }
+  const webcams = [];
+  for (const w of data.webcams) {
+    if (!w || typeof w !== "object") continue;
+    const id = typeof w.webcamId === "number" ? String(w.webcamId)
+      : typeof w.webcamId === "string" && w.webcamId.length > 0 ? w.webcamId : null;
+    const title = typeof w.title === "string" && w.title.length > 0 ? w.title : null;
+    const loc = w.location && typeof w.location === "object" ? w.location : null;
+    const lat = loc && typeof loc.latitude === "number" && Number.isFinite(loc.latitude) ? loc.latitude : null;
+    const lon = loc && typeof loc.longitude === "number" && Number.isFinite(loc.longitude) ? loc.longitude : null;
+    const images = w.images && typeof w.images === "object" ? w.images : null;
+    const current = images && images.current && typeof images.current === "object" ? images.current : null;
+    const daylight = images && images.daylight && typeof images.daylight === "object" ? images.daylight : null;
+    const imageUrl = current && typeof current.preview === "string" && current.preview.length > 0 ? current.preview
+      : current && typeof current.url === "string" && current.url.length > 0 ? current.url
+      : current && typeof current.icon === "string" && current.icon.length > 0 ? current.icon
+      : daylight && typeof daylight.preview === "string" && daylight.preview.length > 0 ? daylight.preview : null;
+    const urls = w.urls && typeof w.urls === "object" ? w.urls : null;
+    const url = urls && typeof urls.detail === "string" && urls.detail.length > 0 ? urls.detail : null;
+    if (!id || !title || lat === null || lon === null || !imageUrl) continue;
+    webcams.push({
+      id,
+      title,
+      lat,
+      lon,
+      imageUrl,
+      url,
+      status: typeof w.status === "string" && w.status.length > 0 ? w.status : null
+    });
+    if (webcams.length >= validated.limit) break;
+  }
+  return envelope(true, "windy", {
+    webcams,
+    imageValidityMinutes: WINDY_IMAGE_VALIDITY_MINUTES,
+    imageNote: "Image URLs are valid about 10 minutes on the free tier (Windy docs) — re-query for a fresh snapshot instead of caching them."
+  }, null, 200);
+}
+
+// ------------------------------------------------------------------
+// Twitch live status: streams.twitch (v251, F6) — same
+// discipline: validate first, keys only from Netlify env,
+// normalize what comes back, static error strings, never echo
+// the upstream body, never return the app token. Payload {} or
+// { channels?: string[] } — channels must be from the recorded
+// IRL list (WorldGlobe TWITCH_CHANNELS, v238); no invented
+// channels. Live status only: { channel, isLive, title?,
+// viewers?, startedAt? } per channel. Read-only observation —
+// no broadcast, no account actions, no chat actions.
+// ------------------------------------------------------------------
+
+// The recorded IRL channels (mirrors TWITCH_CHANNELS in
+// src/worlds/WorldGlobe.tsx, v238 — verified from each channel
+// page's own JSON-LD Nov 25, 2026). The proxy checks exactly
+// these; a client-supplied channel outside this list is rejected.
+const TWITCH_IRL_CHANNELS = ["jinnytty", "robcdee", "asianandy", "cyr", "extraemily"];
+const TWITCH_IRL_SET = new Set(TWITCH_IRL_CHANNELS);
+
+// App access token cache — module scope only. Never persisted,
+// never returned to the client, never logged. expiresAt is the
+// upstream expires_in minus a 60-second safety margin.
+let twitchTokenCache = { token: null, expiresAt: 0 };
+
+function twitchFail(code, message, status) {
+  return envelope(false, "twitch", null, { code, message }, status);
+}
+
+function validateStreamsTwitch(payload) {
+  if (!isPlainObject(payload)) {
+    return { error: twitchFail("INVALID_REQUEST", "streams.twitch payload must be an object.", 400) };
+  }
+  const bad = unknownKey(payload, new Set(["channels"]));
+  if (bad) {
+    return { error: twitchFail("INVALID_REQUEST", "Unknown parameter \"" + bad + "\" for streams.twitch.", 400) };
+  }
+  if (payload.channels === undefined) {
+    return { channels: [...TWITCH_IRL_CHANNELS] };
+  }
+  if (!Array.isArray(payload.channels) || payload.channels.length < 1 || payload.channels.length > TWITCH_IRL_CHANNELS.length) {
+    return { error: twitchFail("INVALID_REQUEST", "channels must be an array of 1 to 5 recorded IRL channel names.", 400) };
+  }
+  for (const c of payload.channels) {
+    if (typeof c !== "string" || !TWITCH_IRL_SET.has(c.toLowerCase())) {
+      return { error: twitchFail("INVALID_REQUEST", "channels must only name recorded IRL channels (jinnytty, robcdee, asianandy, cyr, extraemily).", 400) };
+    }
+  }
+  return { channels: [...new Set(payload.channels.map((c) => c.toLowerCase()))] };
+}
+
+async function fetchTwitchAppToken(clientId, clientSecret) {
+  if (twitchTokenCache.token !== null && Date.now() < twitchTokenCache.expiresAt) {
+    return { token: twitchTokenCache.token };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(TWITCH_TOKEN_URL, {
+      method: "POST",
+      signal: controller.signal,
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: "client_credentials"
+      }).toString()
+    });
+  } catch {
+    return { error: "UPSTREAM_ERROR" };
+  } finally {
+    clearTimeout(timer);
+  }
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  if (!res.ok || data === null || typeof data !== "object" ||
+      typeof data.access_token !== "string" || data.access_token.length === 0) {
+    if (res.status === 400 || res.status === 401 || res.status === 403) return { error: "AUTH_REQUIRED" };
+    return { error: "UPSTREAM_ERROR" };
+  }
+  const expiresIn = typeof data.expires_in === "number" && Number.isFinite(data.expires_in) ? data.expires_in : 3600;
+  twitchTokenCache = {
+    token: data.access_token,
+    expiresAt: Date.now() + Math.max(0, expiresIn - 60) * 1000
+  };
+  return { token: data.access_token };
+}
+
+async function handleStreamsTwitch(payload) {
+  const validated = validateStreamsTwitch(payload);
+  if (validated.error) return validated.error;
+  const keys = readTwitchKeys();
+  if (!keys.clientId || !keys.clientSecret) {
+    return twitchFail("NOT_CONFIGURED", "No Twitch keys are configured on the server (Netlify MTI6_TWITCH_CLIENT_ID and MTI6_TWITCH_CLIENT_SECRET).", 503);
+  }
+  const tokenResult = await fetchTwitchAppToken(keys.clientId, keys.clientSecret);
+  if (tokenResult.error === "AUTH_REQUIRED") {
+    return twitchFail("AUTH_REQUIRED", "Twitch rejected the client credentials. Check the MTI6_TWITCH_CLIENT_ID and MTI6_TWITCH_CLIENT_SECRET Netlify variables.", 401);
+  }
+  if (tokenResult.error || !tokenResult.token) {
+    return twitchFail("UPSTREAM_ERROR", "Twitch could not be reached.", 502);
+  }
+  const query = validated.channels.map((c) => "user_login=" + encodeURIComponent(c)).join("&");
+  const fetchStreams = async (token) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+    try {
+      return await fetch(TWITCH_STREAMS_URL + "?" + query, {
+        signal: controller.signal,
+        headers: {
+          Accept: "application/json",
+          "Client-Id": keys.clientId,
+          Authorization: "Bearer " + token
+        }
+      });
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  let res = await fetchStreams(tokenResult.token);
+  if (res !== null && res.status === 401) {
+    // Token rejected (expired between cache check and call):
+    // drop it, mint one fresh token, retry exactly once.
+    twitchTokenCache = { token: null, expiresAt: 0 };
+    const retry = await fetchTwitchAppToken(keys.clientId, keys.clientSecret);
+    if (retry.error === "AUTH_REQUIRED") {
+      return twitchFail("AUTH_REQUIRED", "Twitch rejected the client credentials. Check the MTI6_TWITCH_CLIENT_ID and MTI6_TWITCH_CLIENT_SECRET Netlify variables.", 401);
+    }
+    if (retry.error || !retry.token) {
+      return twitchFail("UPSTREAM_ERROR", "Twitch could not be reached.", 502);
+    }
+    res = await fetchStreams(retry.token);
+  }
+  if (res === null) {
+    return twitchFail("UPSTREAM_ERROR", "Twitch could not be reached.", 502);
+  }
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  if (!res.ok || data === null || typeof data !== "object" || !Array.isArray(data.data)) {
+    return twitchFail("UPSTREAM_ERROR", "Twitch returned an unexpected error.", 502);
+  }
+  const liveByChannel = new Map();
+  for (const s of data.data) {
+    if (!s || typeof s !== "object") continue;
+    const login = typeof s.user_login === "string" ? s.user_login.toLowerCase() : null;
+    if (!login || !TWITCH_IRL_SET.has(login)) continue;
+    liveByChannel.set(login, {
+      channel: login,
+      isLive: true,
+      title: typeof s.title === "string" && s.title.length > 0 ? s.title : null,
+      viewers: typeof s.viewer_count === "number" && Number.isFinite(s.viewer_count) ? s.viewer_count : null,
+      startedAt: typeof s.started_at === "string" && s.started_at.length > 0 ? s.started_at : null
+    });
+  }
+  const channels = validated.channels.map((c) => liveByChannel.get(c) ?? {
+    channel: c,
+    isLive: false,
+    title: null,
+    viewers: null,
+    startedAt: null
+  });
+  return envelope(true, "twitch", { channels }, null, 200);
+}
+
 export default async (req) => {
   if (req.method !== "POST") {
     return fail("METHOD_NOT_ALLOWED", "POST required.", 405);
@@ -1646,8 +1982,8 @@ export default async (req) => {
     case "gateway.status": {
       const star = readStarConfig();
       return envelope(true, "gateway", {
-        providers: ["transitland", "star", "coingecko", "geoapify", "locationiq", "adsb.lol", "nycdot", "gdacs", "caltrans", "maryland", "louisiana", "utah"],
-        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures", "star.chat", "star.providers", "market.prices", "geo.geocode", "flights.nearby", "cameras.nyc", "disasters.gdacs", "cameras.california", "cameras.maryland", "cameras.louisiana", "cameras.utah", "appLock.status", "appLock.verify"],
+        providers: ["transitland", "star", "coingecko", "geoapify", "locationiq", "adsb.lol", "nycdot", "gdacs", "caltrans", "maryland", "louisiana", "utah", "windy", "twitch"],
+        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures", "star.chat", "star.providers", "market.prices", "geo.geocode", "flights.nearby", "cameras.nyc", "disasters.gdacs", "cameras.california", "cameras.maryland", "cameras.louisiana", "cameras.utah", "cameras.windy", "streams.twitch", "appLock.status", "appLock.verify"],
         providersConfigured: {
           transitland: readTransitlandKey() !== null,
           star: star.configured,
@@ -1663,7 +1999,9 @@ export default async (req) => {
           caltrans: true,
           maryland: true,
           louisiana: true,
-          utah: true
+          utah: true,
+          windy: readWindyKey() !== null,
+          twitch: readTwitchKeys().clientId !== null && readTwitchKeys().clientSecret !== null
         },
         star: { configured: star.configured, model: star.configured ? star.model : null },
         note: "Providers sit behind the proxy as Capability Router providers; configured means the server's Netlify variable exists (presence only, never a value). CoinGecko also answers keyless at public limits. STAR chat is available when star.configured is true; otherwise STAR remains in demo mode."
@@ -1741,6 +2079,14 @@ export default async (req) => {
     case "cameras.utah": {
       const payload = body.payload === undefined ? {} : body.payload;
       return handleCamerasUtah(payload);
+    }
+    case "cameras.windy": {
+      const payload = body.payload === undefined ? {} : body.payload;
+      return handleCamerasWindy(payload);
+    }
+    case "streams.twitch": {
+      const payload = body.payload === undefined ? {} : body.payload;
+      return handleStreamsTwitch(payload);
     }
     default:
       return fail("UNSUPPORTED_ACTION", "That MTI6 action is not enabled.", 400);

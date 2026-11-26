@@ -156,9 +156,10 @@ export const executorById = (id: string): RuntimeExecutor | null =>
 /* Continuous-discovery rotation (v202, Fabric Phase 4) — the
  * governed scan order, one executor every five minutes while the
  * page is open. Exported so BotOperations runs it and the
- * build-spec executor can verify membership (F3: dry-run is not
- * a step yet — that is a build item in the queue, not a silent
- * addition here). */
+ * build-spec executor can verify membership. Dry-run joined as
+ * the 7th step in v251 (F3 in the Build Queue, now built) — the
+ * paper evaluation runs on its own cadence; it prepares nothing,
+ * signs nothing, moves nothing. */
 export const CONTINUOUS_DISCOVERY_ROTATION: string[] = [
   'money-radar',
   'dex-scan',
@@ -166,6 +167,7 @@ export const CONTINUOUS_DISCOVERY_ROTATION: string[] = [
   'pool-vault-scan',
   'opportunity-scan',
   'catalog-check',
+  'dry-run',
 ];
 
 /* Conditional parallel execution (v247, owner direction #7,

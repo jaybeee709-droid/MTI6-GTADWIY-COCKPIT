@@ -52,6 +52,8 @@ export const NETLIFY_GATEWAY_ACTIONS: string[] = [
   'cameras.maryland',
   'cameras.louisiana',
   'cameras.utah',
+  'cameras.windy',
+  'streams.twitch',
 ];
 
 /** Env vars present in Netlify, by NAME ONLY. All are
@@ -99,7 +101,8 @@ export const NETLIFY_KNOWLEDGE = [
   'It lives on the preview only — the production host has NO function, so gateway',
   'calls to production 404. Actions: gateway.status, gateway.ping, transit.stopsNear,',
   'transit.departures, star.chat, market.prices, geo.geocode, flights.nearby, cameras.nyc,',
-  'disasters.gdacs, cameras.california, cameras.maryland, cameras.louisiana, cameras.utah.',
+  'disasters.gdacs, cameras.california, cameras.maryland, cameras.louisiana, cameras.utah,',
+  'cameras.windy, streams.twitch.',
   '',
   'Environment variables in Netlify, by NAME ONLY (never values): MTI6_STAR_API_KEY,',
   'MTI6_WINDY_API_KEY, MTI6_TWITCH_CLIENT_ID, MTI6_TWITCH_CLIENT_SECRET, OPENROUTER_API_KEY,',
@@ -158,7 +161,6 @@ const ANSWER_GATEWAY =
   'It supports these actions: ' +
   NETLIFY_GATEWAY_ACTIONS.join(', ') +
   '. Secrets stay in Netlify env vars; the gateway never returns a secret to the client.';
-
 const ANSWER_VERSION =
   `Published production is main @ ${NETLIFY_PRODUCTION_COMMIT} (${NETLIFY_PRODUCTION_COMMIT_DATE}) — the initial ` +
   'PWA shell only. The live app version is whatever the running build reports from its own sw.js version marker; ' +
