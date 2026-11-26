@@ -16,6 +16,7 @@ import { swapDeskSummary } from './swap-desk';
 import { loadHarvestAssignments, loadHarvestRecords } from './web-harvest';
 import { buildQueueSummary } from './build-queue';
 import { botBrowserSummary } from './bot-browser';
+import { extensionSearchSummary } from './extension-search';
 import { getActiveLessons } from './bot-lessons';
 import { API_REGISTRY, getWiredFallbackEntries } from './api-registry';
 import {
@@ -116,6 +117,22 @@ function botBrowserLine(): string {
     return `session ${state}; scope github.com, this repo, development branch only; ${s.approved} build item(s) approved for browser work; log holds ${s.logCount} action(s) (${s.opened} opened for the owner, ${s.refused} refused)`;
   } catch {
     return 'bot browser session unreadable this session';
+  }
+}
+
+// v249 part 2 — extension search: search the real extension
+// stores from the app. The app's browser cannot install or run
+// extensions — it is a web page, not a desktop browser; install
+// happens in desktop Chrome/Firefox via the store link.
+function extensionSearchLine(): string {
+  try {
+    const s = extensionSearchSummary();
+    const last = s.lastSearch
+      ? `; latest recorded search "${s.lastSearch.query}" on ${s.lastSearch.store === 'CHROME_WEB_STORE' ? 'Chrome Web Store' : 'Firefox Add-ons'}`
+      : '; no searches recorded yet';
+    return `state ${s.state} — the app's browser cannot install or run extensions; a search opens the real Chrome Web Store or Firefox Add-ons page in a new tab and the owner installs in desktop Chrome or Firefox from there; ${s.historyCount} search(es) recorded${last}`;
+  } catch {
+    return 'extension search unreadable this session';
   }
 }
 
@@ -264,6 +281,7 @@ export function buildStarSystemPrompt(): string {
     `- Web Harvest (Tribe scouts, page-open only): ${harvestLine()} — excerpts are RAW and UNVERIFIED; a record becomes work only when Daniel turns it into a Research task from Bot Operations.`,
     `- Build Queue (the BUILDER track — what the team prepared for Muse to build): ${buildQueueLine()}. The bots prepare research, spec, and verification with evidence only — they write no code and run no builds; Muse implements in the clone and Daniel marks items IMPLEMENTED when they land. Ask "what's ready to build" for the list.`,
     `- Bot Browser (the governed in-app browser session for GitHub build work, Universal Search spec Phase 3): ${botBrowserLine()}. The bot never acts inside GitHub — an approved, in-scope page opens in a new tab for Daniel to perform and verify. There is no commit or push action in the session; every push still needs his own approval tap.`,
+    `- Extension search (search the real extension stores from the app): ${extensionSearchLine()}. No extension is installed, running, or available in the app — the panel is a search tool, not a directory, and it lists no extensions of its own. Ask "can I search for extensions" for the state.`,
     `- Local Hands (the on-device companion — web brain + local hands, v248): ${handsLine()}. A web page cannot reach outside the browser sandbox, so device control needs the companion installed on the device with its permissions granted there. Ask "can you control my device" for the state.`,
     `- Lessons the team learned from mistakes: ${lessonsLine()}. The runtime consults active lessons before every executor run; ask "what did the team learn" for the list.`,
     `- API Registry (every API the platform needs, per bot): ${registryLine()}. Fallback chains are recorded per entry — wired where the code actually falls back, labelled documented-only where not; entries with no fallback say so. Ask "which APIs" for the list.`,

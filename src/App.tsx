@@ -4,6 +4,8 @@ import {
   BookOpen,
   Bot,
   ChartColumn,
+  ChevronLeft,
+  ChevronRight,
   Coins,
   Compass,
   Cpu,
@@ -155,12 +157,32 @@ interface FloatingWin {
 /** A web tab kept by the cockpit (owner revision, 2026-11-23). The
  *  page itself opens in a real browser tab — most sites refuse to be
  *  embedded inside another app — while the cockpit keeps the tab
- *  strip: open, re-open, pin. Pinned tabs persist across sessions. */
+ *  strip: open, re-open, pin. Pinned tabs persist across sessions.
+ *  v249: a tab keeps its query — `kind: 'search'` tabs re-run the
+ *  DuckDuckGo search from the stored query, `kind: 'page'` tabs keep
+ *  the typed address. */
 interface WebTab {
   id: string;
   title: string;
   url: string;
   pinned: boolean;
+  query: string;
+  kind: 'search' | 'page';
+}
+
+/** Max tabs kept; when exceeded the oldest UNPINNED tab is evicted
+ *  first and a pinned tab is never evicted (same rule as the v247
+ *  pin store). */
+const MAX_WEB_TABS = 50;
+
+function webSearchUrl(query: string): string {
+  return `https://duckduckgo.com/?q=${encodeURIComponent(query)}`;
+}
+
+/** Pinned tabs sort first, stably — the strip order is the stored
+ *  order inside each group. */
+function sortWebTabs(tabs: WebTab[]): WebTab[] {
+  return [...tabs].sort((a, b) => Number(b.pinned) - Number(a.pinned));
 }
 
 type AmountPanel =
@@ -173,7 +195,33 @@ function loadWebTabs(): WebTab[] {
     const raw = localStorage.getItem('mti6-web-tabs-v1');
     if (!raw) return [];
     const parsed = JSON.parse(raw) as WebTab[];
-    return Array.isArray(parsed) ? parsed.filter((t) => t && t.url && t.title) : [];
+    if (!Array.isArray(parsed)) return [];
+    const tabs = parsed
+      .filter((t) => t && t.url && t.title)
+      .map((t) => {
+        // Old records have no kind/query — infer them, never drop the tab.
+        const kind: WebTab['kind'] =
+          t.kind === 'search' || t.kind === 'page'
+            ? t.kind
+            : t.url.startsWith('https://duckduckgo.com/?q=')
+              ? 'search'
+              : 'page';
+        const query =
+          typeof t.query === 'string' && t.query.trim()
+            ? t.query
+            : kind === 'search'
+              ? t.title // a search tab's title IS its query
+              : t.url.replace(/^https?:\/\//, '');
+        return { ...t, pinned: t.pinned === true, query, kind };
+      });
+    // Enforce the cap on load too, evicting oldest unpinned first.
+    const capped = sortWebTabs(tabs);
+    while (capped.length > MAX_WEB_TABS) {
+      const idx = capped.findIndex((t) => !t.pinned);
+      if (idx === -1) break;
+      capped.splice(idx, 1);
+    }
+    return capped;
   } catch {
     return [];
   }
@@ -873,16 +921,33 @@ export function App() {
     if (!q) return;
     const looksLikeUrl =
       /^https?:\/\//i.test(q) || (!q.includes(' ') && /^[^\s]+\.[a-z]{2,}/i.test(q));
+    const kind: WebTab['kind'] = looksLikeUrl ? 'page' : 'search';
     const url = looksLikeUrl
       ? q.startsWith('http')
         ? q
         : `https://${q}`
-      : `https://duckduckgo.com/?q=${encodeURIComponent(q)}`;
+      : webSearchUrl(q);
     const title = looksLikeUrl ? q.replace(/^https?:\/\//, '') : q;
-    setWebTabs((prev) => [
-      ...prev,
-      { id: `${Date.now()}-${prev.length}`, title, url, pinned: false },
-    ]);
+    const tab: WebTab = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      title,
+      url,
+      pinned: false,
+      query: q,
+      kind,
+    };
+    setWebTabs((prev) => {
+      const next = [...prev, tab];
+      while (next.length > MAX_WEB_TABS) {
+        const idx = next.findIndex((t) => !t.pinned);
+        if (idx === -1) {
+          next.pop(); // all pinned: drop the new tab, never a pinned one
+          break;
+        }
+        next.splice(idx, 1);
+      }
+      return sortWebTabs(next);
+    });
     window.open(url, '_blank', 'noopener,noreferrer');
     setSearchQuery('');
     setSearchFocus(false);
@@ -890,7 +955,34 @@ export function App() {
   };
 
   const togglePinTab = (id: string) =>
-    setWebTabs((prev) => prev.map((t) => (t.id === id ? { ...t, pinned: !t.pinned } : t)));
+    setWebTabs((prev) =>
+      sortWebTabs(prev.map((t) => (t.id === id ? { ...t, pinned: !t.pinned } : t))),
+    );
+
+  /** Move a tab one step within its own group (pinned tabs move among
+   *  pinned, unpinned among unpinned) so pinned-first order is never
+   *  broken. The stored order is the strip order, so the move
+   *  persists across reloads via the same localStorage record. */
+  const moveWebTab = (id: string, dir: -1 | 1) =>
+    setWebTabs((prev) => {
+      const idx = prev.findIndex((t) => t.id === id);
+      if (idx === -1) return prev;
+      const swap = idx + dir;
+      if (swap < 0 || swap >= prev.length) return prev;
+      if (prev[swap].pinned !== prev[idx].pinned) return prev;
+      const next = [...prev];
+      [next[idx], next[swap]] = [next[swap], next[idx]];
+      return next;
+    });
+
+  /** Re-open a tab. A search tab re-runs its stored query (the
+   *  DuckDuckGo URL is rebuilt from the query — results live on the
+   *  search page itself, never invented here); a page tab re-opens
+   *  its stored address. */
+  const reopenWebTab = (tab: WebTab) => {
+    const url = tab.kind === 'search' && tab.query ? webSearchUrl(tab.query) : tab.url;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
 
   const closeWebTab = (id: string) =>
     setWebTabs((prev) => prev.filter((t) => t.id !== id));
@@ -1713,6 +1805,9 @@ export function App() {
           <div className="mx-auto flex w-full max-w-[1600px] items-center gap-1.5 overflow-x-auto px-4 py-1.5">
             <span className="shrink-0 font-mono text-[9px] tracking-widest text-[#B8B8B8]">
               WEB TABS
+              {webTabs.some((t) => t.pinned)
+                ? ` · ${webTabs.filter((t) => t.pinned).length} pinned`
+                : ''}
             </span>
             {webTabs.map((tab) => (
               <div
@@ -1725,6 +1820,24 @@ export function App() {
               >
                 <button
                   type="button"
+                  onClick={() => moveWebTab(tab.id, -1)}
+                  aria-label={`Move tab ${tab.title} left`}
+                  title="Move left"
+                  className="text-[#B8B8B8] hover:text-white"
+                >
+                  <ChevronLeft className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moveWebTab(tab.id, 1)}
+                  aria-label={`Move tab ${tab.title} right`}
+                  title="Move right"
+                  className="text-[#B8B8B8] hover:text-white"
+                >
+                  <ChevronRight className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
                   onClick={() => togglePinTab(tab.id)}
                   aria-label={tab.pinned ? `Unpin tab ${tab.title}` : `Pin tab ${tab.title}`}
                   title={tab.pinned ? 'Pinned — tap to unpin' : 'Pin this tab'}
@@ -1732,11 +1845,16 @@ export function App() {
                 >
                   <Pin className="h-3 w-3" />
                 </button>
+                {tab.kind === 'search' && (
+                  <Search className="h-3 w-3 shrink-0 text-[#B8B8B8]" aria-hidden="true" />
+                )}
                 <button
                   type="button"
-                  onClick={() => window.open(tab.url, '_blank', 'noopener,noreferrer')}
+                  onClick={() => reopenWebTab(tab)}
                   className="max-w-[160px] truncate hover:text-white"
-                  title={tab.url}
+                  title={
+                    tab.kind === 'search' ? `Search: ${tab.query}` : tab.url
+                  }
                 >
                   {tab.title}
                 </button>

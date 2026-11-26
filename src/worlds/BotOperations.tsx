@@ -40,6 +40,7 @@ import { ProjectKnowledgePanel } from './ProjectKnowledgePanel';
 import { AngelsPanel } from './AngelsPanel';
 import { BotIntelligencePanel } from './BotIntelligencePanel';
 import { MistakeAlertsPanel } from './MistakeAlertsPanel';
+import { ExtensionSearchPanel } from './ExtensionSearchPanel';
 import { learnFromHarvest } from '../bot-learning';
 import {
   EXECUTORS,
@@ -1263,6 +1264,15 @@ export const BotOperations: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* EXTENSION SEARCH (v249 part 2) — search the real extension
+          stores (Chrome Web Store / Firefox Add-ons) from the app.
+          A search opens the real store in a new tab for the owner;
+          install happens in desktop Chrome/Firefox, never in the
+          app — the app's browser cannot install or run extensions.
+          Separate from the governed Bot Browser session above;
+          no store host is added to its scope. */}
+      <ExtensionSearchPanel />
 
       {/* LESSONS (v247) — Bot Memory that learns from mistakes: failed
           runs, errors, and corrections recorded as lessons the runtime
