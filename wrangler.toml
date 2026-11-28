@@ -1,0 +1,50 @@
+# MTI6-GTADWIY-COCKPIT — Cloudflare Control Plane (P1 scaffolding, DRAFT)
+#
+# STATUS: APPLIED in v252 (P1, 2026-11-25) as inert Cloudflare
+# scaffolding — in the repo, NOT deployed. (Drafted by Stream B while
+# the build was stopped by an execution-risk notice; applied after
+# Daniel's 14:57 EST "Yes go ahead". CORRECTED PLAN: truth-fix takes
+# v239-v242 taken, P1=v252.)
+#
+# What this is: the inert Cloudflare Workers scaffolding for the
+# Control Plane (U24 option (a): Workers + SQLite Durable Objects;
+# U25 option (c): Google signed JWT; U26 option (a): Netlify /
+# Cloudflare coexistence). No deploy, no `wrangler login`, no secrets
+# entered by any agent. Secrets live ONLY in the Cloudflare dashboard
+# (entered by Daniel) — never in this file, the repo, or client JS.
+#
+# Free plan only. No provider is wired by this file. The worker
+# re-hosts the Netlify proxy's allowlist only once it is deployed
+# AND the JWT gate is enforced AND tested — until then the Netlify
+# proxy remains the only gateway and P1 is contract + scaffolding,
+# not a live boundary.
+
+name = "mti6-control-plane"
+main = "workers/control-plane.ts"
+compatibility_date = "2026-11-25"
+
+# Workers Free plan: 100,000 requests/day, 10 ms CPU per invocation.
+# No spending beyond the free plan is configured anywhere in this
+# file. Overuse fails safe (requests are refused, never billed).
+# Values flagged UNVERIFIED-against-docs in js/quota-config.js until
+# re-checked against the Cloudflare dashboard at provisioning time.
+
+[[durable_objects.bindings]]
+name = "WORK_LEDGER"
+class_name = "WorkLedger"
+
+[[durable_objects.bindings]]
+name = "RESOURCE_STATE"
+class_name = "ResourceState"
+
+[[durable_objects.bindings]]
+name = "AUDIT_TRAIL"
+class_name = "AuditTrail"
+
+[[queues.producers]]
+binding = "WORKER_JOBS"
+queue = "mti6-worker-jobs"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["WorkLedger", "ResourceState", "AuditTrail"]

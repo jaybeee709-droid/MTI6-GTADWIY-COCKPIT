@@ -266,6 +266,28 @@ function fail(code, message, status, source) {
   return envelope(false, source || "gateway", null, { code, message }, status);
 }
 
+// Control Plane auth-gate seam (P1, U25(c)) — testable, non-enforcing.
+// The gate is DISABLED by explicit flag: U25(c) Google identity is not
+// provisioned, so no client could satisfy an enforced boundary yet.
+// requireControlPlaneAuth() returns the would-be decision; with the
+// flag off it always allows. When a later package flips enforcement
+// on (only after Google identity is provisioned and a client is
+// proven to pass the gate), the seam verifies the Bearer JWT and
+// denies with AUTH_REQUIRED when it is missing or unverifiable —
+// fail-closed, never an unverified allow.
+const CONTROL_PLANE_AUTH_ENFORCED = false;
+async function requireControlPlaneAuth(req) {
+  if (!CONTROL_PLANE_AUTH_ENFORCED) {
+    return { enforced: false, allowed: true, decision: "ALLOW_UNENFORCED", reason: "U25(c) identity not provisioned" };
+  }
+  const auth = req && req.headers ? (req.headers.get("Authorization") || "") : "";
+  const token = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
+  if (!token) {
+    return { enforced: true, allowed: false, code: "AUTH_REQUIRED", decision: "DENY_NO_TOKEN", reason: "No bearer token was supplied." };
+  }
+  return { enforced: true, allowed: false, code: "AUTH_REQUIRED", decision: "DENY_NOT_PROVISIONED", reason: "JWT verification is designed but not yet implemented for this proxy." };
+}
+
 // Transit error envelope: source is always "transitland" (the provider
 // that actually answered — or failed to), never "gateway", so the
 // router can record originalSource correctly. `extra` carries only
@@ -867,6 +889,12 @@ function readPipelineKeys() {
 function pipelineFail(source, code, message, status) {
   return envelope(false, source, null, { code, message }, status);
 }
+
+// Quota error envelope (P1 vocabulary): the helper for QUOTA_EXHAUSTED
+// and other quota codes (RATE_LIMITED for per-minute windows). Defined
+// now, first used in P9 — the vocabulary exists before anything
+// crosses the boundary.
+function quotaFail(source, code, message, status) { return envelope(false, source, null, { code, message }, status); }
 
 const COINGECKO_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -1972,6 +2000,9 @@ export default async (req) => {
     return fail("MISSING_ACTION", "No MTI6 action was supplied.", 400);
   }
 
+  const authGate = await requireControlPlaneAuth(req);
+  if (!authGate.allowed) return fail(authGate.code || "AUTH_REQUIRED", "Control Plane authentication failed.", 401);
+
   // Explicit allowlist. Anything not listed here is rejected before
   // any upstream code could run. Transitland v1 admits exactly two
   // actions (D1 + D2, 2026-11-17): transit.stopsNear and
@@ -2004,6 +2035,7 @@ export default async (req) => {
           twitch: readTwitchKeys().clientId !== null && readTwitchKeys().clientSecret !== null
         },
         star: { configured: star.configured, model: star.configured ? star.model : null },
+        controlPlane: { authEnforced: CONTROL_PLANE_AUTH_ENFORCED, jwtRequired: CONTROL_PLANE_AUTH_ENFORCED },
         note: "Providers sit behind the proxy as Capability Router providers; configured means the server's Netlify variable exists (presence only, never a value). CoinGecko also answers keyless at public limits. STAR chat is available when star.configured is true; otherwise STAR remains in demo mode."
       }, null, 200);
     }
