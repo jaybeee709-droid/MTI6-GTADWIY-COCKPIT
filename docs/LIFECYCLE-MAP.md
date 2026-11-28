@@ -85,8 +85,9 @@ Each stage names which canonical cost kinds and risk dimensions are assessed the
 | `EXIT` | Exit cost, Network gas, Slippage | Liquidity, Market |
 | `ARCHIVE / LEARN` | — | — |
 
-A runtime guard (`auditStageAssessments()`) verifies every code against the
-canonical lists and reports mismatches on screen rather than shipping silently.
+Validation was done offline against the authoritative lists (40 mapped, 16 honestly
+unmapped, 0 mismatches). No runtime guard exists yet — `auditStageAssessments()` is a
+designed guard, not built code, and nothing reports mismatches on screen today.
 
 ---
 
