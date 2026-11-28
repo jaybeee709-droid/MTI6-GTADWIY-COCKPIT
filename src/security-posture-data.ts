@@ -4,7 +4,7 @@
  * provider list, and the NAMES of the environment variables it
  * reads. Secret VALUES live only in the Netlify environment and
  * never appear in this repository or this file. */
-export const PROXY_ACTIONS: string[] = ["gateway.status","gateway.ping","transit.stopsNear","transit.departures","star.chat","market.prices","geo.geocode"];
-export const PROXY_PROVIDERS: string[] = ["transitland","star","coingecko","geoapify","locationiq"];
-export const PROXY_ENV_NAMES: string[] = ["MTI6_COINGECKO_API_KEY","MTI6_GEOAPIFY_KEY","MTI6_LOCATIONIQ_KEY","MTI6_STAR_API_KEY","MTI6_STAR_BASE_URL","MTI6_STAR_MODEL","TRANSITLAND_API_KEY"];
+export const PROXY_ACTIONS: string[] = ["gateway.status","gateway.ping","transit.stopsNear","transit.departures","star.chat","star.providers","market.prices","geo.geocode","flights.nearby","cameras.nyc","disasters.gdacs","cameras.california","cameras.maryland","cameras.louisiana","cameras.utah","cameras.windy","streams.twitch","crypto.simplePrice","crypto.coinMarkets","crypto.coin","crypto.marketChart","crypto.search","appLock.status","appLock.verify"];
+export const PROXY_PROVIDERS: string[] = ["transitland","star","coingecko","geoapify","locationiq","adsb.lol","nycdot","gdacs","caltrans","maryland","louisiana","utah","windy","twitch"];
+export const PROXY_ENV_NAMES: string[] = ["ANTHROPIC_API_KEY","GEMINI_API_KEY","MTI6_APP_LOCK_HASH","MTI6_APP_LOCK_PASSWORD","MTI6_COINGECKO_API_KEY","MTI6_GEOAPIFY_KEY","MTI6_LOCATIONIQ_KEY","MTI6_STAR_API_KEY","MTI6_STAR_BASE_URL","MTI6_STAR_MODEL","MTI6_TWITCH_CLIENT_ID","MTI6_TWITCH_CLIENT_SECRET","MTI6_WINDY_API_KEY","TRANSITLAND_API_KEY"];
 export const PROXY_METHOD = 'POST' as const;

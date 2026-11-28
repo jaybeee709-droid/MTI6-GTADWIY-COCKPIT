@@ -7,7 +7,7 @@
  * credential value. Run:
  *   node scripts/generate-security-posture.mjs
  * It asserts the POST-only gate exists and the allowlist is the
- * recorded five actions. */
+ * recorded allowlist. */
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const src = readFileSync('netlify/functions/mti6-proxy.mjs', 'utf8');
@@ -26,7 +26,7 @@ const envNames = [...new Set([...src.matchAll(/(?:process\.env|env)\.([A-Z][A-Z0
 if (!/METHOD_NOT_ALLOWED", "POST required\."/.test(src)) {
   throw new Error('proxy: POST-only gate not found — posture facts changed, review before generating');
 }
-const expectedActions = ['gateway.ping', 'gateway.status', 'geo.geocode', 'market.prices', 'star.chat', 'transit.departures', 'transit.stopsNear'];
+const expectedActions = ['appLock.status', 'appLock.verify', 'cameras.california', 'cameras.louisiana', 'cameras.maryland', 'cameras.nyc', 'cameras.utah', 'cameras.windy', 'crypto.coin', 'crypto.coinMarkets', 'crypto.marketChart', 'crypto.search', 'crypto.simplePrice', 'disasters.gdacs', 'flights.nearby', 'gateway.ping', 'gateway.status', 'geo.geocode', 'market.prices', 'star.chat', 'star.providers', 'streams.twitch', 'transit.departures', 'transit.stopsNear'];
 if (JSON.stringify([...actions].sort()) !== JSON.stringify(expectedActions)) {
   throw new Error(`proxy allowlist changed: ${JSON.stringify(actions)} — owner review before regenerating`);
 }

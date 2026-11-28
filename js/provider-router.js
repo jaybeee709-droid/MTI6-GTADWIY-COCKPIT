@@ -1393,6 +1393,51 @@
     return failObj("OFFLINE", status, detail || "the gateway request failed without a gateway error code");
   }
 
+  // Gateway error codes (api-client.js attaches .code + .status
+  // to the thrown error) mapped onto the router's failure
+  // vocabulary for CoinGecko (P9) — mirrors
+  // mapGatewayTransitError exactly: a missing key, a provider
+  // quota refusal, and a miss are told apart instead of every
+  // gateway failure becoming OFFLINE. QUOTA_EXHAUSTED is the
+  // router's own monthly-budget state (coingeckoQuota): the proxy
+  // never returns it, but the runner below fails with it before
+  // any network attempt, and the mapper carries it through
+  // unchanged for callers that route through here.
+  function mapGatewayCoinGeckoError(err) {
+    var code = err && err.code;
+    var status = (err && err.status !== undefined && err.status !== null) ? err.status : null;
+    var detail = (err && (err.detail || err.message)) || "";
+    if (code === "AUTH_REQUIRED") {
+      return failObj("AUTH_REQUIRED", 401,
+        "CoinGecko keyed proxy: AUTH_REQUIRED (no MTI6_COINGECKO_API_KEY on the server). " +
+        "Check the MTI6_COINGECKO_API_KEY Netlify variable — the key itself is never shown here.");
+    }
+    if (code === "RATE_LIMITED") {
+      return failObj("RATE_LIMITED", 429,
+        "CoinGecko refused the request: the provider rate limit is reached — the client governor serves the cached value. See the CoinGecko dashboard.");
+    }
+    if (code === "QUOTA_EXHAUSTED") {
+      return failObj("RATE_LIMITED", null,
+        "MTI6 monthly CoinGecko budget (8,000 credits) is reached — the 2,000-credit reserve is untouched. No paid upgrade is ever made automatically.");
+    }
+    if (code === "NOT_FOUND") {
+      return failObj("NO_DATA", 404,
+        "CoinGecko found nothing for that asset — the provider's answer, not a claim the asset does not exist.");
+    }
+    if (code === "INVALID_REQUEST") {
+      return failObj("INVALID_RESPONSE", 400,
+        "MTI6 sent an invalid CoinGecko request and the gateway rejected it before calling CoinGecko — our bug, not the provider's.");
+    }
+    if (code === "UNSUPPORTED_ACTION") {
+      return failObj("UNSUPPORTED", 400,
+        "CoinGecko is not enabled in the gateway yet — the proxy allowlist does not include this action, so no provider was called.");
+    }
+    if (code === "UPSTREAM_ERROR") {
+      return failObj("OFFLINE", 502, "CoinGecko could not be reached or returned an unexpected error.");
+    }
+    return failObj("OFFLINE", status, detail || "the gateway request failed without a gateway error code");
+  }
+
   // One governed transit call (v116). Mirrors callProvider's §13
   // governor shape — breaker/backoff skip, per-minute budget,
   // serial queue with minimum interval — plus the D3 monthly
@@ -2055,6 +2100,14 @@
 
   };
 
+  // CoinGecko asset ids for the P9 keyed price runner (same seven
+  // symbols as the React live-data leg; "ripple" is CoinGecko's id
+  // for XRP).
+  var COINGECKO_IDS = {
+    BTC: "bitcoin", ETH: "ethereum", SOL: "solana", DOGE: "dogecoin",
+    XRP: "ripple", LTC: "litecoin", ADA: "cardano"
+  };
+
   var CryptoData = {
     protocol: function (slugOrId, opts) {
       var input = String(slugOrId || "").trim();
@@ -2081,6 +2134,62 @@
         "dexPairs:" + (networkId || "search") + ":" + q.toLowerCase(),
         chainSteps("dexPairs", CHAINS.dexPairs, { query: q, networkId: networkId }),
         CAPABILITY_POLICIES.dexPairs, opts);
+    },
+
+    // CoinGecko price runner (P9, U2/U3(a)) — the vanilla tree's
+    // keyed CoinGecko leg. Contract (callTransitland's): resolves
+    // with { price, change24h, source: "CoinGecko" } on success;
+    // rejects with the mapped failObj on failure. It consults
+    // coingeckoQuota() FIRST: monthly exhausted → reject with
+    // failureState RATE_LIMITED and quotaState QUOTA_EXHAUSTED,
+    // ZERO network attempts. Otherwise one
+    // MTI6API.request("crypto.simplePrice") through the keyed
+    // proxy; gateway errors are mapped by mapGatewayCoinGeckoError.
+    // This is a provider entry, not a takeover: the router `price`
+    // policy stays RESERVED and PriceScout keeps its own chain.
+    coingeckoPrice: function (sym) {
+      var symbol = String(sym || "").toUpperCase().trim();
+      var id = COINGECKO_IDS[symbol];
+      if (!symbol || !id) {
+        return Promise.reject(failObj("INVALID_RESPONSE", 400, "No supported CoinGecko symbol named — no provider was called."));
+      }
+      var q = coingeckoQuota();
+      if (q.quotaState === "QUOTA_EXHAUSTED") {
+        var exhausted = failObj("RATE_LIMITED", null,
+          "MTI6 monthly CoinGecko budget (" + COINGECKO_MONTHLY_BUDGET + " credits) is reached — the " +
+          COINGECKO_MONTHLY_RESERVE + "-credit reserve is untouched. No paid upgrade is ever made automatically.");
+        exhausted.quotaState = "QUOTA_EXHAUSTED";
+        return Promise.reject(exhausted);
+      }
+      if (!global.MTI6API || typeof global.MTI6API.request !== "function") {
+        return Promise.reject(failObj("OFFLINE", null, "gateway client (MTI6API) did not load — no CoinGecko call was made"));
+      }
+      coingeckoInFlight += 1;
+      return global.MTI6API.request("crypto.simplePrice", { ids: [id] }).then(function (envelope) {
+        coingeckoInFlight -= 1;
+        var data = envelope && envelope.data;
+        var row = data && data.prices && data.prices[id];
+        var price = row && typeof row.usd === "number" && isFinite(row.usd) ? row.usd : null;
+        if (price === null) {
+          try { if (global.ApiRegistry) global.ApiRegistry.record("coingecko", false, 200); } catch (e) {}
+          throw failObj("INVALID_RESPONSE", 200, "CoinGecko answered without a price for " + symbol + " — no price is invented.");
+        }
+        noteSuccess("coingecko");
+        try { if (global.ApiRegistry) global.ApiRegistry.record("coingecko", true, 200); } catch (e) {}
+        return {
+          price: price,
+          change24h: typeof row.change24h === "number" && isFinite(row.change24h) ? row.change24h : null,
+          source: "CoinGecko"
+        };
+      }, function (err) {
+        coingeckoInFlight -= 1;
+        var mapped = mapGatewayCoinGeckoError(err);
+        var genuine = ["RATE_LIMITED", "TIMEOUT", "AUTH_REQUIRED", "OFFLINE", "INVALID_RESPONSE"]
+          .indexOf(mapped.failureState) !== -1;
+        if (genuine) noteFailure("coingecko", mapped.failureState, mapped.status);
+        try { if (global.ApiRegistry) global.ApiRegistry.record("coingecko", false, mapped.status); } catch (e) {}
+        throw mapped;
+      });
     },
 
     // §7 + §22: DefiLlama's yield endpoints moved to the paid plan
@@ -2125,9 +2234,13 @@
     callProvider: function (providerId, url) {
       // Test-only passthrough (same precedent as setProviderConfig):
       // proves the per-minute window without a CoinGecko capability
-      // function. The monthly-gate call-path wiring lands in P9.
+      // function. The monthly-gate call-path wiring is
+      // CryptoData.coingeckoPrice (P9).
       return callProvider(providerId, url);
     },
+    // Harness-only: the CoinGecko gateway-error mapper, so the
+    // harness can prove every branch without stubbing the gateway.
+    mapGatewayCoinGeckoError: mapGatewayCoinGeckoError,
     setProviderConfig: function (providerId, patch) {
       var cfg = PROVIDERS[providerId];
       if (!cfg || !patch) return false;
@@ -2195,8 +2308,9 @@
       capabilities: { transitStops: "transitStops", transitDepartures: "transitDepartures", transitRoute: "transitRoute" }
     },
     // CoinGecko (P3, U3(a)): quota governor + ruled budgets. The
-    // monthly-gate call-path wiring lands in P9; the P9 harness
-    // proves the runner consults it with zero network.
+    // monthly-gate call-path wiring is CryptoData.coingeckoPrice
+    // (P9); the P9 harness proves the runner consults it with zero
+    // network.
     CoinGecko: {
       quota: coingeckoQuota,
       MONTHLY_BUDGET: COINGECKO_MONTHLY_BUDGET,

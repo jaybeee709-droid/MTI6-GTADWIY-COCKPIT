@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { recordRawArchive } from './raw-archive';
 import { COINGECKO_QUOTA } from './quota-config';
+import { gatewayPost, StarError } from './star-client';
 
 /* Live data + provenance (owner direction 2026-11-23: "Light up live
  * data, build the provenance explorer").
@@ -13,13 +14,26 @@ import { COINGECKO_QUOTA } from './quota-config';
  * separate database: any figure can be tapped to reveal the
  * observation that produced it.
  *
- * Sources are keyless and public, reached directly from the client —
- * no secrets exist in this layer. Chains follow the platform's
- * fallback discipline (the vanilla PriceScout order for prices):
- * first success wins, every failure falls through, and the governor
- * below dedupes in-flight requests and enforces TTLs so no screen
- * can storm a provider.
+ * Most sources are keyless and public, reached directly from the
+ * client — no secrets exist in this layer for those legs. CoinGecko
+ * is the exception: it is reached ONLY through the keyed proxy
+ * (/api/mti6 crypto.* actions, MTI6_COINGECKO_API_KEY server-side);
+ * the browser never calls CoinGecko directly and there is no keyless
+ * fallback. Chains follow the platform's fallback discipline (the
+ * vanilla PriceScout order for prices): first success wins, every
+ * failure falls through, and the governor below dedupes in-flight
+ * requests and enforces TTLs so no screen can storm a provider.
+ * CoinGecko figures carry the "Powered by CoinGecko" attribution.
  */
+
+/* CoinGecko TTLs (P9, U10 PROPOSED — unruled by the owner at
+ * v255): prices 5 min, charts 2 h, search 24 h. Single named
+ * constants so the ruling, when it lands, changes one place. */
+export const COINGECKO_TTL = {
+  prices: 5 * 60 * 1000,
+  charts: 2 * 60 * 60 * 1000,
+  search: 24 * 60 * 60 * 1000,
+} as const;
 
 export type ObsStatus = 'LIVE' | 'CACHED' | 'STALE' | 'NO_DATA';
 
@@ -105,6 +119,10 @@ interface CacheEntry {
   value: unknown;
   source: string;
   fetchedAt: number;
+  /** Fetcher-supplied observation note, e.g. the CoinGecko
+   * AUTH_REQUIRED honesty note or the "Powered by CoinGecko"
+   * attribution — carried so CACHED observations keep it too. */
+  note?: string;
 }
 
 const cache = new Map<string, CacheEntry>();
@@ -114,7 +132,7 @@ async function governed<T>(
   key: string,
   ttlMs: number,
   chain: string[],
-  fetcher: () => Promise<{ value: T; source: string } | null>,
+  fetcher: () => Promise<{ value: T; source: string; note?: string } | null>,
 ): Promise<Observation<T>> {
   const hit = cache.get(key) as CacheEntry | undefined;
   if (hit && Date.now() - hit.fetchedAt < ttlMs) {
@@ -124,7 +142,7 @@ async function governed<T>(
       source: hit.source,
       fetchedAt: hit.fetchedAt,
       chain,
-      note: 'Served from the governor cache inside its TTL.',
+      note: hit.note ?? 'Served from the governor cache inside its TTL.',
     };
     recordProvenance(key, obs);
     return obs;
@@ -139,6 +157,7 @@ async function governed<T>(
             value: result.value,
             source: result.source,
             fetchedAt: Date.now(),
+            note: result.note,
           };
           cache.set(key, entry);
           return entry;
@@ -159,7 +178,7 @@ async function governed<T>(
       source: entry.source,
       fetchedAt: entry.fetchedAt,
       chain,
-      note: 'Fetched just now from the named source.',
+      note: entry.note ?? 'Fetched just now from the named source.',
     };
     recordProvenance(key, obs);
     return obs;
@@ -194,8 +213,8 @@ async function governed<T>(
  * recorded in the ledger; failed attempts never reached CoinGecko
  * and are not counted against the budget.
  * Thresholds come from src/quota-config.ts (COINGECKO_QUOTA).
- * No price-path change in P3 — fetchPrice/fetchHistory are wired to
- * this wrapper in P9.
+ * P9 wired fetchPrice/fetchHistory to this wrapper — the ruled
+ * governor now applies to the live React price path.
  */
 
 const COINGECKO_USAGE_KEY = 'mti6_coingecko_usage_v1';
@@ -252,7 +271,7 @@ export async function governedCoinGecko<T>(
   key: string,
   ttlMs: number,
   chain: string[],
-  fetcher: () => Promise<{ value: T; source: string } | null>,
+  fetcher: () => Promise<{ value: T; source: string; note?: string } | null>,
 ): Promise<Observation<T>> {
   const now = Date.now();
   const month = coinGeckoMonthKey(new Date(now));
@@ -416,16 +435,22 @@ const COINPAPRIKA_IDS: Record<string, string> = {
   ADA: 'ada-cardano',
 };
 
+/* CoinGecko leg — the keyed proxy ONLY (P9, U2). The browser never
+ * calls CoinGecko directly and there is no keyless fallback:
+ * gatewayPost throws StarError (AUTH_REQUIRED when no
+ * MTI6_COINGECKO_API_KEY is configured on the server) and the
+ * fetchPrice fetcher turns that into an honest observation note
+ * while the chain continues to the next provider. */
 async function priceFromCoinGecko(sym: string): Promise<PriceValue | null> {
   const id = COINGECKO_IDS[sym];
   if (!id) return null;
-  const data = await fetchJson(
-    `https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd&include_24hr_change=true`,
-  );
-  if (!isRecord(data) || !isRecord(data[id])) return null;
-  const price = num(data[id].usd);
+  const data = (await gatewayPost('crypto.simplePrice', { ids: [id] })) as {
+    prices?: Record<string, { usd?: unknown; change24h?: unknown }>;
+  } | null;
+  if (!isRecord(data) || !isRecord(data.prices) || !isRecord(data.prices[id])) return null;
+  const price = num(data.prices[id].usd);
   if (price === null) return null;
-  return { price, change24h: num(data[id].usd_24h_change) };
+  return { price, change24h: num(data.prices[id].change24h) };
 }
 
 async function priceFromCoinbase(sym: string): Promise<PriceValue | null> {
@@ -600,10 +625,14 @@ async function priceFromBlockchainCom(sym: string): Promise<PriceValue | null> {
   return { price: last, change24h: null };
 }
 
-/* Testable map of the whole keyless price leg: the node probe
- * calls each source directly for BTC so a broken parser is
- * caught even when CoinGecko answers first in the live chain. */
-export const KEYLESS_PRICE_SOURCES: Record<string, (sym: string) => Promise<PriceValue | null>> = {
+/* Testable map of the whole price leg. The CoinGecko entry is the
+ * keyed-proxy leg (gatewayPost); every other entry is a keyless
+ * public endpoint. No node probe imports this map at v255
+ * (scripts/route-smoke-test.mjs renders screens only), so the
+ * CoinGecko leg is exercised through the live gateway, not a probe
+ * — and a CoinGecko AUTH_REQUIRED is an expected honest outcome
+ * when the key is absent, not a failure. */
+export const PRICE_SOURCES: Record<string, (sym: string) => Promise<PriceValue | null>> = {
   CoinGecko: priceFromCoinGecko,
   Coinbase: priceFromCoinbase,
   CoinPaprika: priceFromCoinPaprika,
@@ -622,12 +651,41 @@ export const KEYLESS_PRICE_SOURCES: Record<string, (sym: string) => Promise<Pric
 };
 
 export function fetchPrice(sym: string): Promise<Observation<PriceValue>> {
-  return governed<PriceValue>(`price:${sym}`, 120_000, PRICE_CHAIN, async () => {
-    for (const [source, fn] of Object.entries(KEYLESS_PRICE_SOURCES)) {
+  // Wired to the ruled CoinGecko governor in P9 (P3 promise):
+  // monthly budget, 50/min window and 1200 ms min-interval apply
+  // to the CoinGecko leg; on exhaustion it serves cache / STALE /
+  // NO_DATA with the QUOTA_EXHAUSTED note and makes zero network
+  // attempts. The 5-min TTL is the PROPOSED U10 price TTL.
+  return governedCoinGecko<PriceValue>(`price:${sym}`, COINGECKO_TTL.prices, PRICE_CHAIN, async () => {
+    let coinGeckoAuthRequired = false;
+    for (const [source, fn] of Object.entries(PRICE_SOURCES)) {
       try {
         const value = await fn(sym);
-        if (value) return { value, source };
-      } catch {
+        if (value) {
+          if (source === 'CoinGecko') {
+            return {
+              value,
+              source,
+              note: 'Fetched just now from CoinGecko via the keyed proxy. Powered by CoinGecko.',
+            };
+          }
+          if (coinGeckoAuthRequired) {
+            return {
+              value,
+              source,
+              note: `CoinGecko (keyed proxy) answered AUTH_REQUIRED — no MTI6_COINGECKO_API_KEY on the server. Prices continued via ${source} (a separate provider, not a CoinGecko fallback).`,
+            };
+          }
+          return { value, source };
+        }
+      } catch (err) {
+        // The CoinGecko rung reports AUTH_REQUIRED honestly and the
+        // chain continues to the next provider — a SEPARATE provider,
+        // never a CoinGecko keyless fallback. Remember it and surface
+        // it in the observation note.
+        if (source === 'CoinGecko' && err instanceof StarError && err.code === 'AUTH_REQUIRED') {
+          coinGeckoAuthRequired = true;
+        }
         /* fall through the chain */
       }
     }
@@ -890,24 +948,32 @@ export function fetchHistory(
   sym: string,
   range: '1d' | '7d' | '30d',
 ): Promise<Observation<HistoryValue>> {
-  return governed<HistoryValue>(`history:${sym}:${range}`, 300_000, HISTORY_CHAIN, async () => {
-    // CoinGecko market_chart first.
+  // Wired to the ruled CoinGecko governor in P9 (P3 promise) — see
+  // fetchPrice. The 2-h TTL is the PROPOSED U10 chart TTL.
+  return governedCoinGecko<HistoryValue>(`history:${sym}:${range}`, COINGECKO_TTL.charts, HISTORY_CHAIN, async () => {
+    // CoinGecko market_chart first — keyed proxy, no keyless fallback.
     try {
       const id = COINGECKO_IDS[sym];
       if (id) {
-        const days = range === '1d' ? '1' : range === '7d' ? '7' : '30';
-        const data = await fetchJson(
-          `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`,
-        );
-        if (isRecord(data) && Array.isArray(data.prices)) {
-          const points = data.prices
-            .filter((pt): pt is [number, number] => Array.isArray(pt) && typeof pt[0] === 'number' && typeof pt[1] === 'number')
-            .map(([t, p]) => ({ t, p }));
-          if (points.length > 1) return { value: { points }, source: 'CoinGecko' };
+        const days = range === '1d' ? 1 : range === '7d' ? 7 : 30;
+        const data = (await gatewayPost('crypto.marketChart', { id, days })) as {
+          points?: unknown;
+        } | null;
+        if (isRecord(data) && Array.isArray(data.points)) {
+          const points = data.points
+            .filter((pt): pt is { t: number; p: number } => isRecord(pt) && typeof pt.t === 'number' && typeof pt.p === 'number')
+            .map(({ t, p }) => ({ t, p }));
+          if (points.length > 1) {
+            return {
+              value: { points },
+              source: 'CoinGecko',
+              note: 'Fetched just now from CoinGecko via the keyed proxy. Powered by CoinGecko.',
+            };
+          }
         }
       }
     } catch {
-      /* fall through */
+      /* fall through to Coinbase */
     }
     // Coinbase candles.
     try {

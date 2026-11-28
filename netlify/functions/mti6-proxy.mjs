@@ -35,10 +35,11 @@
 //
 // PIPELINES (added 2026-11-23, owner's "make the pipelines, get the
 // APIs" direction): two more narrowly scoped actions behind the
-// same discipline — market.prices (CoinGecko: the owner's Demo key
-// from MTI6_COINGECKO_API_KEY when present, the keyless public API
-// when not; the key travels only in the server-to-server
-// x-cg-demo-api-key header) and geo.geocode (a fallback CHAIN:
+// same discipline — market.prices and the five crypto.* actions
+// (CoinGecko: the owner's Demo key from MTI6_COINGECKO_API_KEY,
+// required — there is no keyless fallback; the key travels only in
+// the server-to-server x-cg-demo-api-key header) and geo.geocode
+// (a fallback CHAIN:
 // Geoapify via MTI6_GEOAPIFY_KEY first, LocationIQ via
 // MTI6_LOCATIONIQ_KEY second; with neither configured the action
 // answers NOT_CONFIGURED and places nothing). gateway.status now
@@ -886,8 +887,12 @@ function readPipelineKeys() {
   };
 }
 
-function pipelineFail(source, code, message, status) {
-  return envelope(false, source, null, { code, message }, status);
+function pipelineFail(source, code, message, status, extra) {
+  const error = { code, message };
+  if (extra) {
+    for (const k of Object.keys(extra)) error[k] = extra[k];
+  }
+  return envelope(false, source, null, error, status);
 }
 
 // Quota error envelope (P1 vocabulary): the helper for QUOTA_EXHAUSTED
@@ -898,43 +903,39 @@ function quotaFail(source, code, message, status) { return envelope(false, sourc
 
 const COINGECKO_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
-function validateMarketPrices(payload) {
-  if (!isPlainObject(payload)) {
-    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "market.prices payload must be an object.", 400) };
-  }
-  const bad = unknownKey(payload, new Set(["ids"]));
-  if (bad) {
-    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "Unknown parameter \"" + bad + "\" for market.prices.", 400) };
-  }
-  const ids = payload.ids;
-  if (!Array.isArray(ids) || ids.length < 1 || ids.length > 25 ||
-      ids.some((i) => typeof i !== "string" || !COINGECKO_ID_RE.test(i))) {
-    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "ids must be an array of 1 to 25 CoinGecko asset ids.", 400) };
-  }
-  return { ids: [...new Set(ids)] };
+async function handleMarketPrices(payload) {
+  // Thin alias for crypto.simplePrice (P9): same validation, same
+  // handler, same response — the keyed path, never keyless.
+  // validateMarketPrices is removed (subsumed by validateSimplePrice).
+  return handleSimplePrice(payload);
 }
 
-async function handleMarketPrices(payload) {
-  const validated = validateMarketPrices(payload);
-  if (validated.error) return validated.error;
-  const apiKey = readPipelineKeys().coingecko;
-  const url = new URL("https://api.coingecko.com/api/v3/simple/price");
-  url.searchParams.set("ids", validated.ids.join(","));
-  url.searchParams.set("vs_currencies", "usd");
-  url.searchParams.set("include_24hr_change", "true");
+// ------------------------------------------------------------------
+// CoinGecko (P9, U2) — the five keyed crypto.* actions. Every
+// handler validates first (no upstream call for bad input), requires
+// the server-side Demo key (missing key → AUTH_REQUIRED, never a
+// keyless upstream attempt), then calls the upstream with the key in
+// the server-side x-cg-demo-api-key header only. Responses are
+// normalized to the pinned shapes; upstream bodies are never echoed.
+// ------------------------------------------------------------------
+
+function coinGeckoMissingKey() {
+  return pipelineFail("coingecko", "AUTH_REQUIRED", "No CoinGecko Demo key is configured on the server (Netlify MTI6_COINGECKO_API_KEY).", 401);
+}
+
+async function callCoinGecko(path, searchParams, apiKey) {
+  const url = new URL("https://api.coingecko.com/api/v3" + path);
+  for (const [k, v] of Object.entries(searchParams)) url.searchParams.set(k, v);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
   let res;
   try {
     res = await fetch(url.toString(), {
       signal: controller.signal,
-      headers: {
-        Accept: "application/json",
-        ...(apiKey ? { "x-cg-demo-api-key": apiKey } : {})
-      }
+      headers: { Accept: "application/json", "x-cg-demo-api-key": apiKey }
     });
   } catch {
-    return pipelineFail("coingecko", "UPSTREAM_ERROR", "CoinGecko could not be reached.", 502);
+    return { error: pipelineFail("coingecko", "UPSTREAM_ERROR", "CoinGecko could not be reached.", 502) };
   } finally {
     clearTimeout(timer);
   }
@@ -944,15 +945,49 @@ async function handleMarketPrices(payload) {
   } catch {
     data = null;
   }
-  if (res.status === 401) {
-    return pipelineFail("coingecko", "AUTH_REQUIRED", "CoinGecko rejected the API key. Check the MTI6_COINGECKO_API_KEY Netlify variable.", 401);
+  if (res.status === 401 || res.status === 403) {
+    return { error: pipelineFail("coingecko", "AUTH_REQUIRED", "CoinGecko rejected the API key. Check the MTI6_COINGECKO_API_KEY Netlify variable.", 401) };
   }
   if (res.status === 429) {
-    return pipelineFail("coingecko", "RATE_LIMITED", "CoinGecko rate limit reached. The client governor will serve its cached or fallback result.", 429);
+    const retryAfter = res.headers ? res.headers.get("retry-after") : null;
+    const extra = retryAfter ? { retryAfter } : undefined;
+    return { error: pipelineFail("coingecko", "RATE_LIMITED", "CoinGecko rate limit reached. The client governor will serve its cached or fallback result.", 429, extra) };
+  }
+  if (res.status === 404) {
+    return { error: pipelineFail("coingecko", "NOT_FOUND", "CoinGecko found nothing for that request.", 404) };
   }
   if (!res.ok || data === null || typeof data !== "object") {
-    return pipelineFail("coingecko", "UPSTREAM_ERROR", "CoinGecko returned an unexpected error.", 502);
+    return { error: pipelineFail("coingecko", "UPSTREAM_ERROR", "CoinGecko returned an unexpected error.", 502) };
   }
+  return { data };
+}
+
+const COINGECKO_DAYS = new Set([1, 7, 30, 90, 365]);
+
+function validateSimplePrice(payload) {
+  if (!isPlainObject(payload)) {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "crypto.simplePrice payload must be an object.", 400) };
+  }
+  const bad = unknownKey(payload, new Set(["ids"]));
+  if (bad) {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "Unknown parameter \"" + bad + "\" for crypto.simplePrice.", 400) };
+  }
+  const ids = payload.ids;
+  if (!Array.isArray(ids) || ids.length < 1 || ids.length > 25 ||
+      ids.some((i) => typeof i !== "string" || !COINGECKO_ID_RE.test(i))) {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "ids must be an array of 1 to 25 CoinGecko asset ids.", 400) };
+  }
+  return { ids: [...new Set(ids)] };
+}
+
+async function handleSimplePrice(payload) {
+  const validated = validateSimplePrice(payload);
+  if (validated.error) return validated.error;
+  const apiKey = readPipelineKeys().coingecko;
+  if (!apiKey) return coinGeckoMissingKey();
+  const result = await callCoinGecko("/simple/price", { ids: validated.ids.join(","), vs_currencies: "usd", include_24hr_change: "true" }, apiKey);
+  if (result.error) return result.error;
+  const data = result.data;
   const prices = {};
   for (const id of validated.ids) {
     const row = data[id];
@@ -965,7 +1000,131 @@ async function handleMarketPrices(payload) {
       };
     }
   }
-  return envelope(true, "coingecko", { prices, keyed: apiKey !== null }, null, 200);
+  return envelope(true, "coingecko", { prices, keyed: true }, null, 200);
+}
+
+function validateCoinMarkets(payload) {
+  if (!isPlainObject(payload)) {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "crypto.coinMarkets payload must be an object.", 400) };
+  }
+  const bad = unknownKey(payload, new Set(["vs_currency", "per_page", "page"]));
+  if (bad) {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "Unknown parameter \"" + bad + "\" for crypto.coinMarkets.", 400) };
+  }
+  if (payload.vs_currency !== "usd") {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "vs_currency must be \"usd\".", 400) };
+  }
+  const perPage = payload.per_page === undefined ? 10 : payload.per_page;
+  const page = payload.page === undefined ? 1 : payload.page;
+  if (!isIntInRange(perPage, 1, 100)) {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "per_page must be an integer from 1 to 100.", 400) };
+  }
+  if (!isIntInRange(page, 1, 100)) {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "page must be an integer from 1 to 100.", 400) };
+  }
+  return { vs_currency: "usd", per_page: perPage, page };
+}
+
+async function handleCoinMarkets(payload) {
+  const validated = validateCoinMarkets(payload);
+  if (validated.error) return validated.error;
+  const apiKey = readPipelineKeys().coingecko;
+  if (!apiKey) return coinGeckoMissingKey();
+  const result = await callCoinGecko("/coins/markets", { vs_currency: "usd", per_page: String(validated.per_page), page: String(validated.page) }, apiKey);
+  if (result.error) return result.error;
+  const data = result.data;
+  if (!Array.isArray(data)) {
+    return pipelineFail("coingecko", "UPSTREAM_ERROR", "CoinGecko returned an unexpected error.", 502);
+  }
+  return envelope(true, "coingecko", { markets: data }, null, 200);
+}
+
+function validateCoin(payload) {
+  if (!isPlainObject(payload)) {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "crypto.coin payload must be an object.", 400) };
+  }
+  const bad = unknownKey(payload, new Set(["id"]));
+  if (bad) {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "Unknown parameter \"" + bad + "\" for crypto.coin.", 400) };
+  }
+  if (typeof payload.id !== "string" || !COINGECKO_ID_RE.test(payload.id)) {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "id must be a CoinGecko asset id.", 400) };
+  }
+  return { id: payload.id };
+}
+
+async function handleCoin(payload) {
+  const validated = validateCoin(payload);
+  if (validated.error) return validated.error;
+  const apiKey = readPipelineKeys().coingecko;
+  if (!apiKey) return coinGeckoMissingKey();
+  const result = await callCoinGecko("/coins/" + encodeURIComponent(validated.id), {}, apiKey);
+  if (result.error) return result.error;
+  return envelope(true, "coingecko", { coin: result.data }, null, 200);
+}
+
+function validateMarketChart(payload) {
+  if (!isPlainObject(payload)) {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "crypto.marketChart payload must be an object.", 400) };
+  }
+  const bad = unknownKey(payload, new Set(["id", "days"]));
+  if (bad) {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "Unknown parameter \"" + bad + "\" for crypto.marketChart.", 400) };
+  }
+  if (typeof payload.id !== "string" || !COINGECKO_ID_RE.test(payload.id)) {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "id must be a CoinGecko asset id.", 400) };
+  }
+  if (!COINGECKO_DAYS.has(payload.days)) {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "days must be one of 1, 7, 30, 90, 365.", 400) };
+  }
+  return { id: payload.id, days: payload.days };
+}
+
+async function handleMarketChart(payload) {
+  const validated = validateMarketChart(payload);
+  if (validated.error) return validated.error;
+  const apiKey = readPipelineKeys().coingecko;
+  if (!apiKey) return coinGeckoMissingKey();
+  const result = await callCoinGecko("/coins/" + encodeURIComponent(validated.id) + "/market_chart", { vs_currency: "usd", days: String(validated.days) }, apiKey);
+  if (result.error) return result.error;
+  const data = result.data;
+  const raw = Array.isArray(data.prices) ? data.prices : null;
+  if (!raw) {
+    return pipelineFail("coingecko", "UPSTREAM_ERROR", "CoinGecko returned an unexpected error.", 502);
+  }
+  const points = raw
+    .filter((pt) => Array.isArray(pt) && typeof pt[0] === "number" && typeof pt[1] === "number")
+    .map(([t, p]) => ({ t, p }));
+  return envelope(true, "coingecko", { points }, null, 200);
+}
+
+function validateSearch(payload) {
+  if (!isPlainObject(payload)) {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "crypto.search payload must be an object.", 400) };
+  }
+  const bad = unknownKey(payload, new Set(["query"]));
+  if (bad) {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "Unknown parameter \"" + bad + "\" for crypto.search.", 400) };
+  }
+  if (typeof payload.query !== "string" || payload.query.length < 1 || payload.query.length > 100) {
+    return { error: pipelineFail("coingecko", "INVALID_REQUEST", "query must be a string of 1 to 100 characters.", 400) };
+  }
+  return { query: payload.query };
+}
+
+async function handleSearch(payload) {
+  const validated = validateSearch(payload);
+  if (validated.error) return validated.error;
+  const apiKey = readPipelineKeys().coingecko;
+  if (!apiKey) return coinGeckoMissingKey();
+  const result = await callCoinGecko("/search", { query: validated.query }, apiKey);
+  if (result.error) return result.error;
+  const data = result.data;
+  const raw = Array.isArray(data.coins) ? data.coins : [];
+  const coins = raw
+    .filter((c) => c && typeof c.id === "string" && typeof c.name === "string" && typeof c.symbol === "string")
+    .map((c) => ({ id: c.id, name: c.name, symbol: c.symbol }));
+  return envelope(true, "coingecko", { coins }, null, 200);
 }
 
 function validateGeocode(payload) {
@@ -2014,7 +2173,7 @@ export default async (req) => {
       const star = readStarConfig();
       return envelope(true, "gateway", {
         providers: ["transitland", "star", "coingecko", "geoapify", "locationiq", "adsb.lol", "nycdot", "gdacs", "caltrans", "maryland", "louisiana", "utah", "windy", "twitch"],
-        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures", "star.chat", "star.providers", "market.prices", "geo.geocode", "flights.nearby", "cameras.nyc", "disasters.gdacs", "cameras.california", "cameras.maryland", "cameras.louisiana", "cameras.utah", "cameras.windy", "streams.twitch", "appLock.status", "appLock.verify"],
+        actions: ["gateway.status", "gateway.ping", "transit.stopsNear", "transit.departures", "star.chat", "star.providers", "market.prices", "geo.geocode", "flights.nearby", "cameras.nyc", "disasters.gdacs", "cameras.california", "cameras.maryland", "cameras.louisiana", "cameras.utah", "cameras.windy", "streams.twitch", "crypto.simplePrice", "crypto.coinMarkets", "crypto.coin", "crypto.marketChart", "crypto.search", "appLock.status", "appLock.verify"],
         providersConfigured: {
           transitland: readTransitlandKey() !== null,
           star: star.configured,
@@ -2036,7 +2195,7 @@ export default async (req) => {
         },
         star: { configured: star.configured, model: star.configured ? star.model : null },
         controlPlane: { authEnforced: CONTROL_PLANE_AUTH_ENFORCED, jwtRequired: CONTROL_PLANE_AUTH_ENFORCED },
-        note: "Providers sit behind the proxy as Capability Router providers; configured means the server's Netlify variable exists (presence only, never a value). CoinGecko also answers keyless at public limits. STAR chat is available when star.configured is true; otherwise STAR remains in demo mode."
+        note: "Providers sit behind the proxy as Capability Router providers; configured means the server's Netlify variable exists (presence only, never a value). CoinGecko is keyed-only via MTI6_COINGECKO_API_KEY (Demo plan, 10,000 credits/month; no keyless fallback). STAR chat is available when star.configured is true; otherwise STAR remains in demo mode. Powered by CoinGecko."
       }, null, 200);
     }
     case "gateway.ping":
@@ -2119,6 +2278,26 @@ export default async (req) => {
     case "streams.twitch": {
       const payload = body.payload === undefined ? {} : body.payload;
       return handleStreamsTwitch(payload);
+    }
+    case "crypto.simplePrice": {
+      const payload = body.payload === undefined ? {} : body.payload;
+      return handleSimplePrice(payload);
+    }
+    case "crypto.coinMarkets": {
+      const payload = body.payload === undefined ? {} : body.payload;
+      return handleCoinMarkets(payload);
+    }
+    case "crypto.coin": {
+      const payload = body.payload === undefined ? {} : body.payload;
+      return handleCoin(payload);
+    }
+    case "crypto.marketChart": {
+      const payload = body.payload === undefined ? {} : body.payload;
+      return handleMarketChart(payload);
+    }
+    case "crypto.search": {
+      const payload = body.payload === undefined ? {} : body.payload;
+      return handleSearch(payload);
     }
     default:
       return fail("UNSUPPORTED_ACTION", "That MTI6 action is not enabled.", 400);

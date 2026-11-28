@@ -193,7 +193,7 @@ export const CryptoMarketScreen: React.FC = () => {
         icon={TrendingUp}
         title="Crypto Market"
         subtitle="Trading terminal — prepare-only. The boundary below governs everything on this screen."
-        note="Prices and history are LIVE from keyless public sources (CoinGecko → Coinbase → CoinPaprika); every figure carries a provenance chip — tap it to audit the source. Stocks still need a server-side proxy first, so no stock price is shown."
+        note="Prices and history are LIVE via the keyed CoinGecko proxy → Coinbase → CoinPaprika (separate providers); every figure carries a provenance chip — tap it to audit the source. Powered by CoinGecko. Stocks still need a server-side proxy first, so no stock price is shown."
       />
 
       {/* 1 — THE EXECUTION BOUNDARY, FIRST */}
@@ -489,7 +489,7 @@ export const CryptoMarketScreen: React.FC = () => {
           <Panel title="Watchlist — 7 coins">
             <div className="mb-2 flex items-center justify-between">
               <span className="font-mono text-[10px] text-[#B8B8B8]">
-                LIVE PRICES · CHAIN: COINGECKO → COINBASE → COINPAPRIKA
+                LIVE PRICES · CHAIN: COINGECKO (KEYED PROXY) → COINBASE → COINPAPRIKA
               </span>
               <button
                 type="button"

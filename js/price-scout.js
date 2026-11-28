@@ -11,10 +11,14 @@
  *     source is configured — see configure() below.
  *
  * Adapters (V1):
- *   crypto   — LIVE from the browser, no key. CoinGecko public API
- *              (CORS-enabled) first, Coinbase public spot as fallback.
- *              Cache TTL 5 minutes. Rate limits are shared/public, so
- *              the panel fetches on open/Refresh only, never polls.
+ *   crypto   — LIVE via the keyed CoinGecko proxy (P9, U2):
+ *              MTI6API.request("crypto.simplePrice") through
+ *              /api/mti6, key server-side (MTI6_COINGECKO_API_KEY);
+ *              the browser never calls CoinGecko directly and there
+ *              is no keyless fallback. Coinbase public spot and
+ *              CoinPaprika are separate fallback providers.
+ *              Cache TTL 5 minutes. The panel fetches on
+ *              open/Refresh only, never polls.
  *   stocks   — SOURCE-READY, not live in the browser yet. Yahoo and
  *              most keyed stock APIs either block browser fetches
  *              (CORS) or need a key. Live stocks need a server-side
@@ -150,16 +154,25 @@
         return Promise.resolve({ category: "crypto", symbol: sym, name: CRYPTO_NAMES[sym], price: d.price, change24h: d.change24h, currency: "USD", source: d.source, fetchedAt: cached.fetchedAt, status: "cached" });
       }
     }
-    // Triple fallback chain, per the API registry: CoinGecko ->
-    // Coinbase -> CoinPaprika -> last cached value (stale) -> error.
-    // Binance is deliberately NOT in this chain: it blocks
-    // browser-origin requests. Each attempt is recorded for the
-    // usage / rate-limit list.
-    var url = "https://api.coingecko.com/api/v3/simple/price?ids=" + encodeURIComponent(id) + "&vs_currencies=usd&include_24hr_change=true";
+    // Triple fallback chain, per the API registry: CoinGecko (keyed
+    // proxy, P9) -> Coinbase -> CoinPaprika -> last cached value
+    // (stale) -> error. Binance is deliberately NOT in this chain:
+    // it blocks browser-origin requests. Each attempt is recorded
+    // for the usage / rate-limit list. The CoinGecko head is the
+    // keyed proxy (MTI6API.request to /api/mti6); when the gateway
+    // answers AUTH_REQUIRED the note below is remembered and
+    // carried on whatever result the chain eventually serves, so
+    // the missing key stays visible — and the chain NEVER falls
+    // back to a keyless direct CoinGecko call.
+    var coinGeckoNote = null;
     function staleOrError() {
       var stale = getCached("crypto", sym);
-      if (stale) return { category: "crypto", symbol: sym, name: CRYPTO_NAMES[sym], price: stale.data.price, change24h: stale.data.change24h, currency: "USD", source: stale.data.source, fetchedAt: stale.fetchedAt, status: "stale" };
-      return { category: "crypto", symbol: sym, status: "error", price: null, note: "Could not reach a crypto price source right now (CoinGecko, Coinbase, and CoinPaprika all failed). Try Refresh in a minute — public sources are rate-limited." };
+      if (stale) {
+        var staleResult = { category: "crypto", symbol: sym, name: CRYPTO_NAMES[sym], price: stale.data.price, change24h: stale.data.change24h, currency: "USD", source: stale.data.source, fetchedAt: stale.fetchedAt, status: "stale" };
+        if (coinGeckoNote) staleResult.note = coinGeckoNote;
+        return staleResult;
+      }
+      return { category: "crypto", symbol: sym, status: "error", price: null, note: "Could not reach a crypto price source right now (CoinGecko, Coinbase, and CoinPaprika all failed). Try Refresh in a minute — public sources are rate-limited." + (coinGeckoNote ? " " + coinGeckoNote + "." : "") };
     }
     function tryCoinPaprika() {
       var paprikaId = COINPAPRIKA_IDS[sym];
@@ -170,6 +183,7 @@
         if (!isFinite(amount)) throw new Error("bad_response");
         recordUsage("coinpaprika", true, 200);
         var result = { category: "crypto", symbol: sym, name: CRYPTO_NAMES[sym], price: amount, change24h: typeof quote.percent_change_24h === "number" ? quote.percent_change_24h : null, currency: "USD", source: "CoinPaprika", fetchedAt: new Date().toISOString(), status: "live" };
+        if (coinGeckoNote) result.note = coinGeckoNote;
         putCache("crypto", sym, { price: result.price, change24h: result.change24h, source: result.source });
         return result;
       }).catch(function () { recordUsage("coinpaprika", false, null); return staleOrError(); });
@@ -181,29 +195,53 @@
         if (!isFinite(amount)) throw new Error("bad_response");
         recordUsage("coinbase", true, 200);
         var result = { category: "crypto", symbol: sym, name: CRYPTO_NAMES[sym], price: amount, change24h: null, currency: "USD", source: "Coinbase", fetchedAt: new Date().toISOString(), status: "live" };
+        if (coinGeckoNote) result.note = coinGeckoNote;
         putCache("crypto", sym, { price: result.price, change24h: null, source: result.source });
         return result;
       }).catch(function () { recordUsage("coinbase", false, null); return tryCoinPaprika(); });
     }
-    return fetchJson(url).then(function (data) {
-      var row = data && data[id];
-      if (!row || typeof row.usd !== "number") throw new Error("bad_response");
-      recordUsage("coingecko", true, 200);
-      var result = { category: "crypto", symbol: sym, name: CRYPTO_NAMES[sym], price: row.usd, change24h: typeof row.usd_24h_change === "number" ? row.usd_24h_change : null, currency: "USD", source: "CoinGecko", fetchedAt: new Date().toISOString(), status: "live" };
-      putCache("crypto", sym, { price: result.price, change24h: result.change24h, source: result.source });
-      return result;
-    }).catch(function () { recordUsage("coingecko", false, null); return tryCoinbase(); });
+    function tryCoinGecko() {
+      if (!global.MTI6API || typeof global.MTI6API.request !== "function") {
+        // Gateway client did not load — fail honestly and fall
+        // through to Coinbase/CoinPaprika. Never a keyless direct
+        // CoinGecko call (P9: the keyless head is gone).
+        recordUsage("coingecko", false, null);
+        return tryCoinbase();
+      }
+      return global.MTI6API.request("crypto.simplePrice", { ids: [id] }).then(function (envelope) {
+        var data = envelope && envelope.data;
+        var row = data && data.prices && data.prices[id];
+        if (!row || typeof row.usd !== "number") throw new Error("bad_response");
+        recordUsage("coingecko", true, 200);
+        var result = { category: "crypto", symbol: sym, name: CRYPTO_NAMES[sym], price: row.usd, change24h: typeof row.change24h === "number" ? row.change24h : null, currency: "USD", source: "CoinGecko", fetchedAt: new Date().toISOString(), status: "live" };
+        putCache("crypto", sym, { price: result.price, change24h: result.change24h, source: result.source });
+        return result;
+      }).catch(function (err) {
+        // Gateway AUTH_REQUIRED: record the usage failure with the
+        // note and fall through to Coinbase/CoinPaprika (separate
+        // providers). The note is carried on the result the chain
+        // eventually serves; it never triggers a keyless call.
+        if (err && err.code === "AUTH_REQUIRED") {
+          coinGeckoNote = "CoinGecko keyed proxy: AUTH_REQUIRED (no MTI6_COINGECKO_API_KEY on the server)";
+          recordUsage("coingecko", false, 401);
+        } else {
+          recordUsage("coingecko", false, null);
+        }
+        return tryCoinbase();
+      });
+    }
+    return tryCoinGecko();
   }
 
   function getCryptoBatch(symbols, opts) {
     return Promise.all((symbols || []).map(function (s) { return getCrypto(s, opts); }));
   }
 
-  // 7-day price history (CoinGecko market_chart, public, no key).
-  // Returns {status, symbol, points:[{t, price}], source} or an honest
-  // error result — never invented points. Used by the Crypto screen
-  // chart and the Analytics screen. Cached under the crypto TTL to
-  // respect the public rate limit.
+  // 7-day price history (CoinGecko market_chart via the keyed proxy,
+  // P9 — no keyless direct call). Returns {status, symbol,
+  // points:[{t, price}], source} or an honest error result — never
+  // invented points. Used by the Crypto screen chart and the
+  // Analytics screen. Cached under the crypto TTL.
   function getCryptoHistory(symbol, days) {
     var sym = String(symbol || "").toUpperCase().trim();
     var id = CRYPTO_IDS[sym];
@@ -212,24 +250,40 @@
     if (d !== 1 && d !== 7 && d !== 30) d = 7;
     var cached = getCached("history", sym + "/" + d);
     if (cached && cached.fresh) return Promise.resolve({ status: "cached", symbol: sym, points: cached.data.points, source: "CoinGecko", fetchedAt: cached.fetchedAt });
-    var url = "https://api.coingecko.com/api/v3/coins/" + encodeURIComponent(id) + "/market_chart?vs_currency=usd&days=" + d;
-    return fetchJson(url).then(function (data) {
-      var prices = (data && data.prices) || [];
-      if (!prices.length) throw new Error("bad_response");
-      recordUsage("coingecko", true, 200);
-      var step = Math.max(1, Math.floor(prices.length / 60));
-      var points = [];
-      for (var i = 0; i < prices.length; i += step) {
-        points.push({ t: prices[i][0], price: prices[i][1] });
+    function staleOrError(note) {
+      var stale = getCached("history", sym + "/" + d);
+      if (stale) {
+        var staleResult = { status: "stale", symbol: sym, points: stale.data.points, source: "CoinGecko", fetchedAt: stale.fetchedAt };
+        if (note) staleResult.note = note;
+        return staleResult;
       }
-      if (points[points.length - 1].t !== prices[prices.length - 1][0]) points.push({ t: prices[prices.length - 1][0], price: prices[prices.length - 1][1] });
+      return { status: "error", symbol: sym, points: [], note: note || "Could not load price history from CoinGecko right now. No chart is drawn rather than a fake one." };
+    }
+    if (!global.MTI6API || typeof global.MTI6API.request !== "function") {
+      // Gateway client did not load — no history call is made.
+      recordUsage("coingecko", false, null);
+      return Promise.resolve(staleOrError("CoinGecko keyed proxy: the gateway client (MTI6API) did not load — no history call was made."));
+    }
+    return global.MTI6API.request("crypto.marketChart", { id: id, days: d }).then(function (envelope) {
+      var data = envelope && envelope.data;
+      var rawPoints = ((data && data.points) || []).filter(function (pt) { return pt && typeof pt.t === "number" && typeof pt.p === "number"; });
+      if (!rawPoints.length) throw new Error("bad_response");
+      recordUsage("coingecko", true, 200);
+      var step = Math.max(1, Math.floor(rawPoints.length / 60));
+      var points = [];
+      for (var i = 0; i < rawPoints.length; i += step) {
+        points.push({ t: rawPoints[i].t, price: rawPoints[i].p });
+      }
+      if (points[points.length - 1].t !== rawPoints[rawPoints.length - 1].t) points.push({ t: rawPoints[rawPoints.length - 1].t, price: rawPoints[rawPoints.length - 1].p });
       putCache("history", sym + "/" + d, { points: points });
       return { status: "live", symbol: sym, points: points, source: "CoinGecko", fetchedAt: new Date().toISOString() };
-    }).catch(function () {
+    }).catch(function (err) {
+      if (err && err.code === "AUTH_REQUIRED") {
+        recordUsage("coingecko", false, 401);
+        return staleOrError("CoinGecko keyed proxy: AUTH_REQUIRED (no MTI6_COINGECKO_API_KEY on the server). No chart is drawn rather than a fake one.");
+      }
       recordUsage("coingecko", false, null);
-      var stale = getCached("history", sym + "/" + d);
-      if (stale) return { status: "stale", symbol: sym, points: stale.data.points, source: "CoinGecko", fetchedAt: stale.fetchedAt };
-      return { status: "error", symbol: sym, points: [], note: "Could not load price history from CoinGecko right now. No chart is drawn rather than a fake one." };
+      return staleOrError();
     });
   }
 

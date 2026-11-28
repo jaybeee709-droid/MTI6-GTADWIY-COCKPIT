@@ -33,7 +33,11 @@ interface Envelope {
   error?: { code?: string; message?: string; upstreamStatus?: number };
 }
 
-async function gateway(action: string, payload: unknown): Promise<unknown> {
+/** Generic gateway POST for other keyed proxy actions (P9: the
+ * crypto.* CoinGecko actions). One POST, no retry loop. Throws
+ * StarError with the gateway's code — including AUTH_REQUIRED when
+ * no key is configured on the server. */
+export async function gatewayPost(action: string, payload: unknown): Promise<unknown> {
   if (typeof fetch !== 'function') {
     throw new StarError('UNREACHABLE', 'No fetch in this environment.');
   }
@@ -60,7 +64,7 @@ async function gateway(action: string, payload: unknown): Promise<unknown> {
 
 /** Is a STAR provider key configured on the server, and which model? */
 export async function fetchStarStatus(): Promise<{ configured: boolean; model: string | null }> {
-  const data = (await gateway('gateway.status', {})) as {
+  const data = (await gatewayPost('gateway.status', {})) as {
     star?: { configured?: boolean; model?: string | null };
   } | null;
   return {
@@ -208,7 +212,7 @@ export async function starChat(
   const started = nowMs();
   let data: { reply?: string; model?: string; provider?: string } | null;
   try {
-    data = (await gateway('star.chat', { messages })) as {
+    data = (await gatewayPost('star.chat', { messages })) as {
       reply?: string;
       model?: string;
       provider?: string;

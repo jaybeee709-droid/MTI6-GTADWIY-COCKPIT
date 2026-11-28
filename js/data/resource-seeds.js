@@ -2746,7 +2746,7 @@
    "authenticationType": "NONE",
    "apiKeyRequired": false,
    "oauthRequired": false,
-   "credentialState": "NONE_REQUIRED",
+   "credentialState": "KEY_IN_PROXY_ENV",
    "credentialCustody": null,
    "freeState": "FREEMIUM",
    "catalogCostState": "FREEMIUM (free public tier in use; keyed/paid tiers exist and are not used)",
@@ -2754,8 +2754,8 @@
    "rateLimits": "≈30 calls/min public-tier guidance (registry-recorded); 5-minute cache TTL in-app.",
    "geographicCoverage": "Global markets.",
    "dataCoverage": "Per-asset prices (point lookups).",
-   "frontendDirectPossible": true,
-   "proxyRequired": false,
+   "frontendDirectPossible": false,
+   "proxyRequired": true,
    "selfHostable": false,
    "license": "proprietary-terms (free public tier in use; keyed/paid tiers exist and are not used)",
    "attribution": "Per CoinGecko's public API terms.",
@@ -2804,7 +2804,7 @@
    },
    "rejection": null,
    "supersededBy": null,
-   "connectionEvidence": "js/price-scout.js — PriceScout chain head (CoinGecko public endpoint), outcomes recorded in js/api-registry.js ('coingecko').",
+   "connectionEvidence": "netlify/functions/mti6-proxy.mjs — crypto.simplePrice / crypto.coinMarkets / crypto.coin / crypto.marketChart / crypto.search via /api/mti6 (keyed proxy, MTI6_COINGECKO_API_KEY); outcomes recorded in js/api-registry.js ('coingecko').",
    "routerProviderId": null,
    "gapRefs": [],
    "evidence": [
@@ -2837,6 +2837,13 @@
      "actor": "WORKER:catalog-import",
      "at": "2026-11-16T00:00:00.000Z",
      "note": "Seeded from FREE-RESOURCE-CATALOG §9.1 at the stage its recorded evidence supports. Catalog MTI6 STATE: **CONNECTED** (Source Catalog #21) — genuinely used by the app today (Crypto World / price scouts)."
+    },
+    {
+     "from": "CONNECTED",
+     "to": "CONNECTED",
+     "actor": "WORKER:p9-boundary-proof",
+     "at": "2026-11-25T00:00:00.000Z",
+     "note": "P9: CoinGecko path is now the keyed proxy (MTI6_COINGECKO_API_KEY, Demo, 100/min, 8,000 credits/mo ruled budget, 'Powered by CoinGecko' attribution); browser-direct keyless head retired. credentialState NONE_REQUIRED -> KEY_IN_PROXY_ENV; proxyRequired -> true; frontendDirectPossible -> false; connectionEvidence now names the proxy actions. Record history preserved."
     }
    ]
   },

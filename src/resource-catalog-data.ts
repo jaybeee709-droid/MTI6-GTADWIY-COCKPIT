@@ -385,7 +385,7 @@ export const RESOURCE_PROVIDERS: ResourceProvider[] = [
   ],
   "stage": "CONNECTED",
   "costState": "FREEMIUM",
-  "credentialState": "NONE_REQUIRED",
+  "credentialState": "KEY_IN_PROXY_ENV",
   "ownerApprovalState": "APPROVED",
   "fallbackRole": "PRIMARY (prices — head of the built PriceScout chain)"
  },

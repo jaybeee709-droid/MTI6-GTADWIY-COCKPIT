@@ -43,6 +43,19 @@ export const REGISTERED_SOURCES: RegisteredSource[] = [
     "probedAt": null
   },
   {
+    "id": "coingecko",
+    "name": "CoinGecko Price API (keyed proxy)",
+    "provider": "CoinGecko",
+    "category": "crypto-prices",
+    "endpoint": "/api/mti6 (crypto.simplePrice etc.)",
+    "provides": [
+      "prices",
+      "market-charts",
+      "search"
+    ],
+    "probedAt": null
+  },
+  {
     "id": "dexscreener-pairs",
     "name": "DexScreener Token & Pool Indexer",
     "provider": "DexScreener",
