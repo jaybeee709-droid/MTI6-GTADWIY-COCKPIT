@@ -22,6 +22,7 @@ import { fetchYields, fmtUsd, useObservation, useProvenanceLog } from '../live-d
 import { ProvenanceChip } from '../ProvenanceChip';
 import { OpportunityScannerPanel } from '../screens/OpportunityScannerPanel';
 import { CryptoLiveSurfaces } from './CryptoLiveSurfaces';
+import { LifecyclePanel } from '../LifecyclePanel';
 import { CANONICAL_60, ENCYCLOPEDIA_FAMILIES } from '../encyclopedia-data';
 import { ENTITY_COUNTS, ENTITY_UNIVERSE } from '../entity-data';
 import {
@@ -523,6 +524,9 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
 
       {/* Priority 1 (v252) — the orphaned live-data capabilities, surfaced */}
       <CryptoLiveSurfaces />
+
+      {/* Lifecycle Intelligence (v253) — where am I in this activity? */}
+      <LifecyclePanel />
 
       {/* Opportunity Scanner (v214) — the unified board over
           everything the bots find, ranked by evidence */}
