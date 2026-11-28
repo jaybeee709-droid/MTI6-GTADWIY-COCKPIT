@@ -21,6 +21,7 @@ import {
 import { fetchYields, fmtUsd, useObservation, useProvenanceLog } from '../live-data';
 import { ProvenanceChip } from '../ProvenanceChip';
 import { OpportunityScannerPanel } from '../screens/OpportunityScannerPanel';
+import { CryptoLiveSurfaces } from './CryptoLiveSurfaces';
 import { CANONICAL_60, ENCYCLOPEDIA_FAMILIES } from '../encyclopedia-data';
 import { ENTITY_COUNTS, ENTITY_UNIVERSE } from '../entity-data';
 import {
@@ -492,17 +493,8 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
             NOT CONNECTED
           </span>
           <span className="px-2.5 py-1 rounded text-[11px] font-mono bg-[#151515] border border-[#8B5CFF]/40 text-[#8B5CFF]">
-            EXPANSION-GATED
+            EXECUTION DISABLED
           </span>
-          {onOpenWorkspaces && (
-            <button
-              type="button"
-              onClick={onOpenWorkspaces}
-              className="px-3 py-1 rounded text-xs font-mono bg-[#00B7FF] text-[#050505] font-semibold hover:opacity-90 transition"
-            >
-              CRYPTO WORKSPACES
-            </button>
-          )}
         </div>
       </div>
 
@@ -528,6 +520,9 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
       </div>
 
       <LiveYieldsPanel />
+
+      {/* Priority 1 (v252) — the orphaned live-data capabilities, surfaced */}
+      <CryptoLiveSurfaces />
 
       {/* Opportunity Scanner (v214) — the unified board over
           everything the bots find, ranked by evidence */}
