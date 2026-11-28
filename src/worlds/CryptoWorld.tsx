@@ -564,7 +564,7 @@ export const CryptoWorld: React.FC<CryptoWorldProps> = ({ onOpenWorkspaces }) =>
           })}
         </div>
         <p className="font-mono text-[9px] leading-relaxed text-[#B8B8B8]">
-          60 MAJOR ACTIVITIES ACROSS 20 FAMILIES · 334 TYPES + 404 STRATEGIES BENEATH THEM ·
+          {CANONICAL_60.length} MAJOR ACTIVITIES ACROSS {ENCYCLOPEDIA_FAMILIES.length} FAMILIES ·
           EVERY RECORD UNVERIFIED · COST UNKNOWN AND RISK UNPROFILED UNTIL A SOURCED RECORD SAYS OTHERWISE.
         </p>
       </div>
