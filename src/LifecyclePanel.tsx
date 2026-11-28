@@ -22,8 +22,8 @@ import {
   stageById,
   type LifecycleStageId,
   type WorkspaceLifecycle,
-} from '../lifecycle-data';
-import { CRYPTO_WORKSPACE_GROUPS } from '../crypto-workspaces-data';
+} from './lifecycle-data';
+import { CRYPTO_WORKSPACE_GROUPS } from './crypto-workspaces-data';
 
 const micro = 'font-mono text-[10px] tracking-widest text-[#B8B8B8]';
 
