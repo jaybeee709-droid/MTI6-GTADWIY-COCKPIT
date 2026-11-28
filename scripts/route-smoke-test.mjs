@@ -497,6 +497,16 @@ try {
     allSeen.includes('NOT_CONNECTED'),
     'NOT_CONNECTED present across visited routes',
   );
+  const cryptoText = routeTexts[ROUTES.findIndex(([l]) => l === 'Crypto World')] ?? '';
+  check('lifecycle panel mounted on Crypto World',
+    cryptoText.includes('LIFECYCLE INTELLIGENCE — WHERE AM I IN THIS ACTIVITY?'),
+    'stage ladder + per-workspace readings render');
+  check('lifecycle EXECUTE visible but disabled',
+    cryptoText.includes('EXECUTE — DISABLED'),
+    'the stage is shown and struck through, never offered as reachable');
+  check('lifecycle unmapped workspaces named honestly',
+    cryptoText.includes('NO CANONICAL MAJOR ACTIVITY IS MAPPED TO THIS WORKSPACE'),
+    'surfaces with no canonical home say so rather than borrowing one');
   for (const s of FABRICATED) {
     check(
       `fabricated string absent: "${s}"`,
