@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { recordRawArchive } from './raw-archive';
+import { COINGECKO_QUOTA } from './quota-config';
 
 /* Live data + provenance (owner direction 2026-11-23: "Light up live
  * data, build the provenance explorer").
@@ -177,6 +178,152 @@ async function governed<T>(
   }
   const obs = noData<T>(chain, 'Every source in the chain failed or is unreachable. Nothing is invented.');
   recordProvenance(key, obs);
+  return obs;
+}
+
+/* ---------------- CoinGecko governor (P3, U3(a)) ----------------
+ * governedCoinGecko() wraps governed() with the ruled CoinGecko
+ * governor: min-interval 1200 ms between calls, sliding-window
+ * 50/min, monthly-budget check (8,000 credits, 2,000 reserve never
+ * spent). Counts are this device only, backed by a localStorage
+ * usage ledger (key mti6_coingecko_usage_v1, shape { month,
+ * monthCalls, recent: [timestamps] }) — the CoinGecko dashboard is
+ * authoritative. On monthly-budget exhaustion it serves the cached /
+ * STALE observation or NO_DATA with note QUOTA_EXHAUSTED — never a
+ * network attempt, never a zero. Only successful (LIVE) fetches are
+ * recorded in the ledger; failed attempts never reached CoinGecko
+ * and are not counted against the budget.
+ * Thresholds come from src/quota-config.ts (COINGECKO_QUOTA).
+ * No price-path change in P3 — fetchPrice/fetchHistory are wired to
+ * this wrapper in P9.
+ */
+
+const COINGECKO_USAGE_KEY = 'mti6_coingecko_usage_v1';
+
+interface CoinGeckoUsageLedger {
+  month: string;
+  monthCalls: number;
+  recent: number[];
+}
+
+function coinGeckoMonthKey(now: Date): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function readCoinGeckoLedger(): CoinGeckoUsageLedger {
+  try {
+    const raw = localStorage.getItem(COINGECKO_USAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<CoinGeckoUsageLedger>;
+      if (
+        parsed &&
+        typeof parsed.month === 'string' &&
+        typeof parsed.monthCalls === 'number' &&
+        Array.isArray(parsed.recent)
+      ) {
+        return {
+          month: parsed.month,
+          monthCalls: parsed.monthCalls,
+          recent: parsed.recent.filter((t) => typeof t === 'number'),
+        };
+      }
+    }
+  } catch {
+    /* A corrupted ledger reads as empty — never blocks a lookup. */
+  }
+  return { month: coinGeckoMonthKey(new Date()), monthCalls: 0, recent: [] };
+}
+
+function writeCoinGeckoLedger(ledger: CoinGeckoUsageLedger): void {
+  try {
+    localStorage.setItem(COINGECKO_USAGE_KEY, JSON.stringify(ledger));
+  } catch {
+    /* Cache failure must not break a lookup. */
+  }
+}
+
+let lastCoinGeckoCallAt = 0;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((res) => setTimeout(res, ms));
+}
+
+export async function governedCoinGecko<T>(
+  key: string,
+  ttlMs: number,
+  chain: string[],
+  fetcher: () => Promise<{ value: T; source: string } | null>,
+): Promise<Observation<T>> {
+  const now = Date.now();
+  const month = coinGeckoMonthKey(new Date(now));
+  let ledger = readCoinGeckoLedger();
+  if (ledger.month !== month) ledger = { month, monthCalls: 0, recent: [] };
+  ledger.recent = ledger.recent.filter((t) => now - t < 60_000);
+
+  // Monthly budget exhausted: serve cache / STALE / NO_DATA, never fetch.
+  // (A null monthlyBudget would mean no monthly cap — CoinGecko's is
+  // 8,000, so the check applies; the null branch keeps the type honest.)
+  const monthlyBudget = COINGECKO_QUOTA.monthlyBudget;
+  if (monthlyBudget !== null && ledger.monthCalls >= monthlyBudget) {
+    const hit = cache.get(key) as CacheEntry | undefined;
+    if (hit) {
+      const obs: Observation<T> = {
+        value: hit.value as T,
+        status: Date.now() - hit.fetchedAt < ttlMs ? 'CACHED' : 'STALE',
+        source: hit.source,
+        fetchedAt: hit.fetchedAt,
+        chain,
+        note: 'CoinGecko monthly budget exhausted (QUOTA_EXHAUSTED) — serving the last known value. This device only; the CoinGecko dashboard is authoritative.',
+      };
+      recordProvenance(key, obs);
+      return obs;
+    }
+    const obs = noData<T>(
+      chain,
+      'CoinGecko monthly budget exhausted (QUOTA_EXHAUSTED) — no MTI6 CoinGecko call was made. This device only; the CoinGecko dashboard is authoritative.',
+    );
+    recordProvenance(key, obs);
+    return obs;
+  }
+
+  // Per-minute window full: same serve-from-cache discipline, no fetch.
+  if (ledger.recent.length >= (COINGECKO_QUOTA.perMinute ?? 50)) {
+    const hit = cache.get(key) as CacheEntry | undefined;
+    if (hit) {
+      const obs: Observation<T> = {
+        value: hit.value as T,
+        status: Date.now() - hit.fetchedAt < ttlMs ? 'CACHED' : 'STALE',
+        source: hit.source,
+        fetchedAt: hit.fetchedAt,
+        chain,
+        note: 'CoinGecko 50/min governor window is full — serving the last known value instead of calling the provider.',
+      };
+      recordProvenance(key, obs);
+      return obs;
+    }
+    const obs = noData<T>(
+      chain,
+      'CoinGecko 50/min governor window is full — no MTI6 CoinGecko call was made.',
+    );
+    recordProvenance(key, obs);
+    return obs;
+  }
+
+  // Min-interval 1200 ms between CoinGecko calls.
+  const wait = Math.max(0, lastCoinGeckoCallAt + 1200 - Date.now());
+  if (wait > 0) await sleep(wait);
+
+  const obs = await governed<T>(key, ttlMs, chain, fetcher);
+  if (obs.status === 'LIVE') {
+    lastCoinGeckoCallAt = Date.now();
+    const fresh = readCoinGeckoLedger();
+    const current: CoinGeckoUsageLedger =
+      fresh.month === month ? fresh : { month, monthCalls: 0, recent: [] };
+    current.recent = current.recent.filter((t) => Date.now() - t < 60_000);
+    current.recent.push(Date.now());
+    current.monthCalls += 1;
+    writeCoinGeckoLedger(current);
+  }
   return obs;
 }
 

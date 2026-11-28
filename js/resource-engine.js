@@ -94,6 +94,41 @@
   var COST_STATES = ["FREE_KEYLESS", "FREE_KEY_REQUIRED", "FREE_OAUTH",
     "FREE_WITH_LIMITS", "FREE_WITH_ATTRIBUTION", "FREEMIUM", "PAID",
     "SELF_HOSTABLE", "UNKNOWN"];
+  // 8-class cost mapping (P3, mapping contract — maps, never rewrites).
+  // Every live cost vocabulary maps into these eight classes; any
+  // unknown input maps to UNKNOWN_REQUIRES_VERIFICATION (never
+  // invented). Mapping is a pure function: it never rewrites a stored
+  // record — the harness proves the seed snapshot is identical after.
+  var COST_CLASSES_8 = ["FREE_KEYLESS", "FREE_RECURRING", "FREE_MONTHLY_CREDIT", "FREE_TRIAL", "SELF_HOSTED_FREE", "PAID_OPTIONAL", "PAID_REQUIRED", "UNKNOWN_REQUIRES_VERIFICATION"];
+  var COST_CLASS_MAP = {
+    "resource-engine": {
+      FREE_KEYLESS: "FREE_KEYLESS",
+      FREE_KEY_REQUIRED: "FREE_RECURRING",
+      FREE_OAUTH: "FREE_RECURRING",
+      FREE_WITH_LIMITS: "FREE_MONTHLY_CREDIT",
+      FREE_WITH_ATTRIBUTION: "FREE_MONTHLY_CREDIT",
+      FREEMIUM: "PAID_OPTIONAL",
+      PAID: "PAID_REQUIRED",
+      SELF_HOSTABLE: "SELF_HOSTED_FREE",
+      UNKNOWN: "UNKNOWN_REQUIRES_VERIFICATION"
+    },
+    router: {
+      FREE_KEYLESS: "FREE_KEYLESS",
+      FREE_KEY_REQUIRED: "FREE_RECURRING",
+      FREE_NONCOMMERCIAL: "FREE_KEYLESS"
+    },
+    src: {
+      FREE_KEYLESS: "FREE_KEYLESS",
+      FREE_KEY_REQUIRED: "FREE_RECURRING",
+      FREE_WITH_LIMITS: "FREE_MONTHLY_CREDIT",
+      FREE_WITH_ATTRIBUTION: "FREE_MONTHLY_CREDIT"
+    }
+  };
+  function mapCostClass(value, vocabulary) {
+    var table = COST_CLASS_MAP[vocabulary] || null;
+    if (table && Object.prototype.hasOwnProperty.call(table, value)) return table[value];
+    return "UNKNOWN_REQUIRES_VERIFICATION";
+  }
   var CREDENTIAL_STATES = ["NONE_REQUIRED", "NOT_PROVISIONED",
     "KEY_EXISTS_PROVIDER_DASHBOARD", "KEY_IN_PROXY_ENV", "UNKNOWN"];
   var OWNER_APPROVAL_STATES = ["NOT_REQUESTED", "PENDING", "APPROVED",
@@ -1147,7 +1182,7 @@
     VERSION: "RE-1",
     STORE: STORE, RECORD_KIND: RECORD_KIND, GAP_KIND: GAP_KIND, REGISTRY: REGISTRY,
     STAGES: STAGES, PARKED_STAGES: PARKED_STAGES, TERMINAL_STAGES: TERMINAL_STAGES,
-    NEXT_STAGE: NEXT_STAGE, COST_STATES: COST_STATES, BENEFIT_LABELS: BENEFIT_LABELS,
+    NEXT_STAGE: NEXT_STAGE, COST_STATES: COST_STATES, COST_CLASSES_8: COST_CLASSES_8, mapCostClass: mapCostClass, BENEFIT_LABELS: BENEFIT_LABELS,
     CREDENTIAL_STATES: CREDENTIAL_STATES, STALE_DAYS: STALE_DAYS,
     isCandidate: isCandidate, isGap: isGap, identityKey: identityKey, anchorHost: anchorHost,
     validateCandidateDraft: validateCandidateDraft,

@@ -147,6 +147,14 @@
       budgetNote: "Transitland publishes no per-minute rate; 30/min is a conservative MTI6 self-imposed cap, not a Transitland figure. The monthly budget is separate — see TRANSIT_MONTHLY_BUDGET.",
       timeoutMs: 12000,
       breaker: { threshold: 3, cooldownMs: 5 * 60 * 1000 }
+    },
+    "coingecko": {
+      name: "CoinGecko (Demo, keyed proxy)", registryId: "coingecko",
+      costState: "FREE_KEY_REQUIRED",
+      minIntervalMs: 1200, budget: { calls: 50, windowMs: 60 * 1000 },
+      budgetNote: "Ruled 50/min governor cap (U3(a)); Demo publishes 100/min.",
+      timeoutMs: 10000,
+      breaker: { threshold: 3, cooldownMs: 300000 }
     }
   };
 
@@ -167,6 +175,19 @@
   var TRANSIT_QUOTA_WARN_AT = 0.75;      // warn
   var TRANSIT_QUOTA_CRITICAL_AT = 0.90;  // critical warning
   var TRANSIT_ROUTING_ENABLED = false;   // D2: no journey routing in v1
+  // CoinGecko monthly quota (P3, U3(a)) — mirrors the Transitland
+  // block above. js/quota-config.js is the source of truth when it
+  // is loaded (global.MTI6QuotaConfig); the ruled literals below are
+  // the fallback so the router still governs correctly without it.
+  // The CoinGecko dashboard is authoritative for remaining quota —
+  // the router counts only this device's calls (ApiRegistry).
+  var COINGECKO_QUOTA_CFG = (typeof global !== "undefined" && global.MTI6QuotaConfig && global.MTI6QuotaConfig.QUOTAS && global.MTI6QuotaConfig.QUOTAS.coingecko) || null;
+  var COINGECKO_MONTHLY_BUDGET = COINGECKO_QUOTA_CFG && typeof COINGECKO_QUOTA_CFG.monthlyBudget === "number" ? COINGECKO_QUOTA_CFG.monthlyBudget : 8000;
+  var COINGECKO_MONTHLY_RESERVE = COINGECKO_QUOTA_CFG && typeof COINGECKO_QUOTA_CFG.reserve === "number" ? COINGECKO_QUOTA_CFG.reserve : 2000;
+  var COINGECKO_PROVIDER_ALLOWANCE = COINGECKO_QUOTA_CFG && typeof COINGECKO_QUOTA_CFG.providerAllowance === "number" ? COINGECKO_QUOTA_CFG.providerAllowance : 10000;
+  var COINGECKO_QUOTA_WARN_AT = COINGECKO_QUOTA_CFG && typeof COINGECKO_QUOTA_CFG.warnAt === "number" ? COINGECKO_QUOTA_CFG.warnAt : 0.75;
+  var COINGECKO_QUOTA_CRITICAL_AT = COINGECKO_QUOTA_CFG && typeof COINGECKO_QUOTA_CFG.criticalAt === "number" ? COINGECKO_QUOTA_CFG.criticalAt : 0.90;
+  var coingeckoInFlight = 0;      // coingecko attempts started, not yet recorded
   // The eight provider states the owner direction requires. A
   // transit capability result always carries one of these as
   // transitState; ProviderRouter.Transit.state() reports the
@@ -1292,6 +1313,48 @@
     };
   }
 
+  // CoinGecko monthly quota (P3, U3(a)) — mirrors transitQuota()
+  // exactly: used = this device's calls this calendar month
+  // (ApiRegistry) + in-flight; the ruled internal budget (8,000
+  // credits) governs, not the 10,000 provider allowance; the 2,000
+  // reserve is never spent by the router.
+  function coingeckoQuota() {
+    var used = 0;
+    try {
+      if (global.ApiRegistry && typeof global.ApiRegistry.getUsage === "function") {
+        var all = global.ApiRegistry.getUsage();
+        for (var i = 0; i < all.length; i++) {
+          if (all[i].id === "coingecko") { used = all[i].callsThisMonth || 0; break; }
+        }
+      }
+    } catch (e) { used = 0; }
+    used += coingeckoInFlight;
+    var fraction = COINGECKO_MONTHLY_BUDGET > 0 ? used / COINGECKO_MONTHLY_BUDGET : 0;
+    var level = used >= COINGECKO_MONTHLY_BUDGET ? "exhausted"
+      : fraction >= COINGECKO_QUOTA_CRITICAL_AT ? "critical"
+      : fraction >= COINGECKO_QUOTA_WARN_AT ? "warning" : "ok";
+    var quotaState = used >= COINGECKO_MONTHLY_BUDGET ? "QUOTA_EXHAUSTED"
+      : level !== "ok" ? "QUOTA_WARNING" : "OK";
+    return {
+      used: used, budget: COINGECKO_MONTHLY_BUDGET,
+      reserve: COINGECKO_MONTHLY_RESERVE,
+      providerAllowance: COINGECKO_PROVIDER_ALLOWANCE,
+      fraction: fraction, level: level, quotaState: quotaState,
+      note: "MTI6 internal budget: " + COINGECKO_MONTHLY_BUDGET + " credits/month; " +
+        COINGECKO_MONTHLY_RESERVE + "-credit reserve untouched. This device's count only — the CoinGecko dashboard is authoritative."
+    };
+  }
+
+  // Quota snapshot for any provider: coingecko and transitland
+  // return their specific quota functions; anything else reports
+  // UNKNOWN_REQUIRES_VERIFICATION — never a number for a provider
+  // with no ruled quota.
+  function quotaState(providerId) {
+    if (providerId === "coingecko") return coingeckoQuota();
+    if (providerId === "transitland") return transitQuota();
+    return { providerId: providerId, quotaState: "UNKNOWN_REQUIRES_VERIFICATION", note: "No ruled quota for this provider." };
+  }
+
   // Gateway error codes (api-client.js attaches .code + .status
   // to the thrown error) mapped onto the router's failure
   // vocabulary. The mapping is what lets the chain tell a missing
@@ -2059,6 +2122,12 @@
   // Test hooks (harness only): deterministic governor/breaker proof.
   // ------------------------------------------------------------------
   var _test = {
+    callProvider: function (providerId, url) {
+      // Test-only passthrough (same precedent as setProviderConfig):
+      // proves the per-minute window without a CoinGecko capability
+      // function. The monthly-gate call-path wiring lands in P9.
+      return callProvider(providerId, url);
+    },
     setProviderConfig: function (providerId, patch) {
       var cfg = PROVIDERS[providerId];
       if (!cfg || !patch) return false;
@@ -2093,6 +2162,7 @@
       windowCalls = {}; consecFails = {}; breakerUntil = {};
       backoffUntil = {}; lastFailureInfo = {}; lastSuccessAt = {};
       transitInFlight = 0;
+      coingeckoInFlight = 0;
       lastTransitOutcome = null;
       for (var i = TRANSIT_FALLBACKS.length - 1; i >= 0; i--) unregisterTransitProvider(TRANSIT_FALLBACKS[i].id);
       try { if (global.localStorage) global.localStorage.removeItem(CACHE_KEY); } catch (e) {}
@@ -2124,12 +2194,24 @@
       normalizeDeparture: normalizeTransitDeparture,
       capabilities: { transitStops: "transitStops", transitDepartures: "transitDepartures", transitRoute: "transitRoute" }
     },
+    // CoinGecko (P3, U3(a)): quota governor + ruled budgets. The
+    // monthly-gate call-path wiring lands in P9; the P9 harness
+    // proves the runner consults it with zero network.
+    CoinGecko: {
+      quota: coingeckoQuota,
+      MONTHLY_BUDGET: COINGECKO_MONTHLY_BUDGET,
+      MONTHLY_RESERVE: COINGECKO_MONTHLY_RESERVE,
+      PROVIDER_ALLOWANCE: COINGECKO_PROVIDER_ALLOWANCE,
+      QUOTA_WARN_AT: COINGECKO_QUOTA_WARN_AT,
+      QUOTA_CRITICAL_AT: COINGECKO_QUOTA_CRITICAL_AT
+    },
     health: health,
     healthOf: healthOf,
     PROVIDERS: PROVIDERS,
     CHAINS: CHAINS,
     CAPABILITY_POLICIES: CAPABILITY_POLICIES,
     FAILURE_STATES: FAILURE_STATES,
+    quotaState: quotaState,
     _test: _test
   };
   global.WorldData = WorldData;
